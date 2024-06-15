@@ -1,0 +1,121 @@
+syntax = "proto2";
+package raftpb;
+
+// 定义 entry_type 枚举
+enum entry_type {
+    entry_normal = 0;
+    entry_conf_change = 1;
+    entry_conf_change_v2 = 2;
+}
+
+// 定义 entry 消息
+message entry {
+    optional uint64 term = 2;  // 必须64位对齐以支持原子操作
+    optional uint64 index = 3;  // 必须64位对齐以支持原子操作
+    optional entry_type type = 1;
+    optional bytes data = 4;
+}
+
+// 定义 snapshot_metadata 消息
+message snapshot_metadata {
+    optional conf_state conf_state = 1;
+    optional uint64 index = 2;
+    optional uint64 term = 3;
+}
+
+// 定义 snapshot 消息
+message snapshot {
+    optional bytes data = 1;
+    optional snapshot_metadata metadata = 2;
+}
+
+// 定义 message_type 枚举
+enum message_type {
+    msg_hup = 0;
+    msg_beat = 1;
+    msg_prop = 2;
+    msg_app = 3;
+    msg_app_resp = 4;
+    msg_vote = 5;
+    msg_vote_resp = 6;
+    msg_snap = 7;
+    msg_heartbeat = 8;
+    msg_heartbeat_resp = 9;
+    msg_unreachable = 10;
+    msg_snap_status = 11;
+    msg_check_quorum = 12;
+    msg_transfer_leader = 13;
+    msg_timeout_now = 14;
+    msg_read_index = 15;
+    msg_read_index_resp = 16;
+    msg_pre_vote = 17;
+    msg_pre_vote_resp = 18;
+}
+
+// 定义 message 消息
+message message {
+    optional message_type type = 1;
+    optional uint64 to = 2;
+    optional uint64 from = 3;
+    optional uint64 term = 4;
+    optional uint64 log_term = 5;
+    optional uint64 index = 6;
+    repeated entry entries = 7;
+    optional uint64 commit = 8;
+    optional snapshot snapshot = 9;
+    optional bool reject = 10;
+    optional uint64 reject_hint = 11;
+    optional bytes context = 12;
+}
+
+// 定义 hard_state 消息
+message hard_state {
+    optional uint64 term = 1;
+    optional uint64 vote = 2;
+    optional uint64 commit = 3;
+}
+
+// 定义 conf_change_transition 枚举
+enum conf_change_transition {
+    conf_change_transition_auto = 0;
+    conf_change_transition_joint_implicit = 1;
+    conf_change_transition_joint_explicit = 2;
+}
+
+// 定义 conf_state 消息
+message conf_state {
+    repeated uint64 voters = 1;
+    repeated uint64 learners = 2;
+    repeated uint64 voters_outgoing = 3;
+    repeated uint64 learners_next = 4;
+    optional bool auto_leave = 5;
+}
+
+// 定义 conf_change_type 枚举
+enum conf_change_type {
+    conf_change_add_node = 0;
+    conf_change_remove_node = 1;
+    conf_change_update_node = 2;
+    conf_change_add_learner_node = 3;
+}
+
+// 定义 conf_change 消息
+message conf_change {
+    optional conf_change_type type = 2;
+    optional uint64 node_id = 3;
+    optional bytes context = 4;
+    optional uint64 id = 1;
+}
+
+// 定义 conf_change_single 消息
+message conf_change_single {
+    optional conf_change_type type = 1;
+    optional uint64 node_id = 2;
+}
+
+// 定义 conf_change_v2 消息
+message conf_change_v2 {
+    optional conf_change_transition transition = 1;
+    repeated conf_change_single changes = 2;
+    optional bytes context = 3;
+}
