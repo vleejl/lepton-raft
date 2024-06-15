@@ -1,0 +1,16 @@
+[
+{
+  "directory": "/root/projects/lepton-raft",
+  "arguments": ["/usr/bin/gcc", "-c", "-m64", "-g", "-Wall", "-O0", "-std=c++20", "-Ithird_party/leaf", "-Ithird_party/proxy", "-Iinclude", "-Iinclude/quorum", "-Iinclude/tracker", "-isystem", "/root/.xmake/packages/a/asio/1.30.2/c1047cd667c14a44bea718715a77a7f5/include", "-isystem", "/root/.xmake/packages/s/spdlog/v1.14.1/469f312ffeff47d9aa249e3ed8e400dc/include", "-isystem", "/root/.xmake/packages/f/fmt/10.2.1/0327b556927c46fcabb4dbd6ed4fb632/include", "-o", "build/.objs/lepton-raft/linux/x86_64/debug/src/raft.cpp.o", "src/raft.cpp"],
+  "file": "src/raft.cpp"
+},
+{
+  "directory": "/root/projects/lepton-raft",
+  "arguments": ["/usr/bin/gcc", "-c", "-m64", "-g", "-Wall", "-O0", "-std=c++20", "-Ithird_party/leaf", "-Ithird_party/proxy", "-Iinclude", "-Iinclude/quorum", "-Iinclude/tracker", "-isystem", "/root/.xmake/packages/a/asio/1.30.2/c1047cd667c14a44bea718715a77a7f5/include", "-isystem", "/root/.xmake/packages/s/spdlog/v1.14.1/469f312ffeff47d9aa249e3ed8e400dc/include", "-isystem", "/root/.xmake/packages/f/fmt/10.2.1/0327b556927c46fcabb4dbd6ed4fb632/include", "-o", "build/.objs/lepton-raft/linux/x86_64/debug/src/main.cpp.o", "src/main.cpp"],
+  "file": "src/main.cpp"
+},
+{
+  "directory": "/root/projects/lepton-raft",
+  "arguments": ["/usr/bin/gcc", "-c", "-m64", "-g", "-Wall", "-O0", "-std=c++20", "-Ithird_party/leaf", "-Ithird_party/proxy", "-Iinclude", "-Iinclude/quorum", "-Iinclude/tracker", "-isystem", "/root/.xmake/packages/a/asio/1.30.2/c1047cd667c14a44bea718715a77a7f5/include", "-isystem", "/root/.xmake/packages/s/spdlog/v1.14.1/469f312ffeff47d9aa249e3ed8e400dc/include", "-isystem", "/root/.xmake/packages/f/fmt/10.2.1/0327b556927c46fcabb4dbd6ed4fb632/include", "-isystem", "/root/.xmake/packages/c/catch2/v3.6.0/7a09bad5624241e0b7ef802429669b9f/include", "-o", "build/.objs/lepton-test/linux/x86_64/debug/test/quorum/test_majority.cpp.o", "test/quorum/test_majority.cpp"],
+  "file": "test/quorum/test_majority.cpp"
+}]

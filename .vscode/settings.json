@@ -1,0 +1,83 @@
+{
+  "clangd.arguments": [
+    "--background-index",
+    "--compile-commands-dir=${workspaceFolder}/.vscode",
+    "-j=12",
+    "--clang-tidy",
+    "--clang-tidy-checks=cppcoreguidelines-*,performance-*,bugprone-*,portability-*,modernize-*,google-*",
+    "--all-scopes-completion",
+    "--completion-style=detailed",
+    "--header-insertion=iwyu",
+    "--log=verbose",
+    "--pch-storage=disk"
+  ],
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "C_Cpp.autocomplete": "disabled",
+  "C_Cpp.clang_format_style": "${workspaceFolder}/.clang-format",
+  "C_Cpp.errorSquiggles": "disabled",
+  "editor.formatOnSave": true,
+  "files.autoSave": "afterDelay",
+  "editor.semanticTokenColorCustomizations": {
+    "enabled": true,
+    "rules": {
+      "parameter": "#306b72",
+      "class": {
+        "fontStyle": "bold",
+        "foreground": "#729de3"
+      },
+      "type.fileScope": {
+        "fontStyle": "bold",
+        "foreground": "#729de3"
+      },
+      "type": {
+        "fontStyle": "bold",
+        "foreground": "#729de3"
+      },
+      "function": {
+        "foreground": "#e5b124"
+      },
+      "typeParameter": {
+        "foreground": "#729de3",
+        "fontStyle": "italic bold"
+      },
+      "variable": "#26cdca",
+      "variable.static": {
+        "foreground": "#8f5daf",
+        "fontStyle": "bold"
+      },
+      "enum": {
+        "fontStyle": "bold",
+        "foreground": "#729de3"
+      },
+      "enumMember": "#397797",
+      "macro": {
+        "foreground": "#8f5daf",
+        "fontStyle": "bold"
+      },
+      "method": {
+        "foreground": "#e5b124",
+        "fontStyle": "underline"
+      },
+      "*.readonly": {
+        "fontStyle": "bold"
+      },
+      "*.fileScope": {
+        "foreground": "#8f5daf",
+        "fontStyle": "bold"
+      },
+      "comment": "#505050",
+      "namespace": {
+        "foreground": "#00d780",
+        "fontStyle": "bold"
+      },
+      "property": {
+        "foreground": "#7ca6b7",
+        "fontStyle": "underline"
+      }
+    }
+  },
+  "xmake.customDebugConfig": {
+    "text": "-enable-pretty-printing",
+    "ignoreFailures": true
+  }
+}
