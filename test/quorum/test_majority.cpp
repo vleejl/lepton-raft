@@ -1,17 +1,17 @@
 #include <fmt/core.h>
-#include "proxy.h"
+#include <proxy.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
-#include <map>
-#include <set>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "majority.h"
 #include "quorum.h"
 using namespace lepton;
 using namespace lepton::quorum;
+
+
 TEST_CASE("test majority config", "[majority_config]") {
   std::set<std::uint64_t> id_set = {1, 2, 3, 4, 5};
   majority_config config(std::move(id_set));
@@ -23,7 +23,8 @@ TEST_CASE("test majority config", "[majority_config]") {
   using id_ack_map = std::map<std::uint64_t, log_index>;
   SECTION("majority_config describle", "no id has acked") {
     map_ack_indexer map_ack_indexer_{id_ack_map{}};
-    pro::proxy<acked_indexer_builer> indexer = pro::make_proxy<acked_indexer_builer, map_ack_indexer>(id_ack_map{});
+    pro::proxy<acked_indexer_builer> indexer =
+        pro::make_proxy<acked_indexer_builer, map_ack_indexer>(id_ack_map{});
     pro::proxy_view<acked_indexer_builer> indexer_view = &map_ack_indexer_;
     fmt::print(stderr, "{}\n", config.describe(indexer_view));
     auto expected = R"(         idx

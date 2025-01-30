@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <format>
 #include <iostream>
+#include <magic_enum/magic_enum.hpp>
+#include <vector>
 
 #include "asio/awaitable.hpp"
 #include "asio/co_spawn.hpp"
@@ -138,44 +140,10 @@ awaitable<void> run(io_context &ctx) {
   co_spawn(ctx, product_tick(interval, chann), detached);
   co_await consume_message(chann);
 }
-
-PRO_DEF_MEM_DISPATCH(MemDraw, Draw);
-PRO_DEF_MEM_DISPATCH(MemArea, Area);
-
-struct Drawable : pro::facade_builder
-    ::add_convention<MemDraw, void(std::ostream& output)>
-    ::add_convention<MemArea, double() noexcept>
-    ::support_copy<pro::constraint_level::nontrivial>
-    ::build {};
-
-class Rectangle {
- public:
-  Rectangle(double width, double height) : width_(width), height_(height) {}
-  Rectangle(const Rectangle&) = default;
-
-  void Draw(std::ostream& out) const {
-    out << "{Rectangle: width = " << width_ << ", height = " << height_ << "}";
-  }
-  double Area() const noexcept { return width_ * height_; }
-
- private:
-  double width_;
-  double height_;
-};
-
-std::string PrintDrawableToString(pro::proxy<Drawable> p) {
-  std::stringstream result;
-  result << "entity = ";
-  p->Draw(result);
-  result << ", area = " << p->Area();
-  return std::move(result).str();
-}
-
 int main(int argc, char *argv[]) {
   try {
-    pro::proxy<Drawable> p = pro::make_proxy<Drawable, Rectangle>(3, 5);
-std::string str = PrintDrawableToString(p);
-  std::cout << str << "\n";  // Prints "entity = {Rectangle: width = 3, height = 5}, area = 15"
+    std::vector<int> arr;
+    arr.push_back(1);
     io_context ctx;
     co_spawn(ctx, run(ctx), detached);
     ctx.run();

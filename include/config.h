@@ -48,7 +48,7 @@ struct config {
   // stored in storage. raft reads the persisted entries and states out of
   // Storage when it needs. raft reads out the previous state and configuration
   // out of storage when restarting.
-  pro::proxy<storage_builer> storage;
+  pro::proxy_view<storage_builer> storage;
 
   // Applied is the last applied index. It should only be set when
   // restarting raft. raft will not return entries to the application

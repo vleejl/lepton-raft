@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "raft.pb.h"
+#include "utility_macros.h"
 namespace lepton {
 // unstable.entries[i] has raft log position i+unstable.offset.
 // Note that unstable.offset may be less than the highest log
@@ -11,6 +12,10 @@ namespace lepton {
 // might need to truncate the log before persisting unstable.entries.
 // 用于存储那些还没有持久化（写入磁盘存储）的 Raft 日志条目。
 class unstable {
+  MOVABLE_BUT_NOT_COPYABLE(unstable)
+ public:
+  unstable(std::uint64_t offset);
+
  private:
   // the incoming unstable snapshot, if any.
   std::unique_ptr<raftpb::snapshot> snapshot_;

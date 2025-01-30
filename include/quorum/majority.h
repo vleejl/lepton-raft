@@ -2,18 +2,18 @@
 #define _LEPTON_MAJORITY_H_
 
 #include <fmt/core.h>
+#include <proxy.h>
 
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
-#include "proxy.h"
 #include "quorum.h"
 #include "utility_macros.h"
 namespace lepton {
@@ -24,13 +24,26 @@ namespace quorum {
 // 并且领导者（leader）才能进行日志条目的提议和提交。
 // 因此，majority_config 通常是当前正常的配置，它指明了集群中的投票节点。
 class majority_config {
-  NONCOPYABLE_NONMOVABLE(majority_config)
   friend class joint_config;
-
+  NOT_COPYABLE(majority_config)
  public:
   majority_config() = default;
-  majority_config(std::set<std::uint64_t> &&id_set)
+  explicit majority_config(const std::set<std::uint64_t> &id_set)
+      : id_set_(id_set) {}
+  explicit majority_config(std::set<std::uint64_t> &&id_set)
       : id_set_(std::move(id_set)) {}
+  majority_config(majority_config &&) = default;
+
+  majority_config clone() {
+    const std::set<std::uint64_t> &id_set = id_set_;
+    return majority_config{id_set};
+  }
+
+  auto empty() const { return id_set_.empty(); }
+
+  auto size() const { return id_set_.size(); }
+
+  const auto &view() const { return id_set_; }
 
   // 功能：将 MajorityConfig 的节点 ID
   // 列表格式化为字符串，并按升序排列。它会将配置中的所有节点 ID
@@ -69,11 +82,11 @@ class majority_config {
 
     auto n = id_set_.size();
     std::vector<tup> info;
-    for (auto iter : id_set_) {
-      if (auto result = indexer->acked_index(32)) {
-        info.emplace_back(tup{iter, result.value(), true, 0});
+    for (auto id : id_set_) {
+      if (auto result = indexer->acked_index(id)) {
+        info.emplace_back(tup{id, result.value(), true, 0});
       } else {
-        info.emplace_back(tup{iter, 0, false, 0});
+        info.emplace_back(tup{id, 0, false, 0});
       }
     }
 
@@ -132,12 +145,11 @@ class majority_config {
     // haven't yet. We fill from the right (since the zeroes will end up on
     // the left after sorting below anyway).
     std::vector<log_index> s(id_set_.size(), 0);
-    std::size_t i = 0;
-    for (const auto &iter : id_set_) {
-      if (auto result = indexer->acked_index(iter)) {
-        assert(iter < s.size());
-        s[i] = result.value();
-        i++;
+    int i = static_cast<int>(id_set_.size()) - 1;
+    for (const auto &id : id_set_) {
+      if (auto result = indexer->acked_index(id)) {
+        s[static_cast<std::size_t>(i)] = result.value();
+        i--;
       }
     }
 
@@ -161,12 +173,12 @@ class majority_config {
   // 如果多数节点投票反对，返回 VoteLost。
   // 用途：用于处理集群中的投票决策，例如领导人选举或配置变更请求。
   vote_result vote_result_statistics(
-      const std::map<std::uint64_t, bool> &vote) const {
+      const std::unordered_map<std::uint64_t, bool> &vote) const {
     if (id_set_.empty()) {
       // By convention, the elections on an empty config win. This comes in
       // handy with joint quorums because it'll make a half-populated joint
       // quorum behave like a majority quorum.
-      return vote_result::VOTE_MIN;
+      return vote_result::VOTE_WON;
     }
 
     auto pending_counter = 0;
@@ -186,7 +198,7 @@ class majority_config {
 
     auto q = static_cast<int>(id_set_.size() / 2 + 1);
     if (win_counter >= q) {
-      return vote_result::VOTE_MIN;
+      return vote_result::VOTE_WON;
     }
     if (win_counter + pending_counter >= q) {
       return vote_result::VOTE_PENDING;

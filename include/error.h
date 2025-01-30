@@ -3,9 +3,11 @@
 #include "leaf.hpp"
 
 namespace lepton {
-namespace leaf = boost::leaf;
+namespace leaf {
+using namespace boost::leaf;
 template <typename T>
 using result = boost::leaf::result<T>;
+}  // namespace leaf
 
 enum error_code {
   unknown_error,

@@ -75,9 +75,5 @@
         "fontStyle": "underline"
       }
     }
-  },
-  "xmake.customDebugConfig": {
-    "text": "-enable-pretty-printing",
-    "ignoreFailures": true
   }
 }

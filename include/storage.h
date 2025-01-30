@@ -1,11 +1,11 @@
 #ifndef _LEPTON_STORAGE_H_
 #define _LEPTON_STORAGE_H_
+#include <proxy.h>
+
 #include <cstdint>
 #include <span>
 
 #include "error.h"
-#include "leaf.hpp"
-#include "proxy.h"
 #include "raft.pb.h"
 namespace lepton {
 

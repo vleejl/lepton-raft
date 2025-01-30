@@ -1,16 +1,21 @@
 #ifndef _LEPTON_RAFT_LOG_H_
 #define _LEPTON_RAFT_LOG_H_
+#include <proxy.h>
+
 #include "config.h"
 #include "error.h"
-#include "leaf.hpp"
-#include "proxy.h"
 #include "raft_log_unstable.h"
 #include "storage.h"
 namespace lepton {
-struct raft_log {
+class raft_log {
+ public:
+  raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset,
+           std::uint64_t committed, std::uint64_t applied,
+           std::uint64_t max_next_ents_size);
+
  private:
   // storage contains all stable entries since the last snapshot.
-  pro::proxy<storage_builer> storage_;
+  pro::proxy_view<storage_builer> storage_;
 
   // unstable contains all unstable entries and snapshot.
   // they will be saved into storage.
@@ -41,10 +46,10 @@ struct raft_log {
 };
 
 leaf::result<std::unique_ptr<raft_log>> new_raft_log_with_size(
-    pro::proxy<storage_builer> *storage, std::uint64_t max_next_ents_size);
+    pro::proxy_view<storage_builer> storage, std::uint64_t max_next_ents_size);
 
 inline leaf::result<std::unique_ptr<raft_log>> new_raft_log(
-    pro::proxy<storage_builer> *storage) {
+    pro::proxy_view<storage_builer> storage) {
   return new_raft_log_with_size(storage, NO_LIMIT);
 }
 

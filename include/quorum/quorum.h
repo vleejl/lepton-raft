@@ -1,12 +1,13 @@
 #ifndef _LEPTON_QUPRUM_H_
 #define _LEPTON_QUPRUM_H_
 
+#include <proxy.h>
+
 #include <cstdint>
 #include <limits>
 #include <map>
 
 #include "error.h"
-#include "proxy.h"
 #include "utility_macros.h"
 namespace lepton {
 namespace quorum {
@@ -15,6 +16,13 @@ using log_index = std::uint64_t;
 constexpr auto INVALID_LOG_INDEX =
     static_cast<log_index>(std::numeric_limits<std::uint64_t>::max());
 
+inline std::string log_index_to_string(log_index i) {
+  if (i == std::numeric_limits<uint64_t>::max()) {
+    return "∞";
+  }
+  return std::to_string(i);
+}
+
 // VoteResult indicates the outcome of a vote.
 enum class vote_result : std::uint8_t {
   // VotePending indicates that the decision of the vote depends on future
@@ -22,7 +30,7 @@ enum class vote_result : std::uint8_t {
   // VoteLost indicates that the quorum has voted "no".
   VOTE_LOST,
   // VoteWon indicates that the quorum has voted "yes".
-  VOTE_MIN,
+  VOTE_WON,
 };
 
 // AckedIndexer allows looking up a commit index for a given ID of a voter
@@ -30,7 +38,7 @@ enum class vote_result : std::uint8_t {
 PRO_DEF_MEM_DISPATCH(acked_indexer, acked_index);
 // clang-format off
 struct acked_indexer_builer : pro::facade_builder 
-  ::add_convention<acked_indexer, leaf::result<log_index>(const std::uint64_t &id)>
+  ::add_convention<acked_indexer, leaf::result<log_index>(std::uint64_t id)>
   ::add_view<acked_indexer_builer>
   ::add_view<const acked_indexer_builer>
   ::build{};
@@ -39,9 +47,12 @@ struct acked_indexer_builer : pro::facade_builder
 class map_ack_indexer {
   NONCOPYABLE_NONMOVABLE(map_ack_indexer)
  public:
-  map_ack_indexer(std::map<std::uint64_t, log_index> &&id_log_idx_map)
+  map_ack_indexer(std::map<std::uint64_t, log_index>&& id_log_idx_map)
       : map_(id_log_idx_map) {}
-  leaf::result<log_index> acked_index(const std::uint64_t &id) {
+
+  const auto& view() const { return map_; }
+
+  leaf::result<log_index> acked_index(std::uint64_t id) {
     if (auto log_pos = map_.find(id); log_pos != map_.end()) {
       return log_pos->second;
     }

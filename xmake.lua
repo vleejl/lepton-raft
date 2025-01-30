@@ -1,17 +1,23 @@
 add_rules("mode.debug", "mode.release")
 add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
-set_languages("cxx20")
+set_languages("cxx2b")
 set_warnings("all")
+add_cxflags("-fno-permissive", {force = true})
+add_cxflags("-std=c++20 -pedantic", {force = true})
+add_cxflags("-Wconversion", {force = true})
 
 add_requires("asio")
-add_requires("spdlog")
-add_requires("fmt")
+add_requires("benchmark")
 add_requires("catch2")
+add_requires("fmt")
+add_requires("gflags")
+add_requires("gtest")
+add_requires("magic_enum")
 add_requires("protoc", "protobuf-cpp")
+add_requires("spdlog")
 
 add_includedirs("third_party/leaf/")
 add_includedirs("third_party/proxy/")
-add_includedirs("third_party/magic_enum")
 add_includedirs("include/")
 add_includedirs("include/quorum")
 add_includedirs("include/tracker")
@@ -19,81 +25,28 @@ add_includedirs("include/tracker")
 target("lepton-raft")
     set_kind("binary")
     add_rules("protobuf.cpp")
-    add_packages("asio", "spdlog", "fmt", "protoc", "protobuf-cpp")
+    add_packages("asio", "fmt", "magic_enum", "protoc", "protobuf-cpp", "spdlog")
+    add_files("src/tracker/*.cpp")
     add_files("src/*.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
-    
-target("lepton-test")
+
+target("lepton-unit-test")
+    add_defines("LEPTON_TEST")
+    add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
+    add_includedirs("test/utility/include")
+    add_files("test/unit_test.cpp")
     add_files("test/asio/*.cpp")
     add_files("test/quorum/*.cpp")
-    add_packages("asio", "spdlog", "fmt", "catch2")
+    add_files("test/tracker/*.cpp")
+    add_files("test/utility/src/*.cpp")
+    add_packages("asio", "fmt", "magic_enum", "protoc", "protobuf-cpp", "spdlog")
+    add_packages("catch2")
+    add_packages("gtest", "benchmark")
 
---
--- If you want to known more usage about xmake, please see https://xmake.io
---
--- ## FAQ
---
--- You can enter the project directory firstly before building project.
---
---   $ cd projectdir
---
--- 1. How to build project?
---
---   $ xmake
---
--- 2. How to configure project?
---
---   $ xmake f -p [macosx|linux|iphoneos ..] -a [x86_64|i386|arm64 ..] -m [debug|release]
---
--- 3. Where is the build output directory?
---
---   The default output directory is `./build` and you can configure the output directory.
---
---   $ xmake f -o outputdir
---   $ xmake
---
--- 4. How to run and debug target after building project?
---
---   $ xmake run [targetname]
---   $ xmake run -d [targetname]
---
--- 5. How to install target to the system directory or other output directory?
---
---   $ xmake install
---   $ xmake install -o installdir
---
--- 6. Add some frequently-used compilation flags in xmake.lua
---
--- @code
---    -- add debug and release modes
---    add_rules("mode.debug", "mode.release")
---
---    -- add macro definition
---    add_defines("NDEBUG", "_GNU_SOURCE=1")
---
---    -- set warning all as error
---    set_warnings("all", "error")
---
---    -- set language: c99, c++11
---    set_languages("c99", "c++11")
---
---    -- set optimization: none, faster, fastest, smallest
---    set_optimize("fastest")
---
---    -- add include search directories
---    add_includedirs("/usr/include", "/usr/local/include")
---
---    -- add link libraries and search directories
---    add_links("tbox")
---    add_linkdirs("/usr/local/lib", "/usr/lib")
---
---    -- add system link libraries
---    add_syslinks("z", "pthread")
---
---    -- add compilation and link flags
---    add_cxflags("-stdnolib", "-fno-strict-aliasing")
---    add_ldflags("-L/usr/local/lib", "-lpthread", {force = true})
---
--- @endcode
---
 
+target("lepton-benchmark-test")
+    add_defines("LEPTON_TEST")
+    add_files("test/benchmark.cpp")
+    add_files("test/quorum/benchmark_test.cpp")
+    add_packages("asio", "fmt", "magic_enum", "protoc", "protobuf-cpp", "spdlog")
+    add_packages("gtest", "benchmark")    
