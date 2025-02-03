@@ -6,9 +6,13 @@
 #include "error.h"
 #include "raft_log_unstable.h"
 #include "storage.h"
+#include "utility_macros.h"
+
 namespace lepton {
 class raft_log {
+  NOT_COPYABLE(raft_log)
  public:
+  raft_log(raft_log&& rhs) = default;
   raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset,
            std::uint64_t committed, std::uint64_t applied,
            std::uint64_t max_next_ents_size);
@@ -45,10 +49,10 @@ class raft_log {
   std::uint64_t max_next_ents_size_;
 };
 
-leaf::result<std::unique_ptr<raft_log>> new_raft_log_with_size(
+leaf::result<raft_log> new_raft_log_with_size(
     pro::proxy_view<storage_builer> storage, std::uint64_t max_next_ents_size);
 
-inline leaf::result<std::unique_ptr<raft_log>> new_raft_log(
+inline leaf::result<raft_log> new_raft_log(
     pro::proxy_view<storage_builer> storage) {
   return new_raft_log_with_size(storage, NO_LIMIT);
 }

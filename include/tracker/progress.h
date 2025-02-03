@@ -23,7 +23,30 @@ namespace tracker {
 // certain State. All of this isn't ideal.
 class progress {
   NOT_COPYABLE(progress)
+  progress(std::uint64_t match, std::uint64_t next, state_type state,
+           std::uint64_t pending_snapshot, bool recent_active, bool probe_sent,
+           inflights&& inflights, bool is_learner)
+      : match_(match),
+        next_(next),
+        state_(state),
+        pending_snapshot_(pending_snapshot),
+        recent_active_(recent_active),
+        probe_sent_(probe_sent),
+        inflights_(std::move(inflights)),
+        is_learner_(is_learner) {}
+
  public:
+  progress clone() const {
+    return progress{match_,
+                    next_,
+                    state_,
+                    pending_snapshot_,
+                    recent_active_,
+                    probe_sent_,
+                    inflights_.clone(),
+                    is_learner_};
+  }
+
   auto is_learner() const { return is_learner_; }
 
   auto recent_active() const { return recent_active_; }
@@ -149,7 +172,7 @@ class progress {
     return true;
   }
 
-  bool is_paused() {
+  bool is_paused() const {
     switch (state_) {
       case state_type::state_probe:
         return probe_sent_;
@@ -163,7 +186,7 @@ class progress {
     }
   }
 
-  auto string() {
+  auto string() const {
     std::ostringstream ss;
     ss << magic_enum::enum_name(state_) << " match=" << match_
        << " next=" << next_;
@@ -310,18 +333,25 @@ class progress {
 };
 
 class progress_map {
+  NOT_COPYABLE(progress_map)
  public:
+  using type = std::unordered_map<std::uint64_t, progress>;
   friend class progress_tracker;
+
   progress_map() = default;
-  explicit progress_map(
-      std::unordered_map<std::uint64_t, std::unique_ptr<progress>> map)
-      : map_(std::move(map)) {}
+  explicit progress_map(type&& map) : map_(std::move(map)) {}
+  progress_map(progress_map&&) = default;
+
+  const type& view() const { return map_; }
+
+  progress_map clone() const;
+
   std::string string(const progress_map& m);
 
   leaf::result<quorum::log_index> acked_index(std::uint64_t id);
 
  private:
-  std::unordered_map<std::uint64_t, std::unique_ptr<progress>> map_;
+  type map_;
 };
 
 // AckedIndex implements IndexLookuper.

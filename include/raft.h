@@ -3,14 +3,15 @@
 #include <cstdint>
 #include <vector>
 
+#include "config.h"
 #include "error.h"
-#include "leaf.hpp"
 #include "node.h"
 #include "raft.pb.h"
 #include "raft_log.h"
 #include "read_only.h"
 #include "status.h"
 #include "tracker.h"
+#include "utility_macros.h"
 namespace lepton {
 
 class raft;
@@ -19,6 +20,29 @@ using tick_func = void();
 using step_func = leaf::result<void>(raft* r, raftpb::message m);
 
 class raft {
+  NOT_COPYABLE(raft)
+ public:
+  //  字段初始化顺序和etcd-raft 一致
+  raft(std::uint64_t id, raft_log&& raft_log_handle,
+       std::uint64_t max_size_per_msg,
+       std::uint64_t max_uncommitted_entries_size, int max_inflight_msgs,
+       int election_tick, int heartbeat_tick, bool check_quorum, bool pre_vote,
+       read_only_option read_only_opt, bool disable_proposal_forwarding)
+      : id_(id),
+        raft_log_handle_(std::move(raft_log_handle)),
+        max_msg_size_(max_size_per_msg),
+        max_uncommitted_size_(max_uncommitted_entries_size),
+        trk_(tracker::progress_tracker{max_inflight_msgs}),
+        is_learner_(false),
+        lead_(NONE),
+        read_only_(read_only_opt),
+        check_quorum_(check_quorum),
+        pre_vote_(pre_vote),
+        heartbeat_timeout_(heartbeat_tick),
+        election_timeout_(election_tick),
+        disable_proposal_forwarding_(disable_proposal_forwarding) {}
+  raft(raft&&) = default;
+
  private:
   // 对应config 配置里的 id，表示唯一一个raft 节点
   std::uint64_t id_;
@@ -26,6 +50,7 @@ class raft {
   // 当前节点所处的任期号。Raft 协议通过任期号来避免旧日志覆盖新日志。当 term
   // 发生变化时，Raft 会重新选举领导者。
   std::uint64_t term_;
+
   // 当前节点上次投票的目标节点 ID。在选举过程中，每个节点会投票给其他节点，vote
   // 保存的是当前节点投票的目标节点 ID。每个节点每个任期只能投一次票。
   std::uint64_t vote_id_;
@@ -36,7 +61,7 @@ class raft {
 
   // raftLog 保存了 Raft 协议的所有日志条目，它是 Raft
   // 协议的核心部分之一。日志条目是 Raft 节点进行日志复制和提交的基础。
-  raft_log* raft_log_ptr_;
+  raft_log raft_log_handle_;
 
   // 节点可以发送的最大消息大小。用于限制 Raft
   // 节点发送的消息的大小，避免单个消息过大导致性能下降或网络问题。
@@ -57,6 +82,9 @@ class raft {
   // 存储当前节点待发送的消息列表。Raft
   // 协议中的节点之间会交换消息（例如投票请求、心跳等）。该字段用于存储待发送的消息。
   std::vector<raftpb::message> msgs_;
+
+  // the leader id
+  std::uint64_t lead_;
 
   // leadTransferee is id of the leader transfer target when its value is not
   // zero. Follow the procedure defined in raft thesis 3.10.
@@ -83,7 +111,7 @@ class raft {
 
   // readOnly
   // 管理客户端的只读请求，确保在节点转变角色时能处理这些请求。它用于存储只读操作的相关信息和状态。
-  read_only* read_only_;
+  read_only read_only_;
 
   // number of ticks since it reached last electionTimeout when it is leader
   // or candidate.
@@ -143,7 +171,7 @@ class raft {
   std::vector<raftpb::message> pending_read_index_messages_;
 };
 
-leaf::result<std::unique_ptr<raft>> new_raft();
+leaf::result<raft> new_raft(const config&);
 
 }  // namespace lepton
 

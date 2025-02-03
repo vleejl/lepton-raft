@@ -19,21 +19,33 @@ add_requires("spdlog")
 add_includedirs("third_party/leaf/")
 add_includedirs("third_party/proxy/")
 add_includedirs("include/")
+add_includedirs("include/confchange")
 add_includedirs("include/quorum")
 add_includedirs("include/tracker")
 
 target("lepton-raft")
     set_kind("binary")
+     -- lepton-raft protobuf file
     add_rules("protobuf.cpp")
-    add_packages("asio", "fmt", "magic_enum", "protoc", "protobuf-cpp", "spdlog")
+    add_files("proto/**.proto", {proto_rootdir = "proto"})
+    -- lepton-raft souce file
+    add_files("src/confchange/*.cpp")
     add_files("src/tracker/*.cpp")
     add_files("src/*.cpp")
-    add_files("proto/**.proto", {proto_rootdir = "proto"})
+    add_packages("asio", "fmt", "magic_enum", "protoc", "protobuf-cpp", "spdlog")
 
 target("lepton-unit-test")
     add_defines("LEPTON_TEST")
     add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
     add_includedirs("test/utility/include")
+     -- lepton-raft protobuf file
+    add_rules("protobuf.cpp")
+    add_files("proto/**.proto", {proto_rootdir = "proto"})
+    -- lepton-raft souce file
+    add_files("src/confchange/*.cpp")
+    add_files("src/tracker/*.cpp")
+    add_files("src/*.cpp|main.cpp")
+    -- lepton-raft unit test file
     add_files("test/unit_test.cpp")
     add_files("test/asio/*.cpp")
     add_files("test/quorum/*.cpp")

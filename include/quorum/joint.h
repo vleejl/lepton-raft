@@ -3,6 +3,7 @@
 
 #include <proxy.h>
 
+#include <cassert>
 #include <cstdint>
 #include <set>
 #include <unordered_map>
@@ -28,6 +29,32 @@ class joint_config {
                majority_config&& secondary_config)
       : primary_config_(std::move(primary_config)),
         secondary_config_(std::move(secondary_config)) {}
+  joint_config(joint_config&&) = default;
+
+  joint_config clone() const {
+    if (secondary_config_) {
+      return joint_config{primary_config_.clone(), secondary_config_->clone()};
+    } else {
+      return joint_config{primary_config_.clone()};
+    }
+  }
+
+  const majority_config& primary_config_view() const { return primary_config_; }
+
+  bool joint() const {
+    if (!secondary_config_) {
+      return false;
+    }
+    if (secondary_config_->empty()) {
+      return false;
+    }
+    return true;
+  }
+
+  const majority_config& secondary_config_view() const {
+    assert(!is_secondary_config_valid());
+    return secondary_config_.value();
+  }
 
   bool is_singleton() const {
     return (primary_config_.size() == 1 && !secondary_config_.has_value()) ||

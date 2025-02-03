@@ -25,12 +25,14 @@ class inflights {
   // messages.
   inflights(size_t size) : capacity_(size) {}
 
-  inflights clone() {
+  inflights(inflights &&) = default;
+
+  inflights clone() const {
     std::deque<std::uint64_t> buffer = buffer_;
     return inflights{capacity_, std::move(buffer)};
   }
 
-  bool full() { return buffer_.size() == capacity_; }
+  bool full() const { return buffer_.size() == capacity_; }
 
   void add(std::uint64_t inflight) {
     if (full()) {

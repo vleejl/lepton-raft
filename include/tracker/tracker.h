@@ -10,7 +10,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "error.h"
 #include "joint.h"
 #include "majority.h"
 #include "progress.h"
@@ -21,8 +20,25 @@ namespace lepton {
 namespace tracker {
 // Config reflects the configuration tracked in a ProgressTracker.
 struct config {
+ private:
+  config(quorum::joint_config&& voters, bool auto_leave,
+         std::optional<std::set<std::uint64_t>>&& learners,
+         std::optional<std::set<std::uint64_t>>&& learners_next)
+      : voters(std::move(voters)),
+        auto_leave(auto_leave),
+        learners(std::move(learners)),
+        learners_next(std::move(learners_next)) {}
+
+ public:
   NOT_COPYABLE(config)
   config() : voters(quorum::majority_config{}), auto_leave(false) {}
+  config(config&&) = default;
+
+  config clone() const {
+    return config{voters.clone(), auto_leave,
+                  std::optional<std::set<std::uint64_t>>{learners},
+                  std::optional<std::set<std::uint64_t>>{learners_next}};
+  }
 
   quorum::joint_config voters;
 
@@ -105,6 +121,11 @@ class progress_tracker {
  public:
   explicit progress_tracker(int max_inflight)
       : config_(), max_inflight_(max_inflight) {}
+  progress_tracker(progress_tracker&&) = default;
+
+  const config& config_view() { return config_; }
+
+  const progress_map& progress_map_view() { return progress_map_; }
 
   // ConfState returns a ConfState representing the active configuration.
   raftpb::conf_state conf_state() {
@@ -169,7 +190,7 @@ class progress_tracker {
 
     // 调用提供的函数（闭包）对每个元素进行处理
     for (auto id : ids) {
-      f(id, *progress_map_.map_[id].get());
+      f(id, progress_map_.map_[id]);
     }
   }
 
@@ -210,7 +231,7 @@ class progress_tracker {
     std::uint64_t granted = 0;
     std::uint64_t rejected = 0;
     for (const auto& iter : progress_map_.map_) {
-      if (iter.second->is_learner()) {
+      if (iter.second.is_learner()) {
         continue;
       }
       auto it = votes_.find(iter.first);

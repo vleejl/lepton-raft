@@ -26,6 +26,34 @@ enum class read_only_option : int {
 
 // Config contains the parameters to start a raft.
 struct config {
+  config(std::uint64_t id, int election_tick, int heartbeat_tick,
+         pro::proxy_view<storage_builer> storage, std::uint64_t applied_index,
+         std::uint64_t max_size_per_msg,
+         std::uint64_t max_committed_size_per_ready,
+         std::uint64_t max_uncommitted_entries_size, int max_inflight_msgs,
+         bool check_quorum, read_only_option read_only_opt,
+         bool disable_proposal_forwarding)
+      : id(id),
+        election_tick(election_tick),
+        heartbeat_tick(heartbeat_tick),
+        storage(storage),
+        applied_index(applied_index),
+        max_size_per_msg(max_size_per_msg),
+        max_committed_size_per_ready(max_committed_size_per_ready),
+        max_uncommitted_entries_size(max_uncommitted_entries_size),
+        max_inflight_msgs(max_inflight_msgs),
+        check_quorum(check_quorum),
+        read_only_opt(read_only_opt),
+        disable_proposal_forwarding(disable_proposal_forwarding) {
+    if (this->max_uncommitted_entries_size == 0) {
+      this->max_uncommitted_entries_size = NO_LIMIT;
+    }
+
+    if (this->max_committed_size_per_ready == 0) {
+      this->max_committed_size_per_ready = this->max_size_per_msg;
+    }
+  }
+
   // ID is the identity of the local raft. ID cannot be 0.
   // Raft 节点的唯一标识符。每个 Raft
   // 节点（例如领导者、跟随者、候选者）都会有一个唯一的 id，通常是节点的
@@ -83,6 +111,11 @@ struct config {
   // steps down when quorum is not active for an electionTimeout.
   bool check_quorum;
 
+  // PreVote enables the Pre-Vote algorithm described in raft thesis section
+  // 9.6. This prevents disruption when a node that has been partitioned away
+  // rejoins the cluster.
+  bool pre_vote;
+
   // ReadOnlyOption specifies how the read only request is processed.
   //
   // ReadOnlySafe guarantees the linearizability of the read only request by
@@ -106,7 +139,7 @@ struct config {
   // to the leader.
   bool disable_proposal_forwarding;
 
-  leaf::result<void> validate();
+  leaf::result<void> validate() const;
 };
 }  // namespace lepton
 #endif  // _LEPTON_CONFIG_H_

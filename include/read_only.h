@@ -9,6 +9,7 @@
 
 #include "config.h"
 #include "raft.pb.h"
+#include "utility_macros.h"
 namespace lepton {
 
 // ReadState provides state for read only query.
@@ -33,6 +34,11 @@ struct read_index_status {
 };
 
 struct read_only {
+  NOT_COPYABLE(read_only)
+  read_only(read_only_option read_only_opt) : read_only_opt(read_only_opt) {}
+  read_only(read_only&&) = default;
+
+  // field
   read_only_option read_only_opt;
   std::unordered_map<std::string, read_index_status> pending_read_index;
   std::vector<std::string> read_index_queue;

@@ -14,7 +14,7 @@ raft_log::raft_log(pro::proxy_view<storage_builer> storage,
       applied_(applied),
       max_next_ents_size_(max_next_ents_size) {}
 
-leaf::result<std::unique_ptr<raft_log>> new_raft_log_with_size(
+leaf::result<raft_log> new_raft_log_with_size(
     pro::proxy_view<storage_builer> storage, std::uint64_t max_next_ents_size) {
   if (!storage.has_value()) {
     return leaf::new_error("storage must not be nil");
@@ -22,7 +22,7 @@ leaf::result<std::unique_ptr<raft_log>> new_raft_log_with_size(
 
   BOOST_LEAF_AUTO(first_index, storage->first_index());
   BOOST_LEAF_AUTO(last_index, storage->last_index());
-  return std::make_unique<raft_log>(storage, last_index + 1, first_index - 1,
-                                    first_index - 1, max_next_ents_size);
+  return raft_log{storage, last_index + 1, first_index - 1, first_index - 1,
+                  max_next_ents_size};
 }
 }  // namespace lepton
