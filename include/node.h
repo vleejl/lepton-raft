@@ -1,8 +1,10 @@
 #ifndef _LEPTON_NODE_
 #define _LEPTON_NODE_
+#include <absl/types/span.h>
+#include <raft.pb.h>
+
 #include <cstddef>
 #include <memory>
-#include <span>
 #include <vector>
 
 #include "channel.h"
@@ -10,7 +12,6 @@
 #include "error.h"
 #include "leaf.hpp"
 #include "proxy.h"
-#include "raft.pb.h"
 #include "read_only.h"
 #include "status.h"
 #include "utility_macros.h"
@@ -18,8 +19,8 @@
 namespace lepton {
 
 enum class snapshot_status : int {
-  snapshot_finish = 1,
-  snapshot_failure = 2,
+  SNAPSHOT_FINISH = 1,
+  SNAPSHOT_FAILURE = 2,
 };
 // Ready encapsulates the entries and messages that are ready to read,
 // be saved to stable storage, committed or sent to other peers.
@@ -199,14 +200,14 @@ PRO_DEF_MEM_DISPATCH(node_stop, stop);
 struct node_builer : pro::facade_builder 
   ::add_convention<node_tick, void()> 
   ::add_convention<node_campaign, leaf::result<void>()>
-  ::add_convention<node_propose, leaf::result<void>(std::span<std::byte> data)>
+  ::add_convention<node_propose, leaf::result<void>(absl::Span<std::byte> data)>
   ::add_convention<node_propose_conf_change, leaf::result<void>(const pro::proxy<conf_change_builder> &conf_change)>
   ::add_convention<node_step, leaf::result<void>(raftpb::message msg)>
   ::add_convention<node_ready, ready_channel()>
   ::add_convention<node_advance, void()>
   ::add_convention<node_apply_conf_change, std::unique_ptr<raftpb::conf_state>()>
   ::add_convention<node_transfter_leadership, void(std::uint64_t leader_id, std::uint64_t transferee)>
-  ::add_convention<node_read_index, leaf::result<void>(std::span<std::byte> rctx)>
+  ::add_convention<node_read_index, leaf::result<void>(absl::Span<std::byte> rctx)>
   ::add_convention<node_status, raft_status()>
   ::add_convention<node_report_unreachable, void(std::uint64_t id)>
   ::add_convention<node_report_snapshot, void(std::uint64_t id, snapshot_status status)>

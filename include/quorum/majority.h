@@ -32,7 +32,9 @@ class majority_config {
       : id_set_(id_set) {}
   explicit majority_config(std::set<std::uint64_t> &&id_set)
       : id_set_(std::move(id_set)) {}
+
   majority_config(majority_config &&) = default;
+  majority_config &operator=(majority_config &&) = default;
 
   majority_config clone() const {
     const std::set<std::uint64_t> &id_set = id_set_;

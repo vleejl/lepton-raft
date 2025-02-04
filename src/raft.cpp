@@ -1,9 +1,10 @@
 #include "raft.h"
 
 #include <utility>
-
+#include "confchange.h"
 #include "error.h"
 #include "raft_log.h"
+#include "restore.h"
 using namespace lepton;
 
 namespace lepton {
@@ -24,6 +25,10 @@ leaf::result<raft> new_raft(const config& c) {
          c.pre_vote,
          c.read_only_opt,
          c.disable_proposal_forwarding};
+        //  confchange::changer;
+        //  confchange::restor(conf_state, confchange::changer{
+        //   r.trk_.clone(), raftlog;
+        //  });
 
   return r;
 }

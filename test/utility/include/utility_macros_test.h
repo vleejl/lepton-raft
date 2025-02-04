@@ -1,2 +1,1 @@
-#define SECTION(name) \
-  for (bool section_done = false; !section_done; section_done = true)
+#define SECTION(name) (void)(name); for (int _section_once_ = 0; _section_once_ < 1; ++_section_once_)

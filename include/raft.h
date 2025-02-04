@@ -1,12 +1,13 @@
 #ifndef _LEPTON_RAFT_H_
 #define _LEPTON_RAFT_H_
+#include <raft.pb.h>
+
 #include <cstdint>
 #include <vector>
 
 #include "config.h"
 #include "error.h"
 #include "node.h"
-#include "raft.pb.h"
 #include "raft_log.h"
 #include "read_only.h"
 #include "status.h"
@@ -18,16 +19,20 @@ class raft;
 
 using tick_func = void();
 using step_func = leaf::result<void>(raft* r, raftpb::message m);
+leaf::result<raft> new_raft(const config&);
 
 class raft {
   NOT_COPYABLE(raft)
+  friend leaf::result<raft> new_raft(const config&);
+
  public:
   //  字段初始化顺序和etcd-raft 一致
   raft(std::uint64_t id, raft_log&& raft_log_handle,
        std::uint64_t max_size_per_msg,
-       std::uint64_t max_uncommitted_entries_size, int max_inflight_msgs,
-       int election_tick, int heartbeat_tick, bool check_quorum, bool pre_vote,
-       read_only_option read_only_opt, bool disable_proposal_forwarding)
+       std::uint64_t max_uncommitted_entries_size,
+       std::size_t max_inflight_msgs, int election_tick, int heartbeat_tick,
+       bool check_quorum, bool pre_vote, read_only_option read_only_opt,
+       bool disable_proposal_forwarding)
       : id_(id),
         raft_log_handle_(std::move(raft_log_handle)),
         max_msg_size_(max_size_per_msg),
@@ -170,8 +175,6 @@ class raft {
   // 保存这些消息，直到领导者节点确认日志条目已提交后再进行响应。
   std::vector<raftpb::message> pending_read_index_messages_;
 };
-
-leaf::result<raft> new_raft(const config&);
 
 }  // namespace lepton
 

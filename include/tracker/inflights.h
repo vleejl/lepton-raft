@@ -1,6 +1,6 @@
 #ifndef _LEPTON_INFLIGHTS_H_
 #define _LEPTON_INFLIGHTS_H_
-// #include <spdlog/spdlog.h>
+#include <spdlog/spdlog.h>
 
 #include <cstdint>
 #include <deque>
@@ -36,7 +36,7 @@ class inflights {
 
   void add(std::uint64_t inflight) {
     if (full()) {
-      //   SPDLOG_CRITICAL("cannot add into a Full inflights");
+      spdlog::critical("cannot add into a Full inflights");
       return;
     }
     buffer_.push_back(inflight);

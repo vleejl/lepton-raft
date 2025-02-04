@@ -8,6 +8,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <raft.pb.h>
+
 #include <asio.hpp>
 #include <asio/experimental/awaitable_operators.hpp>
 #include <asio/experimental/channel.hpp>
@@ -20,7 +22,6 @@
 #include "asio/awaitable.hpp"
 #include "asio/co_spawn.hpp"
 #include "node.h"
-#include "raft.pb.h"
 using asio::as_tuple;
 using asio::awaitable;
 using asio::buffer;
@@ -98,7 +99,7 @@ using namespace std::literals::chrono_literals;
 //   }
 // }
 
-enum class channel_message_type : std::uint8_t { tick };
+enum class channel_message_type : std::uint8_t { TICK };
 
 struct channel_message {
   channel_message_type message_type;
@@ -111,7 +112,7 @@ awaitable<void> product_tick(steady_timer::duration interval,
   steady_timer timer(co_await this_coro::executor);
   for (;;) {
     co_await chann.async_send(asio::error_code{},
-                              channel_message{channel_message_type::tick},
+                              channel_message{channel_message_type::TICK},
                               use_awaitable);
 
     timer.expires_after(interval);
@@ -124,7 +125,7 @@ awaitable<void> consume_message(message_channel &chann) {
     auto message = co_await chann.async_receive();
     auto message_type = message.message_type;
     switch (message_type) {
-      case channel_message_type::tick:
+      case channel_message_type::TICK:
         std::cout << "tick is running ... " << std::endl;
         break;
       default:

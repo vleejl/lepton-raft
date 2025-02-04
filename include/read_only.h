@@ -1,14 +1,15 @@
 #ifndef _LEPTON_READ_ONLY_H_
 #define _LEPTON_READ_ONLY_H_
+#include <absl/types/span.h>
+#include <raft.pb.h>
+
 #include <cstddef>
 #include <cstdint>
-#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "config.h"
-#include "raft.pb.h"
 #include "utility_macros.h"
 namespace lepton {
 
@@ -19,7 +20,7 @@ namespace lepton {
 // RequestCtx
 struct read_state {
   std::uint64_t index;
-  std::span<std::byte> request_ctx;
+  absl::Span<std::byte> request_ctx;
 };
 
 struct read_index_status {

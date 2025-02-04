@@ -1,16 +1,17 @@
 #ifndef _LEPTON_STATUS_H_
 #define _LEPTON_STATUS_H_
+#include <raft.pb.h>
+
 #include <cstdint>
 
-#include "raft.pb.h"
 #include "tracker.h"
 namespace lepton {
 
 enum state_type : std::uint64_t {
-  state_follower,
-  state_candidate,
-  state_leader,
-  state_pre_candidate
+  STATE_FOLLOWER,
+  STATE_CANDIDATE,
+  STATE_LEADER,
+  STATE_PRE_CANDIDATE
 };
 
 // SoftState provides state that is useful for logging and debugging.
