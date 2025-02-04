@@ -1,6 +1,7 @@
 #include "raft_log.h"
 
-#include <memory>
+#include <fmt/core.h>
+#include <fmt/format.h>
 
 #include "error.h"
 
@@ -14,10 +15,17 @@ raft_log::raft_log(pro::proxy_view<storage_builer> storage,
       applied_(applied),
       max_next_ents_size_(max_next_ents_size) {}
 
+std::string raft_log::string() {
+  return fmt::format(
+      "committed=%d, applied=%d, unstable.offset=%d, len(unstable.Entries)=%d",
+      committed_, applied_, unstable_.offset(),
+      unstable_.entries_view().size());
+}
+
 leaf::result<raft_log> new_raft_log_with_size(
     pro::proxy_view<storage_builer> storage, std::uint64_t max_next_ents_size) {
   if (!storage.has_value()) {
-    return leaf::new_error("storage must not be nil");
+    return new_error(error_code::NULL_POINTER, "storage must not be nil");
   }
 
   BOOST_LEAF_AUTO(first_index, storage->first_index());

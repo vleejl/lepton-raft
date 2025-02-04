@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <map>
 #include <set>
@@ -16,6 +15,7 @@
 #include <vector>
 
 #include "cli.h"
+#include "data_driven.h"
 #include "joint.h"
 #include "majority.h"
 #include "proxy.h"
@@ -113,8 +113,9 @@ quorum::log_index alternative_majority_committed_index(
   return max_quorum_idx;
 }
 
-std::string process_single_test_case(const std::string& cmd,
-                                     const std::string& line) {
+static std::string process_single_test_case(
+    const std::string& cmd, const std::string& input,
+    const std::map<std::string, std::vector<std::string>>& args_map) {
   // Two majority configs. The first one is always used (though it may
   // be empty) and the second one is used iff joint is true.
   bool joint = false;
@@ -138,13 +139,12 @@ std::string process_single_test_case(const std::string& cmd,
   // but is convenient because it allows sharing code between the two.
   std::vector<quorum::log_index> votes;
 
-  auto args_map = parse_command_line(cmd, line);
   for (const auto& [arg_key, arg_value_vec] : args_map) {
     if (arg_key == "cfg") {
       for (const auto& item : arg_value_vec) {
         auto _result = safe_stoull(item);
         if (!_result.has_value()) {
-          assert(!_result.has_value());
+          assert(_result.has_value());
         }
         ids.push_back(_result.value());
       }
@@ -160,7 +160,7 @@ std::string process_single_test_case(const std::string& cmd,
           for (const auto& item : arg_value_vec) {
             auto _result = safe_stoull(item);
             if (!_result.has_value()) {
-              assert(!_result.has_value());
+              assert(_result.has_value());
             }
             idsj.push_back(_result.value());
           }
@@ -172,7 +172,7 @@ std::string process_single_test_case(const std::string& cmd,
         if (item != "_") {
           auto _result = safe_stoull(item);
           if (!_result.has_value()) {
-            assert(!_result.has_value());
+            assert(_result.has_value());
           }
           n = _result.value();
           assert(n != 0);
@@ -324,83 +324,19 @@ std::string process_single_test_case(const std::string& cmd,
   return buf.str();
 }
 
-// Process a single test case file
-void process_multi_test_case(const std::string& test_file) {
-  std::ifstream file(test_file);
-  if (!file.is_open()) {
-    std::cerr << "Failed to open test file: " << test_file << std::endl;
-    return;
-  }
-
-  std::string cmd;
-  std::string line;
-
-  bool process_test_expected_result = false;
-  std::ostringstream test_expected_result_stream;
-  std::string test_actual_result;
-
-  std::size_t line_no = 0;
-  while (std::getline(file, line)) {
-    ++line_no;
-    if (line.empty() || line[0] == '#') {
-      process_test_expected_result = false;
-      if (auto test_expected_result = test_expected_result_stream.str();
-          !test_expected_result.empty()) {
-        if (test_actual_result != test_expected_result) {
-          std::cout << "current test_file: " << test_file << std::endl;
-          std::cout << "current process result line no: " << line_no
-                    << std::endl;
-          std::cout << "actual result:\n" << test_actual_result << std::endl;
-          std::cout << "expected result:\n"
-                    << test_expected_result << std::endl;
-          ASSERT_EQ(test_actual_result, test_expected_result);
-        }
-      }
-      test_expected_result_stream.str("");  // 清空内容
-      test_expected_result_stream.clear();  // 重置流的状态
-      continue;
-    }
-    if (line == "----") {
-      process_test_expected_result = true;
-      continue;
-    }
-
-    if (process_test_expected_result) {
-      test_expected_result_stream << line << "\n";
-      continue;
-    }
-
-    std::stringstream ss(line);
-    ss >> cmd;  // Extract the first word (up to the first whitespace)
-    // Simulate parsing the command and arguments from the line
-    if (cmd == "committed" || cmd == "vote") {
-      std::cout << "current test_file: " << test_file << std::endl;
-      std::cout << "current ready to process line no: " << line_no << std::endl;
-      test_actual_result = process_single_test_case(cmd, line);
-      ASSERT_NE(0, test_actual_result.size());
-    }
-  }
-}
-
-TEST(test_data_driven, test_data_driven_impl) {
+TEST(quorum_data_driven_test_suit, test_data_driven_impl) {
   // 获取当前文件的路径
   std::filesystem::path current_file = __FILE__;
 
   // 获取当前文件所在目录
   std::filesystem::path current_dir = current_file.parent_path();
 
-  // 获取当前目录的绝对路径
-  std::filesystem::path absolute_dir = std::filesystem::absolute(current_dir);
-  // auto project_dir = PROJECT_DIR;
   // 拼接 "testdata" 目录
   std::filesystem::path project_dir = LEPTON_PROJECT_DIR;
   std::string test_dir = (current_dir / "testdata").string();
 
   // List all test files in the specified directory
-  std::vector<std::string> test_files = get_test_files(project_dir / test_dir);
-
-  // Process each test case
-  for (const auto& test_file : test_files) {
-    process_multi_test_case(test_file);
-  }
+  data_driven_group group{project_dir / (current_dir / "testdata").string()};
+  data_driven::process_func func = process_single_test_case;
+  group.run(func);
 }

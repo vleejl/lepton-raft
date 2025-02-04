@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <algorithm>
 // Function to read files from a directory
 std::vector<std::string> get_test_files(const std::string& dir) {
   std::vector<std::string> files;
@@ -15,6 +16,7 @@ std::vector<std::string> get_test_files(const std::string& dir) {
       files.push_back(entry.path().string());
     }
   }
+  std::sort(files.begin(), files.end());
   return files;
 }
 

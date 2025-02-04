@@ -1,6 +1,7 @@
 .vscode/.cache
 .vscode/compile_commands.json
 .devcontainer/
+.CodeCounter
 
 # Xmake cache
 .xmake/

@@ -1,20 +1,22 @@
 #ifndef _LEPTON_TRACKER_H_
 #define _LEPTON_TRACKER_H_
 #include <proxy.h>
+#include <raft.pb.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <set>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "joint.h"
 #include "majority.h"
 #include "progress.h"
 #include "quorum.h"
-#include "raft.pb.h"
 #include "utility_macros.h"
 namespace lepton {
 namespace tracker {
@@ -28,16 +30,45 @@ struct config {
         auto_leave(auto_leave),
         learners(std::move(learners)),
         learners_next(std::move(learners_next)) {}
+  static void remove_id_set(std::uint64_t id,
+                            std::optional<std::set<std::uint64_t>>& id_set) {
+    if (id_set && id_set->contains(id)) {
+      // 如果 id_set 有值，并且 id 存在于 id_set 中，删除该元素
+      id_set->erase(id);
+    }
+  }
+
+  static void add_id_set(std::uint64_t id,
+                         std::optional<std::set<std::uint64_t>>& id_set) {
+    if (!id_set) {
+      id_set = std::set<std::uint64_t>{id};
+    } else {
+      id_set->insert(id);
+    }
+  }
 
  public:
   NOT_COPYABLE(config)
   config() : voters(quorum::majority_config{}), auto_leave(false) {}
   config(config&&) = default;
+  config& operator=(config&&) = default;
 
   config clone() const {
     return config{voters.clone(), auto_leave,
                   std::optional<std::set<std::uint64_t>>{learners},
                   std::optional<std::set<std::uint64_t>>{learners_next}};
+  }
+
+  bool joint() const { return voters.joint(); }
+
+  void add_leaner_node(std::uint64_t id) { add_id_set(id, learners); }
+
+  void delete_learner(std::uint64_t id) { return remove_id_set(id, learners); }
+
+  void add_leaner_next_node(std::uint64_t id) { add_id_set(id, learners_next); }
+
+  void delete_learner_next(std::uint64_t id) {
+    return remove_id_set(id, learners_next);
   }
 
   quorum::joint_config voters;
@@ -94,7 +125,7 @@ struct config {
   // as soon as possible.
   std::optional<std::set<std::uint64_t>> learners_next;
 
-  std::string string() {
+  std::string string() const {
     std::ostringstream buf;
     buf << "voters=" << voters.string();
 
@@ -118,14 +149,37 @@ struct config {
 // index for each peer which in turn allows reasoning about the committed index.
 class progress_tracker {
   NOT_COPYABLE(progress_tracker)
+  progress_tracker(config&& cfg, progress_map&& pgs_map,
+                   std::unordered_map<std::uint64_t, bool> votes,
+                   std::size_t max_inflight)
+      : config_(std::move(cfg)),
+        progress_map_(std::move(pgs_map)),
+        votes_(std::move(votes)),
+        max_inflight_(max_inflight) {}
+
  public:
-  explicit progress_tracker(int max_inflight)
+  explicit progress_tracker(std::size_t max_inflight)
       : config_(), max_inflight_(max_inflight) {}
   progress_tracker(progress_tracker&&) = default;
 
-  const config& config_view() { return config_; }
+  progress_tracker clone() {
+    return progress_tracker{config_.clone(), progress_map_.clone(), votes_,
+                            max_inflight_};
+  }
 
-  const progress_map& progress_map_view() { return progress_map_; }
+  const config& config_view() const { return config_; }
+
+  const progress_map& progress_map_view() const { return progress_map_; }
+
+  auto max_inflight() const { return max_inflight_; }
+
+  void update_config(config&& cfg) { config_ = std::move(cfg); };
+
+  config&& move_config() { return std::move(config_); }
+
+  void update_progress(progress_map&& map) { progress_map_ = std::move(map); };
+
+  progress_map&& move_progress() { return std::move(progress_map_); }
 
   // ConfState returns a ConfState representing the active configuration.
   raftpb::conf_state conf_state() {
@@ -189,8 +243,8 @@ class progress_tracker {
     std::sort(ids.begin(), ids.end());
 
     // 调用提供的函数（闭包）对每个元素进行处理
-    for (auto id : ids) {
-      f(id, progress_map_.map_[id]);
+    for (const auto id : ids) {
+      f(id, progress_map_.map_.at(id));
     }
   }
 
@@ -221,11 +275,7 @@ class progress_tracker {
   // 记录首次投票，而 忽略重复的投票操作。
   void reste_votes() { votes_.clear(); }
 
-  void record_vote(std::uint64_t id, bool v) {
-    if (!votes_.contains(id)) {
-      votes_[id] = v;
-    }
-  }
+  void record_vote(std::uint64_t id, bool v) { votes_.insert_or_assign(id, v); }
 
   std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> tally_votes() {
     std::uint64_t granted = 0;
@@ -252,7 +302,7 @@ class progress_tracker {
   config config_;
   progress_map progress_map_;
   std::unordered_map<std::uint64_t, bool> votes_;
-  int max_inflight_;
+  std::size_t max_inflight_;
 };
 }  // namespace tracker
 }  // namespace lepton

@@ -1,12 +1,14 @@
 #ifndef _LEPTON_PROGRESS_H_
 #define _LEPTON_PROGRESS_H_
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <magic_enum/magic_enum.hpp>
-#include <memory>
 #include <sstream>
 #include <unordered_map>
+#include <utility>
 
 #include "inflights.h"
 #include "quorum.h"
@@ -36,6 +38,18 @@ class progress {
         is_learner_(is_learner) {}
 
  public:
+  progress(std::uint64_t next, inflights&& inflights, bool is_learner,
+           bool recent_active)
+      : match_(0),
+        next_(next),
+        state_(state_type::STATE_PROBE),
+        pending_snapshot_(0),
+        recent_active_(recent_active),
+        probe_sent_(false),
+        inflights_(std::move(inflights)),
+        is_learner_(is_learner) {}
+  progress(progress&&) = default;
+
   progress clone() const {
     return progress{match_,
                     next_,
@@ -66,27 +80,27 @@ class progress {
     // If the original state is StateSnapshot, progress knows that
     // the pending snapshot has been sent to this peer successfully, then
     // probes from pendingSnapshot + 1.
-    if (state_ == state_type::state_snapshot) {
+    if (state_ == state_type::STATE_SNAPSHOT) {
       auto pending_snapshot = pending_snapshot_;
-      reset_state(state_type::state_probe);
+      reset_state(state_type::STATE_PROBE);
       // 可以理解为日志和snapshot都共同放在同一个消息队列，所以这里可以直接使用max来确认next
       next_ = std::max(match_ + 1, pending_snapshot + 1);
     } else {
-      reset_state(state_type::state_probe);
+      reset_state(state_type::STATE_PROBE);
       next_ = match_ + 1;
     }
   }
 
   // BecomeReplicate transitions into StateReplicate, resetting Next to Match+1.
   void become_replicate() {
-    reset_state(state_type::state_replicate);
+    reset_state(state_type::STATE_REPLICATE);
     next_ = match_ + 1;
   }
 
   // BecomeSnapshot moves the Progress to StateSnapshot with the specified
   // pending snapshot index.
   void become_snapshot(std::uint64_t pending_snapshot) {
-    reset_state(state_type::state_snapshot);
+    reset_state(state_type::STATE_SNAPSHOT);
     pending_snapshot_ = pending_snapshot;
   }
 
@@ -121,7 +135,7 @@ class progress {
   // If the rejection is genuine, Next is lowered sensibly, and the Progress is
   // cleared for sending log entries.
   bool maybe_decr_to(std::uint64_t rejected, std::uint64_t match_hint) {
-    if (state_ == state_type::state_replicate) {
+    if (state_ == state_type::STATE_REPLICATE) {
       // The rejection must be stale if the progress has matched and "rejected"
       // is smaller than "match".
       // 如果领导者收到拒绝的日志索引 rejected 小于或等于它当前匹配的日志索引
@@ -174,22 +188,26 @@ class progress {
 
   bool is_paused() const {
     switch (state_) {
-      case state_type::state_probe:
+      case state_type::STATE_PROBE:
         return probe_sent_;
-      case state_type::state_replicate:
+      case state_type::STATE_REPLICATE:
         return inflights_.full();
-      case state_type::state_snapshot:
+      case state_type::STATE_SNAPSHOT:
         return true;
       default:
-        // SPDLOG_CRITICAL("[unreacheable] can not recognize state type");
+        spdlog::critical("[unreacheable] can not recognize state type");
         return false;
     }
   }
 
   auto string() const {
     std::ostringstream ss;
-    ss << magic_enum::enum_name(state_) << " match=" << match_
-       << " next=" << next_;
+#ifdef LEPTON_TEST
+    auto state_name = state_type2string(state_);
+#else
+    auto state_name = magic_enum::enum_name(state_);
+#endif
+    ss << state_name << " match=" << match_ << " next=" << next_;
     if (is_learner_) {
       ss << " learner";
     }
@@ -341,12 +359,30 @@ class progress_map {
   progress_map() = default;
   explicit progress_map(type&& map) : map_(std::move(map)) {}
   progress_map(progress_map&&) = default;
+  progress_map& operator=(progress_map&&) = default;
 
-  const type& view() const { return map_; }
+  const std::unordered_map<std::uint64_t, progress>& view() const {
+    return map_;
+  }
+
+  void add_progress(std::uint64_t id, progress&& p) {
+    map_.emplace(id, std::move(p));
+  }
+
+  void delete_progress(std::uint64_t id) {
+    if (map_.contains(id)) {
+      map_.erase(id);
+    }
+  }
+
+  void refresh_learner(std::uint64_t id, bool is_learner) {
+    assert(map_.contains(id));
+    map_.at(id).is_learner_ = is_learner;
+  }
 
   progress_map clone() const;
 
-  std::string string(const progress_map& m);
+  std::string string() const;
 
   leaf::result<quorum::log_index> acked_index(std::uint64_t id);
 

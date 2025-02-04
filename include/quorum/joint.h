@@ -23,6 +23,7 @@ namespace quorum {
 class joint_config {
   NOT_COPYABLE(joint_config)
  public:
+  joint_config() = delete;
   joint_config(majority_config&& primary_config)
       : primary_config_(std::move(primary_config)) {}
   joint_config(majority_config&& primary_config,
@@ -30,6 +31,7 @@ class joint_config {
       : primary_config_(std::move(primary_config)),
         secondary_config_(std::move(secondary_config)) {}
   joint_config(joint_config&&) = default;
+  joint_config& operator=(joint_config&&) = default;
 
   joint_config clone() const {
     if (secondary_config_) {
@@ -52,8 +54,15 @@ class joint_config {
   }
 
   const majority_config& secondary_config_view() const {
-    assert(!is_secondary_config_valid());
+    assert(is_secondary_config_valid());
     return secondary_config_.value();
+  }
+
+  bool secondary_config_contain(std::uint64_t id) {
+    if (!is_secondary_config_valid()) {
+      return false;
+    }
+    return secondary_config_->id_set_.contains(id);
   }
 
   bool is_singleton() const {
@@ -62,9 +71,26 @@ class joint_config {
             secondary_config_->size() == 1);
   }
 
+  void insert_node_into_primary_config(std::uint64_t id) {
+    primary_config_.id_set_.insert(id);
+  }
+
+  void remove_node_from_primary_config(std::uint64_t id) {
+    if (primary_config_.id_set_.contains(id)) {
+      primary_config_.id_set_.erase(id);
+    }
+  }
+
   std::vector<std::uint64_t> primary_config_slice() const {
     return primary_config_.slice();
   }
+
+  void sync_secondary_with_primary() {
+    assert(!is_secondary_config_valid());
+    secondary_config_ = primary_config_.clone();
+  }
+
+  void reset_secondary() { secondary_config_.reset(); }
 
   bool is_secondary_config_valid() const {
     return secondary_config_.has_value();

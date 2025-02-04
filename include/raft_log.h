@@ -1,9 +1,12 @@
 #ifndef _LEPTON_RAFT_LOG_H_
 #define _LEPTON_RAFT_LOG_H_
+#include <absl/types/span.h>
 #include <proxy.h>
+#include <raft.pb.h>
 
 #include "config.h"
 #include "error.h"
+#include "leaf.hpp"
 #include "raft_log_unstable.h"
 #include "storage.h"
 #include "utility_macros.h"
@@ -16,6 +19,15 @@ class raft_log {
   raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset,
            std::uint64_t committed, std::uint64_t applied,
            std::uint64_t max_next_ents_size);
+
+  std::string string();
+
+  // maybeAppend returns (0, false) if the entries cannot be appended.
+  // Otherwise, it returns (last index of new entries, true).
+  leaf::result<std::uint64_t> maybe_append(std::uint64_t index,
+                                           std::uint64_t log_term,
+                                           std::uint64_t committed,
+                                           absl::Span<raftpb::entry> ents);
 
  private:
   // storage contains all stable entries since the last snapshot.

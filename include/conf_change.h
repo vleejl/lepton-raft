@@ -1,8 +1,9 @@
 #ifndef _LEPTON_CONF_CHANGE_
 #define _LEPTON_CONF_CHANGE_
+#include <raft.pb.h>
+
 #include "error.h"
 #include "proxy.h"
-#include "raft.pb.h"
 namespace lepton {
 using conf_change_v2 = raftpb::conf_change_v2;
 using conf_change = raftpb::conf_change;

@@ -1,5 +1,6 @@
 #ifndef _LEPTON_CONFIG_H_
 #define _LEPTON_CONFIG_H_
+#include <cstddef>
 #include <cstdint>
 
 #include "error.h"
@@ -105,7 +106,7 @@ struct config {
   // has its own sending buffer over TCP/UDP. Setting MaxInflightMsgs to avoid
   // overflowing that sending buffer. TODO (xiangli): feedback to application to
   // limit the proposal rate?
-  int max_inflight_msgs;
+  std::size_t max_inflight_msgs;
 
   // CheckQuorum specifies if the leader should check quorum activity. Leader
   // steps down when quorum is not active for an electionTimeout.

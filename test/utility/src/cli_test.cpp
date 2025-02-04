@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-TEST(parse_command_line_tests, basic_key_value) {
+TEST(parse_command_line_test_suit, basic_key_value) {
   std::string line = "committed cfg=(1, 2) idx=(_,_)";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);
@@ -18,7 +18,7 @@ TEST(parse_command_line_tests, basic_key_value) {
   EXPECT_EQ(result["idx"], idx_expected);
 }
 
-TEST(parse_command_line_tests, single_value) {
+TEST(parse_command_line_test_suit, single_value) {
   std::string line = "committed cfg=1 idx=2";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);
@@ -32,7 +32,7 @@ TEST(parse_command_line_tests, single_value) {
   EXPECT_EQ(result["idx"], idx_expected);
 }
 
-TEST(parse_command_line_tests, space_in_brackets) {
+TEST(parse_command_line_test_suit, space_in_brackets) {
   std::string line = "committed cfg=(1, 2) idx=(_, _)";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);
@@ -46,7 +46,7 @@ TEST(parse_command_line_tests, space_in_brackets) {
   EXPECT_EQ(result["idx"], idx_expected);
 }
 
-TEST(parse_command_line_tests, empty_bracket) {
+TEST(parse_command_line_test_suit, empty_bracket) {
   std::string line = "committed cfg=() idx=()";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);
@@ -60,7 +60,7 @@ TEST(parse_command_line_tests, empty_bracket) {
   EXPECT_EQ(result["idx"], idx_expected);
 }
 
-TEST(parse_command_line_tests, multiple_values_with_spaces) {
+TEST(parse_command_line_test_suit, multiple_values_with_spaces) {
   std::string line = "committed cfg=(1,  2 , 3) idx=( 4 , 5 )";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);
@@ -74,7 +74,7 @@ TEST(parse_command_line_tests, multiple_values_with_spaces) {
   EXPECT_EQ(result["idx"], idx_expected);
 }
 
-TEST(parse_command_line_tests, without_cmd) {
+TEST(parse_command_line_test_suit, without_cmd) {
   std::string line = "cfg=(1, 2) idx=(_,_)";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);
@@ -88,7 +88,7 @@ TEST(parse_command_line_tests, without_cmd) {
   EXPECT_EQ(result["idx"], idx_expected);
 }
 
-TEST(parse_command_line_tests, empty_input) {
+TEST(parse_command_line_test_suit, empty_input) {
   std::string line = "";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);
@@ -96,7 +96,7 @@ TEST(parse_command_line_tests, empty_input) {
   ASSERT_EQ(result.size(), 0);
 }
 
-TEST(parse_command_line_tests, only_spaces) {
+TEST(parse_command_line_test_suit, only_spaces) {
   std::string line = "     ";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);
@@ -104,7 +104,7 @@ TEST(parse_command_line_tests, only_spaces) {
   ASSERT_EQ(result.size(), 0);
 }
 
-TEST(parse_command_line_tests, only_cmd) {
+TEST(parse_command_line_test_suit, only_cmd) {
   std::string line = "committed";
   std::map<std::string, std::vector<std::string>> result =
       parse_command_line("committed", line);

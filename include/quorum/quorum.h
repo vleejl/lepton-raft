@@ -1,6 +1,7 @@
 #ifndef _LEPTON_QUPRUM_H_
 #define _LEPTON_QUPRUM_H_
 
+#include <fmt/core.h>
 #include <proxy.h>
 
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include <map>
 
 #include "error.h"
+#include "fmt/format.h"
 #include "utility_macros.h"
 namespace lepton {
 namespace quorum {
@@ -46,6 +48,8 @@ struct acked_indexer_builer : pro::facade_builder
 
 class map_ack_indexer {
   NONCOPYABLE_NONMOVABLE(map_ack_indexer)
+  map_ack_indexer() = delete;
+
  public:
   map_ack_indexer(std::map<std::uint64_t, log_index>&& id_log_idx_map)
       : map_(id_log_idx_map) {}
@@ -56,7 +60,8 @@ class map_ack_indexer {
     if (auto log_pos = map_.find(id); log_pos != map_.end()) {
       return log_pos->second;
     }
-    return leaf::new_error(key_not_found_error);
+    return new_error(error_code::KEY_NOT_FOUND,
+                     fmt::format("{} not found", id));
   }
 
  private:
