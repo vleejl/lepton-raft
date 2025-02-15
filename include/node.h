@@ -10,7 +10,6 @@
 #include "channel.h"
 #include "conf_change.h"
 #include "error.h"
-#include "leaf.hpp"
 #include "proxy.h"
 #include "read_only.h"
 #include "status.h"

@@ -7,6 +7,7 @@ namespace lepton {
 namespace pb {
 using snapshot_ptr = std::unique_ptr<raftpb::snapshot>;
 using entry_ptr = std::unique_ptr<raftpb::entry>;
+using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::entry>;
 }  // namespace pb
 
 }  // namespace lepton

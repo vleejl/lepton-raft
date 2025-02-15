@@ -34,7 +34,7 @@ leaf::result<quorum::log_index> progress_map::acked_index(std::uint64_t id) {
   if (auto log_pos = map_.find(id); log_pos != map_.end()) {
     return log_pos->second.match_;
   }
-  return new_error(error_code::KEY_NOT_FOUND, fmt::format("{} not found", id));
+  return new_error(logic_error::KEY_NOT_FOUND, fmt::format("{} not found", id));
 }
 
 }  // namespace tracker

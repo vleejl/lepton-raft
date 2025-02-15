@@ -8,10 +8,8 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "error.h"
-#include "leaf.hpp"
 #include "raft_pb.h"
 #include "utility_macros.h"
 namespace lepton {
@@ -37,9 +35,12 @@ class unstable {
   }
 
  public:
-  unstable(std::uint64_t offset);
-  unstable(pb::snapshot_ptr snapshot, std::vector<pb::entry_ptr>&& entries,
-           std::uint64_t offset);
+  unstable(std::uint64_t offset) : offset_(offset) {}
+  unstable(pb::snapshot_ptr snapshot, pb::repeated_entry&& entries,
+           std::uint64_t offset)
+      : snapshot_(std::move(snapshot)),
+        entries_(std::move(entries)),
+        offset_(offset) {}
   unstable(unstable&& lhs) = default;
 
   const auto& entries_view() const { return entries_; }
@@ -54,7 +55,7 @@ class unstable {
     if (snapshot_ != nullptr) {
       return snapshot_->metadata().index() + 1;
     }
-    return new_error(error_code::NULL_POINTER, "snapshot is null ptr");
+    return new_error(encoding_error::NULL_POINTER, "snapshot is null ptr");
   }
 
   // maybeLastIndex returns the last index if it has at least one
@@ -66,7 +67,7 @@ class unstable {
     if (snapshot_ != nullptr) {
       return snapshot_->metadata().index();
     }
-    return new_error(error_code::NULL_POINTER,
+    return new_error(encoding_error::NULL_POINTER,
                      "entries and snapshot both null ptr");
   }
 
@@ -77,7 +78,7 @@ class unstable {
       if ((snapshot_ != nullptr) && (snapshot_->metadata().index() == i)) {
         return snapshot_->metadata().term();
       }
-      return new_error(error_code::NULL_POINTER, "snapshot is null ptr");
+      return new_error(encoding_error::NULL_POINTER, "snapshot is null ptr");
     }
 
     auto result = maybe_last_index();
@@ -86,9 +87,9 @@ class unstable {
     }
 
     if (i > result.value()) {
-      return new_error(error_code::OUT_OF_BOUNDS, "args is invalid");
+      return new_error(encoding_error::OUT_OF_BOUNDS, "args is invalid");
     }
-    return entries_[i - offset_]->term();
+    return entries_[static_cast<int>(i - offset_)].term();
   }
 
   // i: log index
@@ -107,15 +108,14 @@ class unstable {
     if ((term_result.value() == t) && (i >= offset_)) {
       auto index = static_cast<std::ptrdiff_t>(i + 1 - offset_);
       if (entries_.begin() + index >= entries_.end()) {
-        entries_.clear();
+        entries_.Clear();
       } else {
         // 移动 i 之后的元素并重新赋值给 entries_
-        entries_ = std::vector<pb::entry_ptr>(
+        entries_ = pb::repeated_entry(
             std::make_move_iterator(entries_.begin() + index),
             std::make_move_iterator(entries_.end()));
       }
       offset_ = i + 1;
-      entries_.shrink_to_fit();
     }
   }
 
@@ -128,16 +128,16 @@ class unstable {
   void restore(pb::snapshot_ptr&& snapshot) {
     assert(snapshot != nullptr);
     offset_ = snapshot->metadata().index() + 1;
-    entries_.clear();
+    entries_.Clear();
     snapshot_ = std::move(snapshot);
   }
 
-  void truncate_and_append(std::vector<pb::entry_ptr>&& entry_list) {
+  void truncate_and_append(pb::repeated_entry&& entry_list) {
     assert(!entry_list.empty());
-    auto after = entry_list[0]->index();
+    auto after = entry_list[0].index();
     if (after == (offset_ + entries_.size())) {  // max after value
-      entries_.insert(entries_.end(), std::make_move_iterator(entry_list.begin()),
-                      std::make_move_iterator(entry_list.end()));
+      entries_.Add(std::make_move_iterator(entry_list.begin()),
+                   std::make_move_iterator(entry_list.end()));
     } else if (after <= offset_) {  // min after value
       spdlog::info("replace the unstable entries from index %d", after);
       // The log is being truncated to before our current offset
@@ -151,11 +151,11 @@ class unstable {
       auto start = static_cast<std::ptrdiff_t>(offset_ - offset_);
       auto end = static_cast<std::ptrdiff_t>(after - offset_);
       // 截取 offset 到 after 之间的 entry
-      entries_ = std::vector<pb::entry_ptr>(
-          std::make_move_iterator(entries_.begin() + start),
-          std::make_move_iterator(entries_.begin() + end));
-      entries_.insert(entries_.end(), std::make_move_iterator(entry_list.begin()),
-                      std::make_move_iterator(entry_list.end()));
+      entries_ =
+          pb::repeated_entry(std::make_move_iterator(entries_.begin() + start),
+                             std::make_move_iterator(entries_.begin() + end));
+      entries_.Add(std::make_move_iterator(entry_list.begin()),
+                   std::make_move_iterator(entry_list.end()));
     }
   }
 
@@ -164,7 +164,7 @@ class unstable {
   // the incoming unstable snapshot, if any.
   pb::snapshot_ptr snapshot_;
   // all entries that have not yet been written to storage.
-  std::vector<pb::entry_ptr> entries_;
+  pb::repeated_entry entries_;
   // 这个字段记录了未稳定日志条目在 Raft
   // 日志中的位置偏移。也就是说，unstable.offset
   // 是这些日志条目相对于持久化存储中日志的起始位置的偏移量。这个字段的存在是为了确保

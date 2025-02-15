@@ -131,9 +131,19 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
                             process_single_test_case(cmd, input, args_map, c));
             return v;
           },
-          [](const lepton_error& e) -> leaf::result<std::string> {
+          [](const lepton_error<system_error>& e) -> leaf::result<std::string> {
+            return std::string(e.message) + '\n';
+          },
+          [](const lepton_error<encoding_error>& e)
+              -> leaf::result<std::string> {
+            return std::string(e.message) + '\n';
+          },
+          [](const lepton_error<logic_error>& e) -> leaf::result<std::string> {
             return std::string(e.message) + '\n';
           });
+      if (r.has_error()) {
+        auto a = 1;
+      }
       assert(!r.has_error());
       return r.value();
     };

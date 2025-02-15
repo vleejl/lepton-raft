@@ -4,10 +4,12 @@
 #include <proxy.h>
 #include <raft.pb.h>
 
+#include <system_error>
+
 #include "config.h"
 #include "error.h"
-#include "leaf.hpp"
 #include "raft_log_unstable.h"
+#include "raft_pb.h"
 #include "storage.h"
 #include "utility_macros.h"
 
@@ -22,12 +24,39 @@ class raft_log {
 
   std::string string();
 
+  std::uint64_t first_index();
+
+  std::uint64_t last_index();
+
+  void commit_to(std::uint64_t tocommit);
+
+  leaf::result<std::uint64_t> term(std::uint64_t i);
+
+  bool match_term(std::uint64_t i, std::uint64_t term);
+
+  std::uint64_t zero_term_on_err_compacted(std::uint64_t i);
+
+  // findConflict finds the index of the conflict.
+  // It returns the first pair of conflicting entries between the existing
+  // entries and the given entries, if there are any.
+  // If there is no conflicting entries, and the existing entries contains
+  // all the given entries, zero will be returned.
+  // If there is no conflicting entries, but the given entries contains new
+  // entries, the index of the first new entry will be returned.
+  // An entry is considered to be conflicting if it has the same index but
+  // a different term.
+  // [major point]: The index of the given entries MUST be continuously
+  // increasing.
+  std::uint64_t find_conflict(absl::Span<const raftpb::entry* const> entries);
+
+  std::uint64_t append(pb::repeated_entry&& entries);
+
   // maybeAppend returns (0, false) if the entries cannot be appended.
   // Otherwise, it returns (last index of new entries, true).
   leaf::result<std::uint64_t> maybe_append(std::uint64_t index,
                                            std::uint64_t log_term,
                                            std::uint64_t committed,
-                                           absl::Span<raftpb::entry> ents);
+                                           pb::repeated_entry&& enrties);
 
  private:
   // storage contains all stable entries since the last snapshot.
