@@ -60,7 +60,7 @@ class map_ack_indexer {
     if (auto log_pos = map_.find(id); log_pos != map_.end()) {
       return log_pos->second;
     }
-    return new_error(error_code::KEY_NOT_FOUND,
+    return new_error(logic_error::KEY_NOT_FOUND,
                      fmt::format("{} not found", id));
   }
 

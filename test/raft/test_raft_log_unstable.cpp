@@ -5,12 +5,13 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <ostream>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "protobuf.h"
 #include "raft_log_unstable.h"
-#include "raft_pb.h"
 #include "utility_macros_test.h"
 using namespace lepton;
 
@@ -40,11 +41,22 @@ lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term) {
   return entry;
 }
 
+lepton::pb::repeated_entry create_entries(
+    const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params) {
+  lepton::pb::repeated_entry entries;
+  for (const auto &[index, term] : entrie_params) {
+    auto entry = entries.Add();
+    entry->set_index(index);
+    entry->set_term(term);
+  }
+  return entries;
+}
+
 lepton::pb::snapshot_ptr create_snapshot(std::uint64_t index,
                                          std::uint64_t term) {
   auto snapshot_metadata = new raftpb::snapshot_metadata();
   snapshot_metadata->set_index(index);
-  snapshot_metadata->set_term(1);
+  snapshot_metadata->set_term(term);
   auto snapshot = std::make_unique<raftpb::snapshot>();
   snapshot->set_allocated_metadata(snapshot_metadata);
   return snapshot;
@@ -55,10 +67,7 @@ unstable create_unstable(
     std::uint64_t offset,
     const std::optional<std::tuple<std::uint64_t, std::uint64_t>>
         &snapshot_params) {
-  std::vector<lepton::pb::entry_ptr> entries;
-  for (const auto &[index, term] : entrie_params) {
-    entries.emplace_back(create_entry(index, term));
-  }
+  lepton::pb::repeated_entry entries = create_entries(entrie_params);
   if (snapshot_params) {
     auto [snapshot_index, snapshot_term] = snapshot_params.value();
     return {create_snapshot(snapshot_index, snapshot_term), std::move(entries),
@@ -478,29 +487,42 @@ TEST_F(unstable_test_suit, truncate_and_append) {
   for (const auto &[entrie_params, offset, snapshot_params, toappend, woffset,
                     wentries_params] : params) {
     auto u = create_unstable(entrie_params, offset, snapshot_params);
-    std::vector<lepton::pb::entry_ptr> entries;
-    for (const auto &[index, term] : toappend) {
-      entries.emplace_back(create_entry(index, term));
-    }
+    auto entries = create_entries(toappend);
     u.truncate_and_append(std::move(entries));
     if (u.offset() != woffset) {
       ASSERT_EQ(u.offset(), offset);
     }
 
-    auto compare_entries =
-        [](const std::vector<lepton::pb::entry_ptr> &lhs_entries,
-           const std::vector<lepton::pb::entry_ptr> &rhs_entries) {
-          ASSERT_EQ(lhs_entries.size(), rhs_entries.size());
-          for (std::size_t i = 0; i < lhs_entries.size(); ++i) {
-            auto lhs_entry = lhs_entries[i]->SerializeAsString();
-            auto rhs_entry = rhs_entries[i]->SerializeAsString();
-            ASSERT_EQ(lhs_entry, rhs_entry);
-          }
-        };
-    std::vector<lepton::pb::entry_ptr> wentries;
-    for (const auto &[index, term] : wentries_params) {
-      wentries.emplace_back(create_entry(index, term));
-    }
+    auto compare_entries = [](const lepton::pb::repeated_entry &lhs_entries,
+                              const lepton::pb::repeated_entry &rhs_entries) {
+      ASSERT_EQ(lhs_entries.size(), rhs_entries.size());
+      for (int i = 0; i < lhs_entries.size(); ++i) {
+        auto lhs_entry = lhs_entries[i].SerializeAsString();
+        auto rhs_entry = rhs_entries[i].SerializeAsString();
+        ASSERT_EQ(lhs_entry, rhs_entry);
+      }
+    };
+    auto wentries = create_entries(wentries_params);
     compare_entries(u.entries_view(), wentries);
+  }
+}
+
+TEST_F(unstable_test_suit, convert_protobuf_2_vector) {
+  std::vector<lepton::pb::entry_ptr> entries;
+  {
+    raftpb::message m;
+    auto entry1 = m.add_entries();
+    entry1->set_index(5);
+    entry1->set_term(6);
+    auto entry2 = m.add_entries();
+    entry2->set_index(6);
+    entry2->set_term(7);
+    auto mutable_entries = std::move(*m.mutable_entries());
+    for (auto &entry : mutable_entries) {
+      entries.emplace_back(std::make_unique<raftpb::entry>(std::move(entry)));
+    }
+  }
+  for (const auto &entry_ptr : entries) {
+    std::cout << entry_ptr->index() << " " << entry_ptr->term() << std::endl;
   }
 }

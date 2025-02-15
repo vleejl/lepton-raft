@@ -134,6 +134,9 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
           [](const lepton_error& e) -> leaf::result<std::string> {
             return std::string(e.message) + '\n';
           });
+      if (r.has_error()) {
+        auto a = 1;
+      }
       assert(!r.has_error());
       return r.value();
     };

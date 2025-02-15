@@ -22,7 +22,7 @@ leaf::result<void> foreach_id_set(const std::set<std::uint64_t> &set,
                                   const tracker::progress_map::type &prs) {
   for (const auto &id : set) {
     if (!prs.contains(id)) {
-      return new_error(error_code::KEY_NOT_FOUND,
+      return new_error(logic_error::KEY_NOT_FOUND,
                        fmt::format("no progress for {}", id));
     }
   }
@@ -75,12 +75,12 @@ leaf::result<void> check_invariants(const tracker::config &cfg,
     for (const auto &id : cfg.learners_next.value()) {
       if (!secondary_config.view().contains(id)) {
         return new_error(
-            error_code::CONFIG_INVALID,
+            logic_error::CONFIG_INVALID,
             fmt::format("{} is in LearnersNext, but not Voters[1]", id));
       }
       if (prs_view.contains(id) && prs_view.at(id).is_learner()) {
         return new_error(
-            error_code::CONFIG_INVALID,
+            logic_error::CONFIG_INVALID,
             fmt::format(
                 "{} is in LearnersNext, but is already marked as learner", id));
       }
@@ -97,16 +97,16 @@ leaf::result<void> check_invariants(const tracker::config &cfg,
             : empty_config_view;
     for (const auto &id : cfg.learners.value()) {
       if (primary_config.view().contains(id)) {
-        return new_error(error_code::CONFIG_INVALID,
+        return new_error(logic_error::CONFIG_INVALID,
                          fmt::format("{} is in Learners and Voters[1]", id));
       }
       if (secondary_config.view().contains(id)) {
-        return new_error(error_code::CONFIG_INVALID,
+        return new_error(logic_error::CONFIG_INVALID,
                          fmt::format("{} is in Learners and Voters[1]", id));
       }
       if (prs_view.contains(id) && !prs_view.at(id).is_learner()) {
         return new_error(
-            error_code::CONFIG_INVALID,
+            logic_error::CONFIG_INVALID,
             fmt::format("{} is in Learners, but is not marked as learner", id));
       }
     }
@@ -115,15 +115,15 @@ leaf::result<void> check_invariants(const tracker::config &cfg,
   if (!cfg.joint()) {
     // We enforce that empty maps are nil instead of zero.
     if (cfg.voters.is_secondary_config_valid()) {
-      return new_error(error_code::CONFIG_INVALID,
+      return new_error(logic_error::CONFIG_INVALID,
                        "cfg.Voters[1] must be nil when not joint");
     }
     if (cfg.learners_next) {
-      return new_error(error_code::CONFIG_INVALID,
+      return new_error(logic_error::CONFIG_INVALID,
                        "cfg.LearnersNext must be nil when not joint");
     }
     if (cfg.auto_leave) {
-      return new_error(error_code::CONFIG_INVALID,
+      return new_error(logic_error::CONFIG_INVALID,
                        "AutoLeave must be false when not joint");
     }
   }
@@ -265,13 +265,13 @@ leaf::result<void> changer::apply(
         break;
       }
       default:
-        return new_error(error_code::CONFIG_INVALID,
+        return new_error(logic_error::CONFIG_INVALID,
                          fmt::format("unexpected conf type {}",
                                      magic_enum::enum_name(cc.type())));
     }
   }
   if (cfg.voters.primary_config_view().empty()) {
-    return new_error(error_code::CONFIG_INVALID, "removed all voters");
+    return new_error(logic_error::CONFIG_INVALID, "removed all voters");
   }
   return {};
 }
@@ -282,18 +282,18 @@ changer::result changer::enter_joint(
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (cfg.joint()) {
-    return new_error(error_code::CONFIG_INVALID, "config is already joint");
+    return new_error(logic_error::CONFIG_INVALID, "config is already joint");
   }
   if (cfg.voters.primary_config_view().empty()) {
     // We allow adding nodes to an empty config for convenience (testing and
     // bootstrap), but you can't enter a joint state.
-    return new_error(error_code::CONFIG_INVALID,
+    return new_error(logic_error::CONFIG_INVALID,
                      "can't make a zero-voter config joint");
   }
   // Clear the outgoing config.
   // actually no need clean outgoing config because of check_and_copy before
   if (cfg.voters.is_secondary_config_valid()) {
-    return new_error(error_code::CONFIG_INVALID,
+    return new_error(logic_error::CONFIG_INVALID,
                      "cfg.Voters[1] must be nil when not joint");
   }
   // Copy incoming to outgoing.
@@ -308,11 +308,11 @@ changer::result changer::leave_joint() const {
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (!cfg.joint()) {
-    return new_error(error_code::CONFIG_INVALID,
+    return new_error(logic_error::CONFIG_INVALID,
                      "can't leave a non-joint config");
   }
   if (!cfg.voters.is_secondary_config_valid()) {
-    return new_error(error_code::CONFIG_INVALID, "configuration is not joint");
+    return new_error(logic_error::CONFIG_INVALID, "configuration is not joint");
   }
   if (cfg.learners_next) {
     for (const auto &id : cfg.learners_next.value()) {
@@ -355,7 +355,7 @@ changer::result changer::simple(
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (cfg.joint()) {
-    return new_error(error_code::CONFIG_INVALID,
+    return new_error(logic_error::CONFIG_INVALID,
                      "can't apply simple config change in joint config");
   }
   BOOST_LEAF_CHECK(apply(ccs, cfg, prs));
@@ -365,7 +365,7 @@ changer::result changer::simple(
                   cfg.voters.primary_config_view().view());
       n > 1) {
     return new_error(
-        error_code::CONFIG_INVALID,
+        logic_error::CONFIG_INVALID,
         "more than one voter changed without entering joint config");
   }
   return check_and_return(std::move(cfg), std::move(prs));
