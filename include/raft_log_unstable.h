@@ -26,7 +26,7 @@ class unstable {
       spdlog::critical("invalid unstable.slice %d > %d", lo, hi);
       assert(false);
     }
-    auto upper = offset_ + entries_.size();
+    auto upper = offset_ + static_cast<std::uint64_t>(entries_.size());
     if ((lo < offset_) || hi > upper) {
       spdlog::critical("unstable.slice[%d,%d) out of bound [%d,%d]", lo, hi,
                        offset_, upper);
@@ -83,7 +83,7 @@ class unstable {
   // unstable entry or snapshot.
   leaf::result<std::uint64_t> maybe_last_index() {
     if (auto l = entries_.size(); l != 0) {
-      return offset_ + l - 1;
+      return offset_ + static_cast<std::uint64_t>(l) - 1;
     }
     if (snapshot_ != nullptr) {
       return snapshot_->metadata().index();
@@ -156,7 +156,8 @@ class unstable {
   void truncate_and_append(pb::repeated_entry&& entry_list) {
     assert(!entry_list.empty());
     auto after = entry_list[0].index();
-    if (after == (offset_ + entries_.size())) {  // max after value
+    if (after == (offset_ + static_cast<std::uint64_t>(
+                                entries_.size()))) {  // max after value
       entries_.Add(std::make_move_iterator(entry_list.begin()),
                    std::make_move_iterator(entry_list.end()));
     } else if (after <= offset_) {  // min after value

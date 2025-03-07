@@ -295,7 +295,7 @@ leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo,
       }
     }
   }
-  return ents;
+  return pb::limit_entry_size(ents, max_size);
 }
 
 pb::repeated_entry raft_log::next_ents() {
