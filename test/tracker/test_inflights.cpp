@@ -1,10 +1,10 @@
-#include "inflights.h"
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <deque>
 
+#include "gtest/gtest.h"
+#include "inflights.h"
 #include "utility_macros_test.h"
 using namespace lepton;
 using namespace lepton::tracker;
@@ -63,7 +63,7 @@ TEST_F(inflights_test_suit, add) {
     ASSERT_EQ(expect_buffer21, in2.buffer_view());
 
     for (std::uint64_t i = 5; i < 10; ++i) {
-      in2.add(i);
+      EXPECT_DEATH(in2.add(i), "");
     }
     ASSERT_EQ(10, in2.count());
     ASSERT_EQ(10, in2.capacity());
@@ -98,7 +98,7 @@ TEST_F(inflights_test_suit, initialization_and_add) {
     EXPECT_TRUE(inf.full());
 
     // 不能再添加更多元素
-    inf.add(103);
+    EXPECT_DEATH(inf.add(103), "");
     EXPECT_EQ(inf.count(), 3);  // 没有增加新元素
   }
 }

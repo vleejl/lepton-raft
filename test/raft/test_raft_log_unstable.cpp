@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include <raft.pb.h>
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -12,6 +11,7 @@
 
 #include "protobuf.h"
 #include "raft_log_unstable.h"
+#include "test_raft_protobuf.h"
 #include "utility_macros_test.h"
 using namespace lepton;
 
@@ -34,26 +34,8 @@ class unstable_test_suit : public testing::Test {
   }
 };
 
-lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term) {
-  auto entry = std::make_unique<raftpb::entry>();
-  entry->set_index(index);
-  entry->set_term(term);
-  return entry;
-}
-
-lepton::pb::repeated_entry create_entries(
-    const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params) {
-  lepton::pb::repeated_entry entries;
-  for (const auto &[index, term] : entrie_params) {
-    auto entry = entries.Add();
-    entry->set_index(index);
-    entry->set_term(term);
-  }
-  return entries;
-}
-
-lepton::pb::snapshot_ptr create_snapshot(std::uint64_t index,
-                                         std::uint64_t term) {
+lepton::pb::snapshot_ptr create_snapshot_ptr(std::uint64_t index,
+                                             std::uint64_t term) {
   auto snapshot_metadata = new raftpb::snapshot_metadata();
   snapshot_metadata->set_index(index);
   snapshot_metadata->set_term(term);
@@ -73,7 +55,7 @@ unstable create_unstable(
     return {create_snapshot(snapshot_index, snapshot_term), std::move(entries),
             offset};
   } else {
-    return {nullptr, std::move(entries), offset};
+    return {std::move(entries), offset};
   }
 }
 
@@ -298,11 +280,11 @@ TEST_F(unstable_test_suit, restore) {
   std::vector<std::tuple<std::uint64_t, std::uint64_t>> entrie_params{{5, 1}};
   auto u =
       create_unstable({{5, 1}}, 5, std::make_optional(std::make_tuple(4, 1)));
-  auto s = create_snapshot(6, 2);
+  auto s = create_snapshot_ptr(6, 2);
   u.restore(create_snapshot(6, 2));
   ASSERT_EQ(u.offset(), s->metadata().index() + 1);
   ASSERT_TRUE(u.entries_view().empty());
-  ASSERT_EQ(u.snapshot_view()->SerializeAsString(), s->SerializeAsString());
+  ASSERT_EQ(u.snapshot_view().SerializeAsString(), s->SerializeAsString());
 }
 
 TEST_F(unstable_test_suit, stable_snap_to) {

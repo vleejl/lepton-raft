@@ -27,7 +27,7 @@ raft_log::raft_log(pro::proxy_view<storage_builer> storage,
 
 std::string raft_log::string() {
   return fmt::format(
-      "committed=%d, applied=%d, unstable.offset=%d, len(unstable.Entries)=%d",
+      "committed={}, applied={}, unstable.offset={}, len(unstable.Entries)={}",
       committed_, applied_, unstable_.offset(),
       unstable_.entries_view().size());
 }
@@ -61,8 +61,8 @@ void raft_log::commit_to(std::uint64_t tocommit) {
   // never decrease commit
   if (committed_ < tocommit) {
     if (last_index() < tocommit) {
-      spdlog::critical(
-          "tocommit(%d) is out of range [lastIndex(%d)]. Was the raft log "
+      LEPTON_CRITICAL(
+          "tocommit({}) is out of range [lastIndex({})]. Was the raft log "
           "corrupted, truncated, or lost?",
           tocommit, last_index());
     }
@@ -75,8 +75,8 @@ void raft_log::applied_to(std::uint64_t i) {
     return;
   }
   if (committed_ < i || i < applied_) {
-    spdlog::critical(
-        "applied(%d) is out of range [prevApplied(%d), committed(%d)]", i,
+    LEPTON_CRITICAL(
+        "applied({}) is out of range [prevApplied({}), committed({})]", i,
         applied_, committed_);
   }
   applied_ = i;
@@ -119,8 +119,8 @@ std::uint64_t raft_log::last_term() {
         return v;
       },
       [](const lepton_error& e) -> leaf::result<std::uint64_t> {
-        spdlog::critical("unexpected error when getting the last term ({})",
-                         e.message);
+        LEPTON_CRITICAL("unexpected error when getting the last term ({})",
+                        e.message);
         return new_error(e);
       });
   assert(!r.has_error());
@@ -170,11 +170,11 @@ bool raft_log::maybe_commit(std::uint64_t max_index, std::uint64_t term) {
   return false;
 }
 
-void raft_log::restore(pb::snapshot_ptr&& snapshot) {
-  spdlog::info("log [%s] starts to restore snapshot [index: %d, term: %d]",
-               string(), snapshot->metadata().index(),
-               snapshot->metadata().term());
-  committed_ = snapshot->metadata().index();
+void raft_log::restore(raftpb::snapshot&& snapshot) {
+  SPDLOG_INFO("log [%s] starts to restore snapshot [index: {}, term: {}]",
+              string(), snapshot.metadata().index(),
+              snapshot.metadata().term());
+  committed_ = snapshot.metadata().index();
   unstable_.restore(std::move(snapshot));
 }
 
@@ -183,7 +183,7 @@ std::uint64_t raft_log::find_conflict(
   for (const auto& entry : entries) {
     if (!match_term(entry->index(), entry->term())) {
       if (entry->index() <= last_index()) {
-        spdlog::info(
+        SPDLOG_INFO(
             "found conflict at index {} [existing term: {}, conflicting term: "
             "{}]",
             entry->index(), zero_term_on_err_compacted(entry->index()),
@@ -198,8 +198,8 @@ std::uint64_t raft_log::find_conflict(
 std::uint64_t raft_log::find_conflict_by_term(std::uint64_t index,
                                               std::uint64_t term) {
   if (auto li = last_index(); li > term) {
-    spdlog::warn(
-        "index(%d) is out of range [0, lastIndex(%d)] in findConflictByTerm",
+    SPDLOG_WARN(
+        "index({}) is out of range [0, lastIndex({})] in findConflictByTerm",
         index, li);
     // NB: such calls should not exist, but since there is a straightfoward
     // way to recover, do it.
@@ -234,7 +234,7 @@ absl::Span<const raftpb::entry* const> raft_log::unstable_entries() {
 leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo,
                                                       std::uint64_t hi) {
   if (lo > hi) {
-    spdlog::critical("invalid slice {} > {}", lo, hi);
+    LEPTON_CRITICAL("invalid slice {} > {}", lo, hi);
   }
   auto fi = first_index();
   if (lo < fi) {
@@ -244,7 +244,7 @@ leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo,
   auto li = last_index();
   auto length = li + 1 - fi;
   if (hi > length + fi) {
-    spdlog::critical("slice[{},{}] out of bounds [{},{}]", lo, hi, fi, li);
+    LEPTON_CRITICAL("slice[{},{}] out of bounds [{},{}]", lo, hi, fi, li);
   }
   return {};
 }
@@ -271,8 +271,8 @@ leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo,
               return new_error(e);
             }
             if (e.err_code == storage_error::UNAVAILABLE) {
-              spdlog::critical("entries:[{},{}] is unavaliable from storage",
-                               lo, std::min(hi, unstable_offset));
+              LEPTON_CRITICAL("entries:[{},{}] is unavaliable from storage", lo,
+                              std::min(hi, unstable_offset));
             }
           }
           panic(e.message);
@@ -282,20 +282,19 @@ leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo,
       return storage_entries;
     }
     // check if ents has reached the size limitation
-    if (storage_entries->size() < std::min(hi, unstable_offset) - lo) {
+    if (auto size = storage_entries->size();
+        size < std::min(hi, unstable_offset) - lo) {
       return storage_entries;
     }
     ents = std::move(storage_entries.value());
   }
   if (hi > unstable_offset) {
     auto unstable = unstable_.entries_span(std::max(lo, unstable_offset), hi);
-    if (!ents.empty()) {
-      for (const auto& entry : unstable) {
-        ents.Add()->CopyFrom(*entry);
-      }
+    for (const auto& entry : unstable) {
+      ents.Add()->CopyFrom(*entry);
     }
   }
-  return ents;
+  return pb::limit_entry_size(ents, max_size);
 }
 
 pb::repeated_entry raft_log::next_ents() {
@@ -310,7 +309,7 @@ pb::repeated_entry raft_log::next_ents() {
           panic(e.message);
           return new_error(e);
         });
-    assert(entries.has_error());
+    assert(entries.has_value());
     return entries.value();
   }
   return {};
@@ -326,7 +325,7 @@ leaf::result<pb::repeated_entry> raft_log::entries(std::uint64_t i,
   if (i > last_index()) {
     return {};
   }
-  return slice(i, last_index(), max_size);
+  return slice(i, last_index() + 1, max_size);
 }
 
 pb::repeated_entry raft_log::all_entries() {
@@ -342,13 +341,13 @@ pb::repeated_entry raft_log::all_entries() {
         }
         panic(e.message);
       });
-  assert(ents.has_error());
+  assert(ents.has_value());
   return ents.value();
 }
 
 leaf::result<raftpb::snapshot> raft_log::snapshot() const {
-  if (unstable_.snapshot_view() != nullptr) {
-    const auto& v = *unstable_.snapshot_view();
+  if (unstable_.has_snapshot()) {
+    const auto& v = unstable_.snapshot_view();
     return raftpb::snapshot{v};
   }
   return storage_->snapshot();
@@ -360,8 +359,8 @@ std::uint64_t raft_log::append(pb::repeated_entry&& entries) {
   }
   assert(entries[0].index() > 0);
   if (auto after = entries[0].index() - 1; after < committed_) {
-    spdlog::critical("after({}) is out of range [committed({})]", after,
-                     committed_);
+    LEPTON_CRITICAL("after({}) is out of range [committed({})]", after,
+                    committed_);
   }
   unstable_.truncate_and_append(std::move(entries));
   return last_index();
@@ -373,21 +372,21 @@ leaf::result<std::uint64_t> raft_log::maybe_append(
   if (match_term(index, log_term)) {
     auto lastnewi = index + static_cast<std::uint64_t>(enrties.size());
     auto ci = find_conflict(absl::MakeSpan(enrties));
-    if (ci == 0) {
+    if (ci == 0) {  // 没有冲突
       // do nothing
     } else if (ci <= committed_) {
       // 表示冲突的条目是已经提交的条目，Raft
       // 协议要求已提交的条目不应该发生冲突。
-      spdlog::critical("entry %d conflict with committed entry [committed(%d)]",
-                       ci, committed_);
+      LEPTON_CRITICAL("entry {} conflict with committed entry [committed({})]",
+                      ci, committed_);
     } else {
       // 如果冲突位置在未提交的条目中，则从冲突的位置开始，将冲突后的新条目追加到日志中，确保不会丢失已提交的日志
       auto offset = index + 1;
       assert(ci >= offset);
       auto start = static_cast<std::ptrdiff_t>(ci - offset);
       if (start > enrties.size()) {
-        spdlog::critical("index, %d, is out of range [%d]", start,
-                         enrties.size());
+        LEPTON_CRITICAL("index, {}, is out of range [{}]", start,
+                        enrties.size());
       }
       auto sub_entries =
           pb::repeated_entry(std::make_move_iterator(enrties.begin() + start),
@@ -421,7 +420,7 @@ Raft 要求 Leader 确保 Follower 的日志最终与 Leader 一致，即使需�
        */
       append(std::move(sub_entries));
     }
-    commit_to(std::min(committed_, lastnewi));
+    commit_to(std::min(committed, lastnewi));
     return lastnewi;
   }
   return new_error(logic_error::INVALID_PARAM,

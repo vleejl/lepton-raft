@@ -1,10 +1,9 @@
 #ifndef _LEPTON_INFLIGHTS_H_
 #define _LEPTON_INFLIGHTS_H_
-#include <spdlog/spdlog.h>
-
 #include <cstdint>
 #include <deque>
 
+#include "log.h"
 #include "utility_macros.h"
 namespace lepton {
 namespace tracker {
@@ -36,7 +35,7 @@ class inflights {
 
   void add(std::uint64_t inflight) {
     if (full()) {
-      spdlog::critical("cannot add into a Full inflights");
+      LEPTON_CRITICAL("cannot add into a Full inflights");
       return;
     }
     buffer_.push_back(inflight);

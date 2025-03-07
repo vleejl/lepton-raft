@@ -2,14 +2,15 @@
 #define _LEPTON_RAFT_LOG_UNSTABLE_H_
 #include <absl/types/span.h>
 #include <raft.pb.h>
-#include <spdlog/spdlog.h>
 
 #include <cassert>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "error.h"
+#include "log.h"
 #include "protobuf.h"
 #include "utility_macros.h"
 namespace lepton {
@@ -23,20 +24,22 @@ class unstable {
   // u.offset <= lo <= hi <= u.offset+len(u.entries)
   void must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) {
     if (lo > hi) {
-      spdlog::critical("invalid unstable.slice %d > %d", lo, hi);
+      LEPTON_CRITICAL("invalid unstable.slice {} > {}", lo, hi);
       assert(false);
     }
-    auto upper = offset_ + entries_.size();
+    auto upper = offset_ + static_cast<std::uint64_t>(entries_.size());
     if ((lo < offset_) || hi > upper) {
-      spdlog::critical("unstable.slice[%d,%d) out of bound [%d,%d]", lo, hi,
-                       offset_, upper);
+      LEPTON_CRITICAL("unstable.slice[{},{}) out of bound [{},{}]", lo, hi,
+                      offset_, upper);
       assert(false);
     }
   }
 
  public:
   unstable(std::uint64_t offset) : offset_(offset) {}
-  unstable(pb::snapshot_ptr snapshot, pb::repeated_entry&& entries,
+  unstable(pb::repeated_entry&& entries, std::uint64_t offset)
+      : entries_(std::move(entries)), offset_(offset) {}
+  unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries,
            std::uint64_t offset)
       : snapshot_(std::move(snapshot)),
         entries_(std::move(entries)),
@@ -49,13 +52,13 @@ class unstable {
 
   auto entries_span(std::uint64_t lhs_idx, std::uint64_t rhs_idx) const {
     if (lhs_idx > rhs_idx) {
-      spdlog::critical("invalid unstable.slice %d > %d", lhs_idx, rhs_idx);
+      LEPTON_CRITICAL("invalid unstable.slice {} > {}", lhs_idx, rhs_idx);
     }
 
     auto upper = offset_ + static_cast<uint64_t>(entries_.size());
     if (lhs_idx < offset_ || rhs_idx > upper) {
-      spdlog::critical("unstable.slice[%d,%d) out of bound [%d,%d]", lhs_idx,
-                       rhs_idx, offset_, upper);
+      LEPTON_CRITICAL("unstable.slice[{},{}) out of bound [{},{}]", lhs_idx,
+                      rhs_idx, offset_, upper);
     }
 
     return absl::Span<const raftpb::entry* const>(
@@ -64,28 +67,33 @@ class unstable {
 
   std::uint64_t offset() const { return offset_; }
 
-  const pb::snapshot_ptr& snapshot_view() const { return snapshot_; }
+  bool has_snapshot() const { return snapshot_.has_value(); }
+
+  const raftpb::snapshot& snapshot_view() const {
+    assert(has_snapshot());
+    return *snapshot_;
+  }
 
   bool has_pending_snapshot() const {
-    return snapshot_ != nullptr && pb::is_empty_snap(*snapshot_);
+    return has_snapshot() && pb::is_empty_snap(*snapshot_);
   }
 
   // maybeFirstIndex returns the index of the first possible entry in entries
   // if it has a snapshot.
   leaf::result<std::uint64_t> maybe_first_index() const {
-    if (snapshot_ != nullptr) {
+    if (has_snapshot()) {
       return snapshot_->metadata().index() + 1;
     }
-    return new_error(encoding_error::NULL_POINTER, "snapshot is null ptr");
+    return new_error(encoding_error::NULL_POINTER, "snapshot is null");
   }
 
   // maybeLastIndex returns the last index if it has at least one
   // unstable entry or snapshot.
   leaf::result<std::uint64_t> maybe_last_index() {
     if (auto l = entries_.size(); l != 0) {
-      return offset_ + l - 1;
+      return offset_ + static_cast<std::uint64_t>(l) - 1;
     }
-    if (snapshot_ != nullptr) {
+    if (has_snapshot()) {
       return snapshot_->metadata().index();
     }
     return new_error(encoding_error::NULL_POINTER,
@@ -96,7 +104,7 @@ class unstable {
   // is any.
   leaf::result<std::uint64_t> maybe_term(std::uint64_t i) {
     if (i < offset_) {
-      if ((snapshot_ != nullptr) && (snapshot_->metadata().index() == i)) {
+      if ((has_snapshot()) && (snapshot_->metadata().index() == i)) {
         return snapshot_->metadata().term();
       }
       return new_error(encoding_error::NULL_POINTER, "snapshot is null ptr");
@@ -141,14 +149,13 @@ class unstable {
   }
 
   void stable_snap_to(std::uint64_t i) {
-    if ((snapshot_ != nullptr) && snapshot_->metadata().index() == i) {
+    if ((has_snapshot()) && snapshot_->metadata().index() == i) {
       snapshot_.reset();
     }
   }
 
-  void restore(pb::snapshot_ptr&& snapshot) {
-    assert(snapshot != nullptr);
-    offset_ = snapshot->metadata().index() + 1;
+  void restore(raftpb::snapshot&& snapshot) {
+    offset_ = snapshot.metadata().index() + 1;
     entries_.Clear();
     snapshot_ = std::move(snapshot);
   }
@@ -156,11 +163,12 @@ class unstable {
   void truncate_and_append(pb::repeated_entry&& entry_list) {
     assert(!entry_list.empty());
     auto after = entry_list[0].index();
-    if (after == (offset_ + entries_.size())) {  // max after value
+    if (after == (offset_ + static_cast<std::uint64_t>(
+                                entries_.size()))) {  // max after value
       entries_.Add(std::make_move_iterator(entry_list.begin()),
                    std::make_move_iterator(entry_list.end()));
     } else if (after <= offset_) {  // min after value
-      spdlog::info("replace the unstable entries from index %d", after);
+      SPDLOG_INFO("replace the unstable entries from index {}", after);
       // The log is being truncated to before our current offset
       // portion, so set the offset and replace the entries
       offset_ = after;
@@ -168,7 +176,7 @@ class unstable {
     } else {  // after > u.offset && after < u.offset + uint64(len(u.entries))
       // truncate to after and copy to u.entries
       // then append
-      spdlog::info("truncate the unstable entries before index %d", after);
+      SPDLOG_INFO("truncate the unstable entries before index {}", after);
       auto start = static_cast<std::ptrdiff_t>(offset_ - offset_);
       auto end = static_cast<std::ptrdiff_t>(after - offset_);
       // 截取 offset 到 after 之间的 entry
@@ -181,9 +189,8 @@ class unstable {
   }
 
  private:
-  // std::optional<int> snapshot_int_;
   // the incoming unstable snapshot, if any.
-  pb::snapshot_ptr snapshot_;
+  std::optional<raftpb::snapshot> snapshot_;
   // all entries that have not yet been written to storage.
   pb::repeated_entry entries_;
   // 这个字段记录了未稳定日志条目在 Raft

@@ -1,7 +1,5 @@
 #ifndef _LEPTON_PROGRESS_H_
 #define _LEPTON_PROGRESS_H_
-#include <spdlog/spdlog.h>
-
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -11,6 +9,7 @@
 #include <utility>
 
 #include "inflights.h"
+#include "log.h"
 #include "quorum.h"
 #include "state.h"
 #include "utility_macros.h"
@@ -195,7 +194,7 @@ class progress {
       case state_type::STATE_SNAPSHOT:
         return true;
       default:
-        spdlog::critical("[unreacheable] can not recognize state type");
+        LEPTON_CRITICAL("[unreacheable] can not recognize state type");
         return false;
     }
   }
