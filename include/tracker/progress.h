@@ -364,6 +364,8 @@ class progress_map {
     return map_;
   }
 
+  std::unordered_map<std::uint64_t, progress>& mutable_view() { return map_; }
+
   void add_progress(std::uint64_t id, progress&& p) {
     map_.emplace(id, std::move(p));
   }

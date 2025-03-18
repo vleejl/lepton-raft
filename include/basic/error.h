@@ -42,6 +42,7 @@ enum class storage_error {
 
 enum class logic_error {
   CONFIG_INVALID = 1,
+  CONFIG_MISMATCH,
   KEY_NOT_FOUND,
   INVALID_PARAM,
 };

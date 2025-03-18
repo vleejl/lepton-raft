@@ -7,7 +7,7 @@
 #include "tracker.h"
 namespace lepton {
 
-enum state_type : std::uint64_t {
+enum class state_type : std::uint64_t {
   STATE_FOLLOWER,
   STATE_CANDIDATE,
   STATE_LEADER,

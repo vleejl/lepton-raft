@@ -1,6 +1,12 @@
 #include "protobuf.h"
 
+#include <cassert>
 #include <cstddef>
+
+#include "conf_state.h"
+#include "error.h"
+
+static raftpb::hard_state EMPTY_STATE;
 
 namespace lepton {
 
@@ -60,6 +66,30 @@ repeated_entry limit_entry_size(repeated_entry& entries,
   }
   return extract_range_without_copy(entries, 0, i);
 }
+
+void assert_conf_states_equivalent(const raftpb::conf_state& lhs,
+                                   const raftpb::conf_state& rhs) {
+  auto result = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(conf_state_equivalent(lhs, rhs));
+        return {};
+      },
+      [&](const lepton::lepton_error& err) -> leaf::result<void> {
+        LEPTON_CRITICAL("conf states mismatch: {}", err.message);
+        return new_error(err);
+      });
+  assert(!result);
+}
+
+bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
+  return lhs.term() == rhs.term() && lhs.vote() == rhs.vote() &&
+         lhs.commit() == rhs.commit();
+}
+
+bool is_empty_hard_state(const raftpb::hard_state& hs) {
+  return hs == EMPTY_STATE;
+}
+
 }  // namespace pb
 
 }  // namespace lepton

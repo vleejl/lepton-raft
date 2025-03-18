@@ -32,9 +32,11 @@ class raft_log {
 
   void commit_to(std::uint64_t tocommit);
 
-  auto commited() const { return committed_; }
+  auto committed() const { return committed_; }
 
   void applied_to(std::uint64_t i);
+
+  auto applied() const { return applied_; }
 
   void stable_to(std::uint64_t i, std::uint64_t t) {
     unstable_.stable_to(i, t);

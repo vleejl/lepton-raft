@@ -343,7 +343,7 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
         });
     ASSERT_EQ(result.value(), iter_test.expected_last);
     ASSERT_EQ(!has_called_error, iter_test.expected_append);
-    ASSERT_EQ(raft_log->commited(), iter_test.expected_commit);
+    ASSERT_EQ(raft_log->committed(), iter_test.expected_commit);
     if (iter_test.expected_append && !ents.empty()) {
       auto gents = raft_log->slice(
           raft_log->last_index() - static_cast<std::uint64_t>(ents.size()) + 1,
@@ -381,7 +381,7 @@ TEST_F(raft_log_test_suit, compaction_side_effects) {
   raft_log->append(create_entries(entrie_params));
   auto commit_result = raft_log->maybe_commit(LAST_INDEX, LAST_TERM);
   ASSERT_TRUE(commit_result);
-  raft_log->applied_to(raft_log->commited());
+  raft_log->applied_to(raft_log->committed());
 
   constexpr std::uint64_t COMPACT_INDEX = 500;
   mm_storage.compact(COMPACT_INDEX);
@@ -535,7 +535,7 @@ TEST_F(raft_log_test_suit, commit_to) {
       continue;
     }
     raft_log->commit_to(iter_test.commit);
-    ASSERT_EQ(raft_log->commited(), iter_test.wcommit);
+    ASSERT_EQ(raft_log->committed(), iter_test.wcommit);
   }
 }
 
@@ -644,7 +644,7 @@ TEST_F(raft_log_test_suit, compactions) {
     pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
     auto raft_log = new_raft_log(memory_storager_view);
     raft_log->maybe_commit(iter_test.lastIndex, 0);
-    raft_log->applied_to(raft_log->commited());
+    raft_log->applied_to(raft_log->committed());
 
     int j = -1;
     for (const auto &compact_index : iter_test.compact) {
@@ -674,7 +674,7 @@ TEST_F(raft_log_test_suit, log_restore) {
   auto raft_log = new_raft_log(memory_storager_view);
   ASSERT_EQ(raft_log->all_entries().size(), 0);
   ASSERT_EQ(raft_log->first_index(), INDEX + 1);
-  ASSERT_EQ(raft_log->commited(), INDEX);
+  ASSERT_EQ(raft_log->committed(), INDEX);
   ASSERT_EQ(raft_log->unstable_view().offset(), INDEX + 1);
   auto term = raft_log->term(INDEX);
   ASSERT_TRUE(term.has_value());

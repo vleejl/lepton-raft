@@ -8,6 +8,8 @@
 #include "config.h"
 #include "error.h"
 #include "node.h"
+#include "progress.h"
+#include "protobuf.h"
 #include "raft_log.h"
 #include "read_only.h"
 #include "status.h"
@@ -17,13 +19,60 @@ namespace lepton {
 
 class raft;
 
-using tick_func = void();
-using step_func = leaf::result<void>(raft* r, raftpb::message m);
+using tick_func = std::function<void()>;
+using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
 leaf::result<raft> new_raft(const config&);
 
 class raft {
+ private:
   NOT_COPYABLE(raft)
   friend leaf::result<raft> new_raft(const config&);
+
+  void load_state(const raftpb::hard_state& state);
+
+  bool past_election_timeout();
+
+  void send(raftpb::message&& message);
+
+  // maybeSendAppend sends an append RPC with new entries to the given peer,
+  // if necessary. Returns true if a message was sent. The sendIfEmpty
+  // argument controls whether messages with no entries will be sent
+  // ("empty" messages are useful to convey updated Commit indexes, but
+  // are undesirable when we're sending multiple messages in a batch).
+  bool maybe_send_append(std::uint64_t id, bool send_if_empty);
+
+  // sendAppend sends an append RPC with new entries (if any) and the
+  // current commit index to the given peer
+  void send_append(std::uint64_t id);
+
+  // bcastAppend sends RPC, with entries to all peers that are not up-to-date
+  // according to the progress recorded in r.prs.
+  void bcast_append();
+
+  // maybeCommit attempts to advance the commit index. Returns true if
+  // the commit index changed (in which case the caller should call
+  // r.bcastAppend).
+  bool maybe_commit();
+
+  void tick_election();
+
+  void reset(std::uint64_t term);
+
+  void abort_leader_transfer();
+
+  // switchToConfig reconfigures this node to use the provided configuration. It
+  // updates the in-memory state and, when necessary, carries out additional
+  // actions such as reacting to the removal of nodes or changed quorum
+  // requirements.
+  //
+  // The inputs usually result from restoring a ConfState or applying a
+  // ConfChange.
+  raftpb::conf_state switch_to_config(tracker::config&& cfg,
+                                      tracker::progress_map&& pgs_map);
+
+  // promotable indicates whether state machine can be promoted to leader,
+  // which is true when its own id is in progress list.
+  bool promotable();
 
  public:
   //  字段初始化顺序和etcd-raft 一致
@@ -37,7 +86,7 @@ class raft {
         raft_log_handle_(std::move(raft_log_handle)),
         max_msg_size_(max_size_per_msg),
         max_uncommitted_size_(max_uncommitted_entries_size),
-        trk_(tracker::progress_tracker{max_inflight_msgs}),
+        prs_(tracker::progress_tracker{max_inflight_msgs}),
         is_learner_(false),
         lead_(NONE),
         read_only_(read_only_opt),
@@ -48,17 +97,21 @@ class raft {
         disable_proposal_forwarding_(disable_proposal_forwarding) {}
   raft(raft&&) = default;
 
+  void become_follower(std::uint64_t term, std::uint64_t lead);
+
+  leaf::result<void> step(raftpb::message&& m);
+
  private:
   // 对应config 配置里的 id，表示唯一一个raft 节点
-  std::uint64_t id_;
+  std::uint64_t id_ = NONE;
 
   // 当前节点所处的任期号。Raft 协议通过任期号来避免旧日志覆盖新日志。当 term
   // 发生变化时，Raft 会重新选举领导者。
-  std::uint64_t term_;
+  std::uint64_t term_ = 0;
 
   // 当前节点上次投票的目标节点 ID。在选举过程中，每个节点会投票给其他节点，vote
   // 保存的是当前节点投票的目标节点 ID。每个节点每个任期只能投一次票。
-  std::uint64_t vote_id_;
+  std::uint64_t vote_id_ = 0;
 
   // 存储节点的只读请求的状态。通常在 Raft
   // 协议中，如果客户端请求一个不修改日志的操作（例如读取），这个字段会保存这些请求的状态。用于管理客户端的读请求。
@@ -70,33 +123,33 @@ class raft {
 
   // 节点可以发送的最大消息大小。用于限制 Raft
   // 节点发送的消息的大小，避免单个消息过大导致性能下降或网络问题。
-  std::uint64_t max_msg_size_;
+  std::uint64_t max_msg_size_ = 0;
   // 表示尚未提交的日志条目的最大大小。这个字段有助于控制日志条目的大小，防止在日志还没有被提交的情况下占用过多的内存。
-  std::uint64_t max_uncommitted_size_;
+  std::uint64_t max_uncommitted_size_ = 0;
 
   // 跟踪所有 Raft 节点的进度。ProgressTracker
   // 是一个用于跟踪节点在复制日志过程中的进度（如已复制的日志条目）。它通常会跟踪每个节点的日志索引、已提交的日志索引等。
-  tracker::progress_tracker trk_;
+  tracker::progress_tracker prs_;
 
   // 当前节点 raft 状态
   state_type state_type_;
 
   // isLearner is true if the local raft node is a learner.
-  bool is_learner_;
+  bool is_learner_ = false;
 
   // 存储当前节点待发送的消息列表。Raft
   // 协议中的节点之间会交换消息（例如投票请求、心跳等）。该字段用于存储待发送的消息。
-  std::vector<raftpb::message> msgs_;
+  pb::repeated_message msgs_;
 
   // the leader id
-  std::uint64_t lead_;
+  std::uint64_t lead_ = 0;
 
   // leadTransferee is id of the leader transfer target when its value is not
   // zero. Follow the procedure defined in raft thesis 3.10.
   // 领导者转移目标节点的 ID。在 Raft
   // 协议中，当需要进行领导者转移时，leadTransferee 会保存目标节点的
   // ID，表明转移目标。
-  std::uint64_t leader_transferee_;
+  std::uint64_t leader_transferee_ = NONE;
 
   // Only one conf change may be pending (in the log, but not yet
   // applied) at a time. This is enforced via pendingConfIndex, which
@@ -106,13 +159,13 @@ class raft {
   // value.
   // 记录正在等待应用的配置变更的日志索引。Raft
   // 协议中，配置变更（例如添加或删除节点）是通过日志条目进行的。这个字段确保一次只能有一个配置变更被提交。
-  std::uint64_t pending_conf_index_;
+  std::uint64_t pending_conf_index_ = 0;
 
   // an estimate of the size of the uncommitted tail of the Raft log. Used to
   // prevent unbounded log growth. Only maintained by the leader. Reset on
   // term changes.
   // 估计的尚未提交的日志条目的大小。这个字段由领导者节点维护，并且随着新的日志条目被添加而增加。它用于控制日志的大小，防止日志条目在未提交前无限增长。
-  std::uint64_t uncommitted_size_;
+  std::uint64_t uncommitted_size_ = 0;
 
   // readOnly
   // 管理客户端的只读请求，确保在节点转变角色时能处理这些请求。它用于存储只读操作的相关信息和状态。
@@ -124,29 +177,29 @@ class raft {
   // valid message from current leader when it is a follower.
   // 自上次选举超时以来的时间（以 tick 个数为单位）。
   // 该字段用于控制选举超时机制。如果一个节点在选举超时之前没有接收到选票，它就会启动新的选举。
-  int election_elapsed_;
+  int election_elapsed_ = 0;
 
   // number of ticks since it reached last heartbeatTimeout.
   // only leader keeps heartbeatElapsed.
   // 自上次心跳发送以来的时间（以 tick 个数为单位）。
   // 领导者节点会定期发送心跳消息给其他节点，以防止其他节点启动选举。
-  int heartbeat_elapsed_;
+  int heartbeat_elapsed_ = 0;
 
   // 在 Raft 协议中，checkQuorum
   // 用于控制是否需要检查选举是否达成法定人数的支持。如果 checkQuorum 为
   // true，则只有在满足法定人数时选举才算有效。
-  bool check_quorum_;
+  bool check_quorum_ = false;
   // 是否启用预选举。在 Raft
   // 协议的扩展中，为了优化选举过程，增加了预选举机制。在预选举中，节点会在正式投票前先进行一次投票尝试，preVote
   // 表示是否启用这个机制。
-  bool pre_vote_;
+  bool pre_vote_ = false;
 
   // 心跳超时的值。领导者节点定期发送心跳，防止其他节点启动选举。heartbeatTimeout
   // 控制心跳的超时设置。
-  int heartbeat_timeout_;
+  int heartbeat_timeout_ = 0;
   // 选举超时的值。每个 Raft
   // 节点都会设置一个选举超时值，当超过此时间后，节点如果没有收到来自领导者的消息，会开始启动新的选举过程。
-  int election_timeout_;
+  int election_timeout_ = 0;
 
   // randomizedElectionTimeout is a random number between
   // [electiontimeout, 2 * electiontimeout - 1]. It gets reset
@@ -154,11 +207,11 @@ class raft {
   // 随机化的选举超时值。在实际使用中，Raft
   // 节点的选举超时值是一个范围内的随机数，避免所有节点同时启动选举。randomizedElectionTimeout
   // 保存的是随机化后的超时值。
-  int randomized_election_timeout_;
+  int randomized_election_timeout_ = 0;
 
   // 是否禁用提案转发。如果设置为
   // true，节点将不会将提案（例如日志条目）转发给其他节点。该字段用于某些特殊场景下的控制。
-  bool disable_proposal_forwarding_;
+  bool disable_proposal_forwarding_ = false;
 
   // 一个函数指针，表示定时器事件的处理函数。tick
   // 可能被用来控制心跳、选举超时等周期性事件。
@@ -173,7 +226,7 @@ class raft {
   // current term.
   // 待处理的读取索引消息。当有客户端请求读取日志时，pendingReadIndexMessages
   // 保存这些消息，直到领导者节点确认日志条目已提交后再进行响应。
-  std::vector<raftpb::message> pending_read_index_messages_;
+  pb::repeated_entry pending_read_index_messages_;
 };
 
 }  // namespace lepton

@@ -171,6 +171,8 @@ class progress_tracker {
 
   const progress_map& progress_map_view() const { return progress_map_; }
 
+  progress_map& progress_map_mutable_view() { return progress_map_; }
+
   auto max_inflight() const { return max_inflight_; }
 
   void update_config(config&& cfg) { config_ = std::move(cfg); };
