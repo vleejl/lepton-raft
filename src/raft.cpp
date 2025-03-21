@@ -6,6 +6,7 @@
 
 #include "absl/strings/str_join.h"
 #include "confchange.h"
+#include "config.h"
 #include "error.h"
 #include "fmt/format.h"
 #include "protobuf.h"
@@ -50,6 +51,7 @@ leaf::result<raft> new_raft(const config& c) {
     r.raft_log_handle_.applied_to(c.applied_index);
   }
   r.become_follower(r.term_, NONE);
+
   std::vector<std::string> node_strs;
   for (const auto& n : r.prs_.vote_nodes()) {
     node_strs.push_back(fmt::format("{}", n));
@@ -84,7 +86,49 @@ bool raft::past_election_timeout() {
 }
 
 void raft::send(raftpb::message&& message) {
-  // TODO
+  if (message.from() != NONE) {
+    message.set_from(id_);
+  }
+
+  const auto msg_type = message.type();
+  // 处理选举类消息
+  if (msg_type == raftpb::message_type::MSG_VOTE ||
+      msg_type == raftpb::message_type::MSG_VOTE_RESP ||
+      msg_type == raftpb::message_type::MSG_PRE_VOTE ||
+      msg_type == raftpb::message_type::MSG_PRE_VOTE_RESP) {
+    if (message.term() == 0) {
+      // All {pre-,}campaign messages need to have the term set when
+      // sending.
+      // - MsgVote: m.Term is the term the node is campaigning for,
+      //   non-zero as we increment the term when campaigning.
+      // - MsgVoteResp: m.Term is the new r.Term if the MsgVote was
+      //   granted, non-zero for the same reason MsgVote is
+      // - MsgPreVote: m.Term is the term the node will campaign,
+      //   non-zero as we use m.Term to indicate the next term we'll be
+      //   campaigning for
+      // - MsgPreVoteResp: m.Term is the term received in the original
+      //   MsgPreVote if the pre-vote was granted, non-zero for the
+      //   same reasons MsgPreVote is
+      LEPTON_CRITICAL("term should be set when msg type:{}",
+                      magic_enum::enum_name(msg_type));
+    }
+  } else {  // 非选举类消息，必须自动设置term
+    if (message.term() != 0) {
+      LEPTON_CRITICAL("term should not be set when msg type:{}",
+                      magic_enum::enum_name(msg_type));
+    }
+    // do not attach term to MsgProp, MsgReadIndex
+    // proposals are a way to forward to the leader and
+    // should be treated as local message.
+    // MsgReadIndex is also forwarded to leader.
+    // MsgProp 和 MsgReadIndex 不设置 Term，因为它们可能被转发给 Leader，由
+    // Leader 处理时再填充正确 Term。
+    if (msg_type != raftpb::message_type::MSG_PROP &&
+        msg_type != raftpb::message_type::MSG_READ_INDEX) {
+      message.set_term(term_);
+    }
+  }
+  msgs_.Add(std::move(message));
 }
 
 bool raft::maybe_send_append(std::uint64_t id, bool send_if_empty) {

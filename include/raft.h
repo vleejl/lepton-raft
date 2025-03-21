@@ -32,6 +32,8 @@ class raft {
 
   bool past_election_timeout();
 
+  // send schedules persisting state to a stable storage and AFTER that
+  // sending the message (as part of next Ready message processing).
   void send(raftpb::message&& message);
 
   // maybeSendAppend sends an append RPC with new entries to the given peer,
