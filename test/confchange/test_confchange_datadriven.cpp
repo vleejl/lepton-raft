@@ -46,16 +46,16 @@ static leaf::result<std::string> process_single_test_case(
     raftpb::conf_change_single cc;
     switch (tok[0]) {
       case 'v':
-        cc.set_type(raftpb::conf_change_add_node);
+        cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
         break;
       case 'l':
-        cc.set_type(raftpb::conf_change_add_learner_node);
+        cc.set_type(raftpb::CONF_CHANGE_ADD_LEARNER_NODE);
         break;
       case 'r':
-        cc.set_type(raftpb::conf_change_remove_node);
+        cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
         break;
       case 'u':
-        cc.set_type(raftpb::conf_change_update_node);
+        cc.set_type(raftpb::CONF_CHANGE_UPDATE_NODE);
         break;
       default:
         return fmt::format("unknown input: {}", tok);

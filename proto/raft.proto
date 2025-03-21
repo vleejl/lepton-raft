@@ -1,155 +1,177 @@
 syntax = "proto2";
 package raftpb;
 
-// 定义 entry_type 枚举
+// ---------------------------------------------------
+// 基础数据类型
+// ---------------------------------------------------
+
 enum entry_type {
-    entry_normal = 0;
-    entry_conf_change = 1;
-    entry_conf_change_v2 = 2;
+  ENTRY_NORMAL         = 0;
+  ENTRY_CONF_CHANGE    = 1;  // 对应旧版配置变更
+  ENTRY_CONF_CHANGE_V2 = 2;  // 对应新版配置变更
 }
 
-// 定义 entry 消息
 message entry {
-    optional uint64 term = 2;  // 必须64位对齐以支持原子操作
-    optional uint64 index = 3;  // 必须64位对齐以支持原子操作
-    optional entry_type type = 1;
-    optional bytes data = 4;
+  required uint64 term  = 2;
+  required uint64 index = 3;
+  required entry_type type = 1;
+  optional bytes data = 4;
 }
 
-// 定义 snapshot_metadata 消息
+// ---------------------------------------------------
+// 快照相关
+// ---------------------------------------------------
 message snapshot_metadata {
-    optional conf_state conf_state = 1;
-    optional uint64 index = 2;
-    optional uint64 term = 3;
+  required conf_state conf_state = 1;
+  required uint64 index = 2;
+  required uint64 term = 3;
 }
 
-// 定义 snapshot 消息
 message snapshot {
-    optional bytes data = 1;
-    optional snapshot_metadata metadata = 2;
+  optional bytes data = 1;
+  required snapshot_metadata metadata = 2;
 }
 
 // 定义 message_type 枚举
 // For description of different message types, see:
 // https://pkg.go.dev/go.etcd.io/etcd/raft/v3#hdr-MessageType
 enum message_type {
-    msg_hup = 0;
-    msg_beat = 1;
-    msg_prop = 2;
-    msg_app = 3;
-    msg_app_resp = 4;
-    msg_vote = 5;
-    msg_vote_resp = 6;
-    msg_snap = 7;
-    msg_heartbeat = 8;
-    msg_heartbeat_resp = 9;
-    msg_unreachable = 10;
-    msg_snap_status = 11;
-    msg_check_quorum = 12;
-    msg_transfer_leader = 13;
-    msg_timeout_now = 14;
-    msg_read_index = 15;
-    msg_read_index_resp = 16;
-    msg_pre_vote = 17;
-    msg_pre_vote_resp = 18;
+  MSG_HUP              = 0;
+  MSG_BEAT             = 1;
+  MSG_PROP             = 2;
+  MSG_APP              = 3;
+  MSG_APP_RESP         = 4;
+  MSG_VOTE             = 5;
+  MSG_VOTE_RESP        = 6;
+  MSG_SNAP             = 7;
+  MSG_HEARTBEAT        = 8;
+  MSG_HEARTBEAT_RESP   = 9;
+  MSG_UNREACHABLE      = 10;
+  MSG_SNAP_STATUS      = 11;
+  MSG_CHECK_QUORUM     = 12;
+  MSG_TRANSFER_LEADER  = 13;
+  MSG_TIMEOUT_NOW      = 14;
+  MSG_READ_INDEX       = 15;
+  MSG_READ_INDEX_RESP  = 16;
+  MSG_PRE_VOTE         = 17;
+  MSG_PRE_VOTE_RESP    = 18;
+  MSG_STORAGE_APPEND      = 19;  // 存储层日志追加请求
+  MSG_STORAGE_APPEND_RESP = 20;  // 存储层日志追加响应
+  MSG_STORAGE_APPLY       = 21;  // 存储层状态机应用请求
+  MSG_STORAGE_APPLY_RESP  = 22;  // 存储层状态机应用响应
+  MSG_FORGET_LEADER       = 23;  // 主动忘记当前 Leader
 }
 
-// 定义 message 消息
 message message {
-    optional message_type type = 1;
-    optional uint64 to = 2;
-    optional uint64 from = 3;
-    optional uint64 term = 4;
-	// logTerm is generally used for appending Raft logs to followers. For example,
-	// (type=MsgApp,index=100,logTerm=5) means leader appends entries starting at
-	// index=101, and the term of entry at index 100 is 5.
-	// (type=MsgAppResp,reject=true,index=100,logTerm=5) means follower rejects some
-	// entries from its leader as it already has an entry with term 5 at index 100.    
-    optional uint64 log_term = 5;
-    optional uint64 index = 6;
-    repeated entry entries = 7;
-    optional uint64 commit = 8;
-    optional snapshot snapshot = 9;
-    optional bool reject = 10;
-    optional uint64 reject_hint = 11;
-    optional bytes context = 12;
+  required message_type type          = 1;
+  required uint64 to                  = 2;  // 目标节点 ID
+  required uint64 from                = 3;  // 发送方节点 ID
+  required uint64 term                = 4;  // 当前任期
+  // logTerm is generally used for appending Raft logs to followers. For example,
+  // (type=MsgApp,index=100,logTerm=5) means the leader appends entries starting
+  // at index=101, and the term of the entry at index 100 is 5.
+  // (type=MsgAppResp,reject=true,index=100,logTerm=5) means follower rejects some
+  // entries from its leader as it already has an entry with term 5 at index 100.
+  // (type=MsgStorageAppendResp,index=100,logTerm=5) means the local node wrote
+  // entries up to index=100 in stable storage, and the term of the entry at index
+  // 100 was 5. This doesn't always mean that the corresponding MsgStorageAppend
+  // message was the one that carried these entries, just that those entries were
+  // stable at the time of processing the corresponding MsgStorageAppend.  
+  optional uint64 log_term            = 5;  // 日志任期（用于一致性检查）
+  required uint64 index               = 6;  // 日志索引
+  repeated entry entries              = 7;  // 日志条目列表
+  required uint64 commit              = 8;  // 已提交索引
+  // (type=MsgStorageAppend,vote=5,term=10) means the local node is voting for
+	// peer 5 in term 10. For MsgStorageAppends, the term, vote, and commit fields
+	// will either all be set (to facilitate the construction of a HardState) if
+	// any of the fields have changed or will all be unset if none of the fields
+	// have changed.
+  optional uint64 vote                = 13; // 当前投票目标
+	// snapshot is non-nil and non-empty for MsgSnap messages and nil for all other
+	// message types. However, peer nodes running older binary versions may send a
+	// non-nil, empty value for the snapshot field of non-MsgSnap messages. Code
+	// should be prepared to handle such messages.
+  optional snapshot snapshot          = 9;  // 快照数据
+  optional bool reject                = 10; // 是否拒绝请求
+  optional uint64 reject_hint         = 11; // 拒绝时的日志提示
+  optional bytes context              = 12; // 上下文数据
+	// responses are populated by a raft node to instruct storage threads on how
+	// to respond and who to respond to when the work associated with a message
+	// is complete. Populated for MsgStorageAppend and MsgStorageApply messages.
+  repeated message     responses   = 14;
 }
 
-// 定义 hard_state 消息
+// ---------------------------------------------------
+// 持久化状态与配置变更
+// ---------------------------------------------------
 message hard_state {
-    optional uint64 term = 1;
-    optional uint64 vote = 2;
-    optional uint64 commit = 3;
+  required uint64 term   = 1;
+  required uint64 vote   = 2;
+  required uint64 commit = 3;
 }
 
-// 定义 conf_change_transition 枚举
 // ConfChangeTransition specifies the behavior of a configuration change with
 // respect to joint consensus.
 enum conf_change_transition {
-	// Automatically use the simple protocol if possible, otherwise fall back
-	// to ConfChangeJointImplicit. Most applications will want to use this.    
-    conf_change_transition_auto = 0;
-	// Use joint consensus unconditionally, and transition out of them
+  // Automatically use the simple protocol if possible, otherwise fall back
+	// to ConfChangeJointImplicit. Most applications will want to use this.
+  CONF_CHANGE_TRANSITION_AUTO           = 0;
+  // Use joint consensus unconditionally, and transition out of them
 	// automatically (by proposing a zero configuration change).
 	//
 	// This option is suitable for applications that want to minimize the time
 	// spent in the joint configuration and do not store the joint configuration
-	// in the state machine (outside of InitialState).    
-    conf_change_transition_joint_implicit = 1;
-	// Use joint consensus and remain in the joint configuration until the
+	// in the state machine (outside of InitialState).
+  CONF_CHANGE_TRANSITION_JOINT_IMPLICIT = 1;
+  // Use joint consensus and remain in the joint configuration until the
 	// application proposes a no-op configuration change. This is suitable for
 	// applications that want to explicitly control the transitions, for example
-	// to use a custom payload (via the Context field).    
-    conf_change_transition_joint_explicit = 2;
+	// to use a custom payload (via the Context field).
+  CONF_CHANGE_TRANSITION_JOINT_EXPLICIT = 2;
 }
 
-// 定义 conf_state 消息
 message conf_state {
-	// The voters in the incoming config. (If the configuration is not joint,
-	// then the outgoing config is empty).    
-    repeated uint64 voters = 1;
-	// The learners in the incoming config.
-    repeated uint64 learners = 2;
-	// The voters in the outgoing config.    
-    repeated uint64 voters_outgoing = 3;
-	// The nodes that will become learners when the outgoing config is removed.
+  // The voters in the incoming config. (If the configuration is not joint,
+	// then the outgoing config is empty).
+  repeated uint64 voters           = 1;
+  // The learners in the incoming config.
+  repeated uint64 learners         = 2;
+  // The voters in the outgoing config.
+  repeated uint64 voters_outgoing  = 3;
+  // The nodes that will become learners when the outgoing config is removed.
 	// These nodes are necessarily currently in nodes_joint (or they would have
-	// been added to the incoming config right away).    
-    repeated uint64 learners_next = 4;
-    // If set, the config is joint and Raft will automatically transition into
+	// been added to the incoming config right away).
+  repeated uint64 learners_next    = 4;
+  // If set, the config is joint and Raft will automatically transition into
 	// the final config (i.e. remove the outgoing config) when this is safe.
-    optional bool auto_leave = 5;
+  required bool auto_leave         = 5;  // proto2 必须 required
 }
 
-// 定义 conf_change_type 枚举
 enum conf_change_type {
-    conf_change_add_node = 0;
-    conf_change_remove_node = 1;
-    conf_change_update_node = 2;
-    conf_change_add_learner_node = 3;
+  CONF_CHANGE_ADD_NODE         = 0;
+  CONF_CHANGE_REMOVE_NODE      = 1;
+  CONF_CHANGE_UPDATE_NODE      = 2;
+  CONF_CHANGE_ADD_LEARNER_NODE = 3;
 }
 
-// 定义 conf_change 消息
 message conf_change {
-    optional conf_change_type type = 2;
-    optional uint64 node_id = 3;
-    optional bytes context = 4;
+  required conf_change_type type = 2;
+  required uint64 node_id        = 3;  // snake_case 字段名
+  optional bytes context         = 4;
 
-    // NB: this is used only by etcd to thread through a unique identifier.
+	// NB: this is used only by etcd to thread through a unique identifier.
 	// Ideally it should really use the Context instead. No counterpart to
 	// this field exists in ConfChangeV2.
-    optional uint64 id = 1;
+  required uint64 id             = 1;  // etcd 专用 ID
 }
 
-// 定义 conf_change_single 消息
 // ConfChangeSingle is an individual configuration change operation. Multiple
 // such operations can be carried out atomically via a ConfChangeV2.
 message conf_change_single {
-    optional conf_change_type type = 1;
-    optional uint64 node_id = 2;
+  required conf_change_type type = 1;
+  required uint64 node_id        = 2;  // snake_case 字段名
 }
 
-// 定义 conf_change_v2 消息
 // ConfChangeV2 messages initiate configuration changes. They support both the
 // simple "one at a time" membership change protocol and full Joint Consensus
 // allowing for arbitrary changes in membership.
@@ -183,7 +205,7 @@ message conf_change_single {
 //
 // [1]: https://github.com/ongardie/dissertation/blob/master/online-trim.pdf
 message conf_change_v2 {
-    optional conf_change_transition transition = 1;
-    repeated conf_change_single changes = 2;
-    optional bytes context = 3;
+  required conf_change_transition transition = 1;
+  repeated conf_change_single changes        = 2;
+  optional bytes context                     = 3;
 }

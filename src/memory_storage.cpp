@@ -6,7 +6,6 @@
 #include <cstdint>
 
 #include "protobuf.h"
-#include "spdlog/spdlog.h"
 
 namespace lepton {
 
@@ -46,7 +45,7 @@ memory_storage::memory_storage() {
   auto entry = ents_.Add();
   entry->set_term(0);
   entry->set_index(0);
-  entry->set_type(raftpb::entry_type::entry_normal);
+  entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
 }
 
 leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>
@@ -130,7 +129,7 @@ leaf::result<void> memory_storage::apply_snapshot(raftpb::snapshot&& snapshot) {
   auto entry = ents_.Add();
   entry->set_term(snapshot_.metadata().term());
   entry->set_index(index);
-  entry->set_type(raftpb::entry_type::entry_normal);
+  entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
   return {};
 }
 

@@ -123,7 +123,7 @@ void raft::tick_election() {
     election_elapsed_ = 0;
     raftpb::message m;
     m.set_from(id_);
-    m.set_type(raftpb::message_type::msg_hup);
+    m.set_type(raftpb::message_type::MSG_HUP);
     step(std::move(m));
   }
 }

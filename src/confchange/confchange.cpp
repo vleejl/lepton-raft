@@ -249,19 +249,19 @@ leaf::result<void> changer::apply(
       continue;
     }
     switch (cc.type()) {
-      case raftpb::conf_change_type::conf_change_add_node: {
+      case raftpb::conf_change_type::CONF_CHANGE_ADD_NODE: {
         make_voters(cc.node_id(), cfg, prs);
         break;
       }
-      case raftpb::conf_change_type::conf_change_add_learner_node: {
+      case raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE: {
         make_learners(cc.node_id(), cfg, prs);
         break;
       }
-      case raftpb::conf_change_type::conf_change_remove_node: {
+      case raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE: {
         remove(cc.node_id(), cfg, prs);
         break;
       }
-      case raftpb::conf_change_type::conf_change_update_node: {
+      case raftpb::conf_change_type::CONF_CHANGE_UPDATE_NODE: {
         break;
       }
       default:

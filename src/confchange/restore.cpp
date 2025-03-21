@@ -62,7 +62,7 @@ to_conf_change_single(const raftpb::conf_state &cs) {
     // If there are outgoing voters, first add them one by one so that the
     // (non-joint) config has them all.
     out.emplace_back(create_conf_change_single(
-        raftpb::conf_change_type::conf_change_add_node, id));
+        raftpb::conf_change_type::CONF_CHANGE_ADD_NODE, id));
   }
 
   // We're done constructing the outgoing slice, now on to the incoming one
@@ -76,22 +76,22 @@ to_conf_change_single(const raftpb::conf_state &cs) {
   // First, we'll remove all of the outgoing voters.
   for (const auto &id : cs.voters_outgoing()) {
     in.emplace_back(create_conf_change_single(
-        raftpb::conf_change_type::conf_change_remove_node, id));
+        raftpb::conf_change_type::CONF_CHANGE_ADD_NODE, id));
   }
   // Then we'll add the incoming voters and learners.
   for (const auto &id : cs.voters()) {
     in.emplace_back(create_conf_change_single(
-        raftpb::conf_change_type::conf_change_add_node, id));
+        raftpb::conf_change_type::CONF_CHANGE_ADD_NODE, id));
   }
   for (const auto &id : cs.learners()) {
     in.emplace_back(create_conf_change_single(
-        raftpb::conf_change_type::conf_change_add_learner_node, id));
+        raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE, id));
   }
   // Same for LearnersNext; these are nodes we want to be learners but which
   // are currently voters in the outgoing config.
   for (const auto &id : cs.learners_next()) {
     in.emplace_back(create_conf_change_single(
-        raftpb::conf_change_type::conf_change_add_learner_node, id));
+        raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE, id));
   }
   return {out, in};
 }
