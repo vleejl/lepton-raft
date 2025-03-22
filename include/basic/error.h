@@ -45,6 +45,7 @@ enum class logic_error {
   CONFIG_MISMATCH,
   KEY_NOT_FOUND,
   INVALID_PARAM,
+  PROPOSAL_DROPPED,
 };
 
 // 通用的错误分类基类

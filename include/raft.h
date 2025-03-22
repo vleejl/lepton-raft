@@ -3,6 +3,7 @@
 #include <raft.pb.h>
 
 #include <cstdint>
+#include <tuple>
 #include <vector>
 
 #include "config.h"
@@ -10,6 +11,7 @@
 #include "node.h"
 #include "progress.h"
 #include "protobuf.h"
+#include "quorum.h"
 #include "raft_log.h"
 #include "read_only.h"
 #include "status.h"
@@ -17,16 +19,28 @@
 #include "utility_macros.h"
 namespace lepton {
 
+enum class campaign_type {
+  CAMPAIGN_PRE_ELECTION,
+  CAMPAIGN_ELECTION,
+  CAMPAIGN_TRANSFER,
+};
+
 class raft;
 
 using tick_func = std::function<void()>;
 using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
 leaf::result<raft> new_raft(const config&);
+// stepCandidate is shared by StateCandidate and StatePreCandidate; the
+// difference is whether they respond to MsgVoteResp or MsgPreVoteResp.
+leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
+leaf::result<void> step_follower(raft& r, raftpb::message&& m);
 
 class raft {
  private:
   NOT_COPYABLE(raft)
   friend leaf::result<raft> new_raft(const config&);
+  friend leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
+  friend leaf::result<void> step_follower(raft& r, raftpb::message&& m);
 
   void load_state(const raftpb::hard_state& state);
 
@@ -35,6 +49,14 @@ class raft {
   // send schedules persisting state to a stable storage and AFTER that
   // sending the message (as part of next Ready message processing).
   void send(raftpb::message&& message);
+
+  void hup(campaign_type t);
+
+  void handle_append_entries(raftpb::message&& message);
+
+  void handle_heartbeat(raftpb::message&& message);
+
+  void handle_snapshot(raftpb::message&& message);
 
   // maybeSendAppend sends an append RPC with new entries to the given peer,
   // if necessary. Returns true if a message was sent. The sendIfEmpty
@@ -76,6 +98,14 @@ class raft {
   // which is true when its own id is in progress list.
   bool promotable();
 
+  // campaign transitions the raft instance to candidate state.
+  // This must only be
+  // called after verifying that this is a legitimate transition.
+  void campaign(campaign_type t);
+
+  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(
+      std::uint64_t id, raftpb::message_type vt, bool vote);
+
  public:
   //  字段初始化顺序和etcd-raft 一致
   raft(std::uint64_t id, raft_log&& raft_log_handle,
@@ -88,7 +118,7 @@ class raft {
         raft_log_handle_(std::move(raft_log_handle)),
         max_msg_size_(max_size_per_msg),
         max_uncommitted_size_(max_uncommitted_entries_size),
-        prs_(tracker::progress_tracker{max_inflight_msgs}),
+        trk_(tracker::progress_tracker{max_inflight_msgs}),
         is_learner_(false),
         lead_(NONE),
         read_only_(read_only_opt),
@@ -98,6 +128,8 @@ class raft {
         election_timeout_(election_tick),
         disable_proposal_forwarding_(disable_proposal_forwarding) {}
   raft(raft&&) = default;
+
+  void become_leader();
 
   void become_follower(std::uint64_t term, std::uint64_t lead);
 
@@ -131,7 +163,7 @@ class raft {
 
   // 跟踪所有 Raft 节点的进度。ProgressTracker
   // 是一个用于跟踪节点在复制日志过程中的进度（如已复制的日志条目）。它通常会跟踪每个节点的日志索引、已提交的日志索引等。
-  tracker::progress_tracker prs_;
+  tracker::progress_tracker trk_;
 
   // 当前节点 raft 状态
   state_type state_type_;
@@ -201,7 +233,7 @@ class raft {
   int heartbeat_timeout_ = 0;
   // 选举超时的值。每个 Raft
   // 节点都会设置一个选举超时值，当超过此时间后，节点如果没有收到来自领导者的消息，会开始启动新的选举过程。
-  int election_timeout_ = 0;
+  const int election_timeout_ = 0;
 
   // randomizedElectionTimeout is a random number between
   // [electiontimeout, 2 * electiontimeout - 1]. It gets reset

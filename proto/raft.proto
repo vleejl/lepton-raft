@@ -36,30 +36,51 @@ message snapshot {
 // For description of different message types, see:
 // https://pkg.go.dev/go.etcd.io/etcd/raft/v3#hdr-MessageType
 enum message_type {
-  MSG_HUP              = 0;
-  MSG_BEAT             = 1;
-  MSG_PROP             = 2;
-  MSG_APP              = 3;
-  MSG_APP_RESP         = 4;
-  MSG_VOTE             = 5;
-  MSG_VOTE_RESP        = 6;
-  MSG_SNAP             = 7;
-  MSG_HEARTBEAT        = 8;
-  MSG_HEARTBEAT_RESP   = 9;
-  MSG_UNREACHABLE      = 10;
-  MSG_SNAP_STATUS      = 11;
-  MSG_CHECK_QUORUM     = 12;
-  MSG_TRANSFER_LEADER  = 13;
-  MSG_TIMEOUT_NOW      = 14;
-  MSG_READ_INDEX       = 15;
-  MSG_READ_INDEX_RESP  = 16;
-  MSG_PRE_VOTE         = 17;
-  MSG_PRE_VOTE_RESP    = 18;
-  MSG_STORAGE_APPEND      = 19;  // 存储层日志追加请求
-  MSG_STORAGE_APPEND_RESP = 20;  // 存储层日志追加响应
-  MSG_STORAGE_APPLY       = 21;  // 存储层状态机应用请求
-  MSG_STORAGE_APPLY_RESP  = 22;  // 存储层状态机应用响应
-  MSG_FORGET_LEADER       = 23;  // 主动忘记当前 Leader
+  // ================== 选举与角色转换消息 ==================
+  MSG_HUP              = 0;  // 触发选举（场景：Follower选举超时后转为Candidate，发送角色：节点自身定时器，接收角色：Candidate）
+  MSG_BEAT             = 1;  // Leader心跳触发信号（场景：Leader周期性发送心跳，发送角色：Leader定时器，接收角色：Leader自身处理）
+
+  // ================== 客户端请求与日志复制 ==================
+  MSG_PROP             = 2;  // 客户端写请求提案（场景：客户端发起写操作，发送角色：Follower转发或Leader直接接收，接收角色：Leader）
+  MSG_APP              = 3;  // Leader→Follower的日志追加请求（场景：日志复制阶段，发送角色：Leader，接收角色：Follower）
+  MSG_APP_RESP         = 4;  // Follower→Leader的日志追加响应（场景：日志复制完成通知，发送角色：Follower，接收角色：Leader）
+
+  // ================== 选举投票消息 ==================
+  MSG_VOTE             = 5;  // Candidate的投票请求（场景：选举阶段，发送角色：Candidate，接收角色：所有节点）
+  MSG_VOTE_RESP        = 6;  // 节点→Candidate的投票响应（场景：选举结果收集，发送角色：Follower/Leader，接收角色：Candidate）
+
+  // ================== 快照与状态同步 ==================
+  MSG_SNAP             = 7;  // Leader→Follower的快照传输（场景：Follower日志严重落后，发送角色：Leader，接收角色：Follower）
+  MSG_SNAP_STATUS      = 11; // Follower→Leader的快照状态报告（场景：快照传输成功/失败，发送角色：Follower，接收角色：Leader）
+
+  // ================== 心跳与存活检测 ==================
+  MSG_HEARTBEAT        = 8;  // Leader→Follower的心跳（场景：维持领导权，发送角色：Leader，接收角色：Follower）
+  MSG_HEARTBEAT_RESP   = 9;  // Follower→Leader的心跳响应（场景：心跳存活确认，发送角色：Follower，接收角色：Leader）
+
+  // ================== 网络与系统控制 ==================
+  MSG_UNREACHABLE      = 10; // 标记节点不可达（场景：网络优化，发送角色：通信层，接收角色：Leader调整重试策略）
+  MSG_CHECK_QUORUM     = 12; // Leader的多数派存活检查（场景：防止网络分区脑裂，发送角色：Leader定时器，接收角色：Leader自身处理）
+
+  // ================== 领导权转移 ==================
+  MSG_TRANSFER_LEADER  = 13; // 请求Leader转移权限（场景：运维操作，发送角色：客户端或节点，接收角色：Leader）
+  MSG_TIMEOUT_NOW      = 14; // Leader→Follower的立即选举命令（场景：快速领导权转移，发送角色：Leader，接收角色：目标Follower）
+
+  // ================== 只读请求处理 ==================
+  MSG_READ_INDEX       = 15; // 客户端→Follower的只读请求（场景：线性一致读，发送角色：客户端/Follower转发，接收角色：Leader）
+  MSG_READ_INDEX_RESP  = 16; // Leader→客户端的只读响应（场景：返回安全读索引，发送角色：Leader，接收角色：客户端）
+
+  // ================== 预投票机制 ==================
+  MSG_PRE_VOTE         = 17; // Candidate的预投票请求（场景：避免无效选举，发送角色：预Candidate，接收角色：所有节点）
+  MSG_PRE_VOTE_RESP    = 18; // 节点→Candidate的预投票响应（场景：预投票结果收集，发送角色：Follower/Leader，接收角色：预Candidate）
+
+  // ================== 存储层交互 ==================
+  MSG_STORAGE_APPEND      = 19; // 请求存储层持久化日志（场景：日志落盘，发送角色：Leader/存储线程，接收角色：存储引擎）
+  MSG_STORAGE_APPEND_RESP = 20; // 存储层→Raft的持久化结果（场景：日志持久化确认，发送角色：存储引擎，接收角色：Leader）
+  MSG_STORAGE_APPLY       = 21; // 请求存储层提交日志到状态机（场景：状态机更新，发送角色：Leader/提交线程，接收角色：存储引擎）
+  MSG_STORAGE_APPLY_RESP  = 22; // 存储层→Raft的状态机提交结果（场景：提交完成通知，发送角色：存储引擎，接收角色：Leader）
+
+  // ================== 异常恢复 ==================
+  MSG_FORGET_LEADER       = 23; // 强制Follower忘记Leader（场景：网络分区恢复，发送角色：控制台或监控系统，接收角色：Follower）
 }
 
 message message {

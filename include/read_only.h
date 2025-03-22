@@ -20,7 +20,7 @@ namespace lepton {
 // RequestCtx
 struct read_state {
   std::uint64_t index;
-  absl::Span<std::byte> request_ctx;
+  std::string request_ctx;
 };
 
 struct read_index_status {

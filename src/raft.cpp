@@ -12,6 +12,7 @@
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "raft_log.h"
+#include "read_only.h"
 #include "restore.h"
 #include "spdlog/spdlog.h"
 #include "status.h"
@@ -53,7 +54,7 @@ leaf::result<raft> new_raft(const config& c) {
   r.become_follower(r.term_, NONE);
 
   std::vector<std::string> node_strs;
-  for (const auto& n : r.prs_.vote_nodes()) {
+  for (const auto& n : r.trk_.vote_nodes()) {
     node_strs.push_back(fmt::format("{}", n));
   }
   SPDLOG_INFO(
@@ -65,8 +66,244 @@ leaf::result<raft> new_raft(const config& c) {
   return r;
 }
 
+leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
+  // Only handle vote responses corresponding to our candidacy (while in
+  // StateCandidate, we may get stale MsgPreVoteResp messages in this term from
+  // our pre-candidate state).
+  auto post_vote_resp_func = [&]() {
+    const auto [gr, rj, res] = r.poll(r.id_, m.type(), !m.reject());
+    switch (res) {
+      case quorum::vote_result::VOTE_WON:
+        if (r.state_type_ == state_type::STATE_PRE_CANDIDATE) {
+          r.campaign(campaign_type::CAMPAIGN_ELECTION);
+        } else {
+          r.become_leader();
+          r.bcast_append();
+        }
+        break;
+      case quorum::vote_result::VOTE_LOST:
+        // pb.MsgPreVoteResp contains future term of pre-candidate
+        // m.Term > r.Term; reuse r.Term
+        r.become_follower(r.term_, NONE);
+        break;
+      case quorum::vote_result::VOTE_PENDING:
+        break;
+    }
+  };
+  switch (m.type()) {
+    case raftpb::MSG_PROP: {
+      SPDLOG_INFO("{} no leader at term {}; dropping proposal", r.id_, r.term_);
+      return new_error(logic_error::PROPOSAL_DROPPED);
+    }
+    case raftpb::MSG_APP: {
+      r.become_follower(m.term(), m.from());  // always m.Term == r.Term
+      r.handle_append_entries(std::move(m));
+      break;
+    }
+    case raftpb::MSG_VOTE_RESP: {
+      assert(r.state_type_ == state_type::STATE_CANDIDATE);
+      post_vote_resp_func();
+      break;
+    }
+    case raftpb::MSG_SNAP: {
+      r.become_follower(m.term(), m.from());  // always m.Term == r.Term
+      r.handle_snapshot(std::move(m));
+      break;
+    }
+    case raftpb::MSG_HEARTBEAT: {
+      r.become_follower(m.term(), m.from());  // always m.Term == r.Term
+      r.handle_heartbeat(std::move(m));
+      break;
+    }
+    case raftpb::MSG_PRE_VOTE_RESP: {
+      assert(r.state_type_ == state_type::STATE_PRE_CANDIDATE);
+      post_vote_resp_func();
+      break;
+    }
+    default:
+      break;
+      // clang-format off
+      // ==============================================================
+      // Candidate 未处理消息类型的说明（由其他角色或机制处理）
+      // ==============================================================
+      //
+      // ------------------- 选举与角色转换相关 -------------------
+      // MSG_HUP:         触发选举的消息（仅 Follower 超时后转换为 Candidate 时处理）
+      //                   Candidate 已处于选举中，重复触发会导致状态冲突
+      // MSG_PRE_VOTE:    预投票请求（由 Pre-Candidate 处理，Candidate 已进入正式选举阶段）
+
+      // ------------------- Leader 专属消息 -------------------
+      // MSG_BEAT:        Leader 心跳触发信号（仅 Leader 自身定时器处理）
+      // MSG_CHECK_QUORUM: Leader 的多数派检查（Candidate 无权限维护 Leader 状态）
+      // MSG_HEARTBEAT_RESP: 心跳响应（由 Leader 确认 Follower 存活，Candidate 无需处理）
+
+      // ------------------- 日志复制与网络优化 -------------------
+      // MSG_APP_RESP:    日志追加响应（由 Leader 处理，Candidate 不负责日志复制）
+      // MSG_UNREACHABLE: 节点不可达标记（由 Leader 优化重试策略，Candidate 不管理网络）
+      // MSG_SNAP_STATUS: 快照传输状态（由 Leader 跟踪快照进度，Candidate 不处理快照）
+
+      // ------------------- 领导权转移与只读请求 -------------------
+      // MSG_TRANSFER_LEADER: 领导权转移请求（由 Leader 处理，Candidate 无权限转移）
+      // MSG_TIMEOUT_NOW: 强制选举命令（由 Leader 发送给 Follower，Candidate 不处理）
+      // MSG_READ_INDEX:  只读请求（由 Leader 处理，Candidate 无法保证线性一致性）
+      // MSG_READ_INDEX_RESP: 只读响应（由 Leader 返回，Candidate 不处理客户端请求）
+
+      // ------------------- 存储层交互消息 -------------------
+      // MSG_STORAGE_APPEND:      存储层日志追加请求（由 Leader/存储线程处理）
+      // MSG_STORAGE_APPEND_RESP: 存储层追加响应（由 Leader 确认持久化结果）
+      // MSG_STORAGE_APPLY:       存储层状态机应用请求（由提交线程处理）
+      // MSG_STORAGE_APPLY_RESP:  存储层应用响应（由 Leader 跟踪状态机进度）
+      // MSG_FORGET_LEADER:       忘记 Leader（由 Follower 处理，Candidate 无需清理 Leader 状态）
+      //
+      // ==============================================================
+      // 设计原则：Candidate 仅处理选举投票响应（MSG_VOTE_RESP/MSG_PRE_VOTE_RESP）
+      // 和可能使其退位为 Follower 的消息（如更高任期的 MSG_APP/MSG_HEARTBEAT）
+      // ==============================================================
+      // clang-format on
+  }
+  return {};
+}
+
 leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
-  // TODO
+  switch (m.type()) {
+    case raftpb::MSG_PROP: {  // client request, 客户端提案
+      if (r.lead_ == NONE) {  // 若 Follower 无 Leader（如网络分区），直接拒绝。
+        SPDLOG_INFO("{} no leader at term {}; dropping proposal", r.id_,
+                    r.term_);
+        return new_error(logic_error::PROPOSAL_DROPPED);
+      } else if (r.disable_proposal_forwarding_) {
+        // 若配置禁止转发（disableProposalForwarding），拒绝提案（避免脑裂时多
+        // Leader 写入）。
+        SPDLOG_INFO(
+            "{} not forwarding to leader {} at term {}; dropping "
+            "proposal",
+            r.id_, r.lead_, r.term_);
+        return new_error(logic_error::PROPOSAL_DROPPED);
+      }
+      m.set_to(r.lead_);
+      r.send(std::move(m));
+      break;
+    }
+    case raftpb::MSG_APP: {  // Leader 日志追加
+      // 收到 Leader 的日志追加请求后，重置选举计时器（避免发起无用选举）
+      r.election_elapsed_ = 0;
+      r.lead_ = m.from();
+      // 调用 handleAppendEntries
+      // 处理日志一致性（检查日志连续性、追加新条目、更新提交索引）。
+      r.handle_append_entries(std::move(m));
+      break;
+    }
+    case raftpb::MSG_HEARTBEAT: {
+      r.election_elapsed_ = 0;  // 重置选举计时器，确认 Leader 存活。
+      r.lead_ = m.from();
+      r.handle_heartbeat(std::move(
+          m));  // 调用 handleHeartbeat 更新提交索引并可能触发日志提交。
+      break;
+    }
+    case raftpb::MSG_SNAP: {
+      // 收到快照消息，重置选举计时器，处理快照消息。
+      r.election_elapsed_ = 0;
+      r.lead_ = m.from();
+      r.handle_snapshot(std::move(m));
+      break;
+    }
+    case raftpb::MSG_TRANSFER_LEADER: {
+      if (r.lead_ == NONE) {
+        SPDLOG_INFO("{} no leader at term {}; dropping leader transfer msg",
+                    r.id_, r.term_);
+        return {};
+      }
+      m.set_to(r.lead_);
+      r.send(std::move(m));
+      break;
+    }
+    case raftpb::MSG_TIMEOUT_NOW: {  // 立即超时选举
+      // 收到 Leader 的 MsgTimeoutNow 后，立即发起选举（用于 Leader
+      // 主动转移权力）。 直接进入选举阶段（跳过预投票），因为此时 Leader
+      // 已明确授权。
+      SPDLOG_INFO(
+          "{} [term {}] received MsgTimeoutNow from {} and starts an election "
+          "to get leadership.",
+          r.id_, r.term_, m.from());
+      // Leadership transfers never use pre-vote even if r.preVote is true; we
+      // know we are not recovering from a partition so there is no need for the
+      // extra round trip.
+      r.hup(campaign_type::CAMPAIGN_TRANSFER);
+      break;
+    }
+    case raftpb::MSG_READ_INDEX: {
+      if (r.lead_ == NONE) {
+        SPDLOG_INFO("{} no leader at term {}; dropping index reading msg",
+                    r.id_, r.term_);
+        return {};
+      }
+      m.set_to(r.lead_);
+      r.send(std::move(m));
+      break;
+    }
+    case raftpb::MSG_READ_INDEX_RESP: {
+      if (m.entries_size() != 1) {
+        SPDLOG_INFO("{} invalid format of MsgReadIndexResp from {}", r.id_,
+                    m.from());
+        return {};
+      }
+      r.read_states_.emplace_back(
+          read_state{m.entries(0).index(), m.entries(0).data()});
+      break;
+    }
+    case raftpb::MSG_FORGET_LEADER: {  // 强制 Follower 忘记当前
+                                       // Leader（用于网络分区恢复后清理旧
+                                       // Leader）。
+      if (r.read_only_.read_only_opt ==
+          read_only_option::READ_ONLY_LEASE_BASED) {
+        // 若使用 ReadOnlyLeaseBased（租约机制需持续 Leader 心跳），忽略此消息。
+        SPDLOG_INFO("{} [term {}] ignoring MsgForgetLeader", r.id_, r.term_);
+        return {};
+      }
+      if (r.lead_ != NONE) {
+        SPDLOG_INFO("%x forgetting leader %x at term %d", r.id_, r.lead_,
+                    r.term_);
+        return {};
+      }
+      break;
+    }
+    default:
+      break;
+      // clang-format off
+      // ==============================================================
+      // Follower 未处理消息类型的说明（由其他角色或机制处理）
+      // ==============================================================
+      //
+      // ------------------- 选举与角色转换相关 -------------------
+      // MSG_HUP:         触发选举的消息（仅 Follower 超时后转换为 Candidate 时处理）
+      // MSG_VOTE:        正式投票请求（由 Candidate 处理，Follower 无投票权）
+      // MSG_VOTE_RESP:   投票响应结果（由 Candidate 收集，Follower 不参与）
+      // MSG_PRE_VOTE:    预投票请求（由 Candidate 处理，Follower 不参与预投票）
+      // MSG_PRE_VOTE_RESP: 预投票响应（由 Candidate 收集，Follower 不参与）
+
+      // ------------------- Leader 专属消息 -------------------
+      // MSG_BEAT:        Leader 心跳触发信号（仅 Leader 自身定时器处理）
+      // MSG_CHECK_QUORUM: Leader 的多数派检查（仅 Leader 维护自身状态）
+      // MSG_HEARTBEAT_RESP: 心跳响应（由 Leader 确认 Follower 存活）
+
+      // ------------------- 日志复制与网络优化 -------------------
+      // MSG_APP_RESP:    日志追加响应（由 Leader 更新 nextIndex/matchIndex）
+      // MSG_UNREACHABLE: 节点不可达标记（由 Leader 优化重试策略）
+      // MSG_SNAP_STATUS: 快照传输状态（由 Leader 跟踪快照进度）
+
+      // ------------------- 存储层交互消息 -------------------
+      // MSG_STORAGE_APPEND:      存储层日志追加请求（由 Leader/存储线程处理）
+      // MSG_STORAGE_APPEND_RESP: 存储层追加响应（由 Leader 确认持久化结果）
+      // MSG_STORAGE_APPLY:       存储层状态机应用请求（由提交线程处理）
+      // MSG_STORAGE_APPLY_RESP:  存储层应用响应（由 Leader 跟踪状态机进度）
+      //
+      // ==============================================================
+      // 设计原则：Follower 仅处理 Leader 指令和客户端请求转发
+      // 其他消息由协议角色分离机制保证处理正确性
+      // =================================================================
+      // clang-format on
+  }
+  return {};
 }
 
 void raft::load_state(const raftpb::hard_state& state) {
@@ -131,9 +368,25 @@ void raft::send(raftpb::message&& message) {
   msgs_.Add(std::move(message));
 }
 
+void raft::hup(campaign_type t) {
+  // TODO
+}
+
+void raft::handle_append_entries(raftpb::message&& message) {
+  // TODO
+}
+
+void raft::handle_heartbeat(raftpb::message&& message) {
+  // TODO
+}
+
+void raft::handle_snapshot(raftpb::message&& message) {
+  // TODO
+}
+
 bool raft::maybe_send_append(std::uint64_t id, bool send_if_empty) {
-  auto pr_iter = prs_.progress_map_mutable_view().mutable_view().find(id);
-  assert(pr_iter != prs_.progress_map_mutable_view().mutable_view().end());
+  auto pr_iter = trk_.progress_map_mutable_view().mutable_view().find(id);
+  assert(pr_iter != trk_.progress_map_mutable_view().mutable_view().end());
   auto& pr = pr_iter->second;
   if (pr.is_paused()) {
     return false;
@@ -147,7 +400,7 @@ bool raft::maybe_send_append(std::uint64_t id, bool send_if_empty) {
 void raft::send_append(std::uint64_t id) { maybe_send_append(id, true); }
 
 void raft::bcast_append() {
-  auto& progress_map = prs_.progress_map_view().view();
+  auto& progress_map = trk_.progress_map_view().view();
   for (const auto& [id, pr] : progress_map) {
     if (id == id_) {
       continue;
@@ -157,7 +410,7 @@ void raft::bcast_append() {
 }
 
 bool raft::maybe_commit() {
-  auto mci = prs_.committed();
+  auto mci = trk_.committed();
   return raft_log_handle_.maybe_commit(mci, term_);
 }
 
@@ -180,13 +433,13 @@ void raft::abort_leader_transfer() { leader_transferee_ = NONE; }
 
 raftpb::conf_state raft::switch_to_config(tracker::config&& cfg,
                                           tracker::progress_map&& pgs_map) {
-  prs_.update_config(std::move(cfg));
-  prs_.update_progress(std::move(pgs_map));
+  trk_.update_config(std::move(cfg));
+  trk_.update_progress(std::move(pgs_map));
 
   SPDLOG_INFO("{} switched to configuration {}", id_,
-              prs_.config_view().string());
-  auto cs = prs_.conf_state();
-  auto& progress_map = prs_.progress_map_view().view();
+              trk_.config_view().string());
+  auto cs = trk_.conf_state();
+  auto& progress_map = trk_.progress_map_view().view();
   auto iter_pr = progress_map.find(id_);
   auto exist = iter_pr != progress_map.end();
 
@@ -233,7 +486,7 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg,
     // Otherwise, still probe the newly added replicas; there's no reason to
     // let them wait out a heartbeat interval (or the next incoming
     // proposal).
-    prs_.visit([&](std::uint64_t id, const tracker::progress& p) {
+    trk_.visit([&](std::uint64_t id, const tracker::progress& p) {
       maybe_send_append(id, false /* sendIfEmpty */);
     });
   }
@@ -242,7 +495,7 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg,
   // If the the leadTransferee was removed or demoted, abort the leadership
   // transfer.
   if (auto exist =
-          prs_.config_view().voters.id_set().contains(leader_transferee_);
+          trk_.config_view().voters.id_set().contains(leader_transferee_);
       !exist && leader_transferee_ != 0) {
     abort_leader_transfer();
   }
@@ -250,10 +503,31 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg,
 }
 
 bool raft::promotable() {
-  auto pr_iter = prs_.progress_map_view().view().find(id_);
-  assert(pr_iter != prs_.progress_map_view().view().end());
+  auto pr_iter = trk_.progress_map_view().view().find(id_);
+  assert(pr_iter != trk_.progress_map_view().view().end());
   auto& pr = pr_iter->second;
   return !pr.is_learner() && !raft_log_handle_.has_pending_snapshot();
+}
+
+void raft::campaign(campaign_type t) {
+  // TODO
+}
+
+std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(
+    std::uint64_t id, raftpb::message_type vt, bool vote) {
+  if (vote) {
+    SPDLOG_INFO("{} received {} from {} at term {}", id_,
+                magic_enum::enum_name(vt), id, term_);
+  } else {
+    SPDLOG_INFO("{} received {} rejiction from {} at term {}", id_,
+                magic_enum::enum_name(vt), id, term_);
+  }
+  trk_.record_vote(id, vote);
+  return trk_.tally_votes();
+}
+
+void raft::become_leader() {
+  // TODO
 }
 
 void raft::become_follower(std::uint64_t term, std::uint64_t lead) {

@@ -52,7 +52,7 @@ static leaf::result<std::string> process_single_test_case(
         cc.set_type(raftpb::CONF_CHANGE_ADD_LEARNER_NODE);
         break;
       case 'r':
-        cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
+        cc.set_type(raftpb::CONF_CHANGE_REMOVE_NODE);
         break;
       case 'u':
         cc.set_type(raftpb::CONF_CHANGE_UPDATE_NODE);
