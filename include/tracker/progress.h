@@ -62,6 +62,8 @@ class progress {
 
   auto is_learner() const { return is_learner_; }
 
+  auto set_recent_active(bool active) { recent_active_ = active; }
+
   auto recent_active() const { return recent_active_; }
   // ResetState moves the Progress into the specified State, resetting
   // ProbeSent,

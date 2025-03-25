@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "channel.h"
-#include "conf_change.h"
 #include "error.h"
 #include "proxy.h"
 #include "read_only.h"
@@ -200,7 +199,7 @@ struct node_builer : pro::facade_builder
   ::add_convention<node_tick, void()> 
   ::add_convention<node_campaign, leaf::result<void>()>
   ::add_convention<node_propose, leaf::result<void>(absl::Span<std::byte> data)>
-  ::add_convention<node_propose_conf_change, leaf::result<void>(const pro::proxy<conf_change_builder> &conf_change)>
+  ::add_convention<node_propose_conf_change, leaf::result<void>(const raftpb::conf_change_v2 &conf_change)>
   ::add_convention<node_step, leaf::result<void>(raftpb::message msg)>
   ::add_convention<node_ready, ready_channel()>
   ::add_convention<node_advance, void()>

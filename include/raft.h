@@ -8,7 +8,6 @@
 
 #include "config.h"
 #include "error.h"
-#include "node.h"
 #include "progress.h"
 #include "protobuf.h"
 #include "quorum.h"
@@ -30,6 +29,7 @@ class raft;
 using tick_func = std::function<void()>;
 using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
 leaf::result<raft> new_raft(const config&);
+leaf::result<void> step_leader(raft& r, raftpb::message&& m);
 // stepCandidate is shared by StateCandidate and StatePreCandidate; the
 // difference is whether they respond to MsgVoteResp or MsgPreVoteResp.
 leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
@@ -39,6 +39,7 @@ class raft {
  private:
   NOT_COPYABLE(raft)
   friend leaf::result<raft> new_raft(const config&);
+  friend leaf::result<void> step_leader(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_follower(raft& r, raftpb::message&& m);
 
@@ -78,6 +79,8 @@ class raft {
   // r.bcastAppend).
   bool maybe_commit();
 
+  bool append_entries(pb::repeated_entry&& entries);
+
   void tick_election();
 
   void reset(std::uint64_t term);
@@ -91,8 +94,7 @@ class raft {
   //
   // The inputs usually result from restoring a ConfState or applying a
   // ConfChange.
-  raftpb::conf_state switch_to_config(tracker::config&& cfg,
-                                      tracker::progress_map&& pgs_map);
+  raftpb::conf_state switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map);
 
   // promotable indicates whether state machine can be promoted to leader,
   // which is true when its own id is in progress list.
@@ -103,17 +105,20 @@ class raft {
   // called after verifying that this is a legitimate transition.
   void campaign(campaign_type t);
 
-  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(
-      std::uint64_t id, raftpb::message_type vt, bool vote);
+  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id,
+                                                                     raftpb::message_type vt,
+                                                                     bool vote);
+
+  // responseToReadIndexReq constructs a response for `req`. If `req` comes from the peer
+  // itself, a blank value will be returned.
+  raftpb::message response_to_read_index_req(raftpb::message&& req, std::uint64_t read_index);
 
  public:
   //  字段初始化顺序和etcd-raft 一致
-  raft(std::uint64_t id, raft_log&& raft_log_handle,
-       std::uint64_t max_size_per_msg,
-       std::uint64_t max_uncommitted_entries_size,
-       std::size_t max_inflight_msgs, int election_tick, int heartbeat_tick,
-       bool check_quorum, bool pre_vote, read_only_option read_only_opt,
-       bool disable_proposal_forwarding)
+  raft(std::uint64_t id, raft_log&& raft_log_handle, std::uint64_t max_size_per_msg,
+       std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, int election_tick,
+       int heartbeat_tick, bool check_quorum, bool pre_vote, read_only_option read_only_opt,
+       bool disable_proposal_forwarding, bool disable_conf_change_validation)
       : id_(id),
         raft_log_handle_(std::move(raft_log_handle)),
         max_msg_size_(max_size_per_msg),
@@ -121,6 +126,7 @@ class raft {
         trk_(tracker::progress_tracker{max_inflight_msgs}),
         is_learner_(false),
         lead_(NONE),
+        disable_conf_change_validation_(disable_conf_change_validation),
         read_only_(read_only_opt),
         check_quorum_(check_quorum),
         pre_vote_(pre_vote),
@@ -194,6 +200,10 @@ class raft {
   // 记录正在等待应用的配置变更的日志索引。Raft
   // 协议中，配置变更（例如添加或删除节点）是通过日志条目进行的。这个字段确保一次只能有一个配置变更被提交。
   std::uint64_t pending_conf_index_ = 0;
+
+  // disableConfChangeValidation is Config.DisableConfChangeValidation,
+  // see there for details.
+  bool disable_conf_change_validation_ = false;
 
   // an estimate of the size of the uncommitted tail of the Raft log. Used to
   // prevent unbounded log growth. Only maintained by the leader. Reset on

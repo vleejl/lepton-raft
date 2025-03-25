@@ -30,16 +30,14 @@ struct config {
         auto_leave(auto_leave),
         learners(std::move(learners)),
         learners_next(std::move(learners_next)) {}
-  static void remove_id_set(std::uint64_t id,
-                            std::optional<std::set<std::uint64_t>>& id_set) {
+  static void remove_id_set(std::uint64_t id, std::optional<std::set<std::uint64_t>>& id_set) {
     if (id_set && id_set->contains(id)) {
       // 如果 id_set 有值，并且 id 存在于 id_set 中，删除该元素
       id_set->erase(id);
     }
   }
 
-  static void add_id_set(std::uint64_t id,
-                         std::optional<std::set<std::uint64_t>>& id_set) {
+  static void add_id_set(std::uint64_t id, std::optional<std::set<std::uint64_t>>& id_set) {
     if (!id_set) {
       id_set = std::set<std::uint64_t>{id};
     } else {
@@ -54,8 +52,7 @@ struct config {
   config& operator=(config&&) = default;
 
   config clone() const {
-    return config{voters.clone(), auto_leave,
-                  std::optional<std::set<std::uint64_t>>{learners},
+    return config{voters.clone(), auto_leave, std::optional<std::set<std::uint64_t>>{learners},
                   std::optional<std::set<std::uint64_t>>{learners_next}};
   }
 
@@ -67,9 +64,7 @@ struct config {
 
   void add_leaner_next_node(std::uint64_t id) { add_id_set(id, learners_next); }
 
-  void delete_learner_next(std::uint64_t id) {
-    return remove_id_set(id, learners_next);
-  }
+  void delete_learner_next(std::uint64_t id) { return remove_id_set(id, learners_next); }
 
   quorum::joint_config voters;
 
@@ -133,8 +128,7 @@ struct config {
       buf << " learners=" << quorum::majority_config{learners.value()}.string();
     }
     if (learners_next && !learners_next->empty()) {
-      buf << " learners_next="
-          << quorum::majority_config{learners_next.value()}.string();
+      buf << " learners_next=" << quorum::majority_config{learners_next.value()}.string();
     }
     if (auto_leave) {
       buf << " autoleave";
@@ -150,21 +144,18 @@ struct config {
 class progress_tracker {
   NOT_COPYABLE(progress_tracker)
   progress_tracker(config&& cfg, progress_map&& pgs_map,
-                   std::unordered_map<std::uint64_t, bool> votes,
-                   std::size_t max_inflight)
+                   std::unordered_map<std::uint64_t, bool> votes, std::size_t max_inflight)
       : config_(std::move(cfg)),
         progress_map_(std::move(pgs_map)),
         votes_(std::move(votes)),
         max_inflight_(max_inflight) {}
 
  public:
-  explicit progress_tracker(std::size_t max_inflight)
-      : config_(), max_inflight_(max_inflight) {}
+  explicit progress_tracker(std::size_t max_inflight) : config_(), max_inflight_(max_inflight) {}
   progress_tracker(progress_tracker&&) = default;
 
   progress_tracker clone() {
-    return progress_tracker{config_.clone(), progress_map_.clone(), votes_,
-                            max_inflight_};
+    return progress_tracker{config_.clone(), progress_map_.clone(), votes_, max_inflight_};
   }
 
   const config& config_view() const { return config_; }
@@ -188,8 +179,7 @@ class progress_tracker {
     auto conf_state = raftpb::conf_state{};
 
     auto primary_config_slice = config_.voters.primary_config_slice();
-    conf_state.mutable_voters()->Add(primary_config_slice.begin(),
-                                     primary_config_slice.end());
+    conf_state.mutable_voters()->Add(primary_config_slice.begin(), primary_config_slice.end());
 
     if (config_.voters.is_secondary_config_valid()) {
       auto secondary_config_slice = config_.voters.secondary_config_slice();
@@ -199,14 +189,11 @@ class progress_tracker {
     }
 
     if (config_.learners) {
-      auto learners_slice =
-          quorum::majority_config{config_.learners.value()}.slice();
-      conf_state.mutable_learners()->Add(learners_slice.begin(),
-                                         learners_slice.end());
+      auto learners_slice = quorum::majority_config{config_.learners.value()}.slice();
+      conf_state.mutable_learners()->Add(learners_slice.begin(), learners_slice.end());
     }
     if (config_.learners_next) {
-      auto learners_next_slice =
-          quorum::majority_config{config_.learners_next.value()}.slice();
+      auto learners_next_slice = quorum::majority_config{config_.learners_next.value()}.slice();
       conf_state.mutable_learners_next()->Add(learners_next_slice.begin(),
                                               learners_next_slice.end());
     }
@@ -229,7 +216,7 @@ class progress_tracker {
   // Visit invokes the supplied closure for all tracked progresses in stable
   // order.
   // 使用 const 引用而不是指针，是为了进一步降低内存风险
-  void visit(std::function<void(std::uint64_t id, const progress& p)> f) {
+  void visit(std::function<void(std::uint64_t id, progress& p)> f) {
     size_t n = progress_map_.map_.size();
 
     // 使用vector直接分配内存
@@ -252,14 +239,13 @@ class progress_tracker {
 
   bool quorum_active() {
     std::unordered_map<std::uint64_t, bool> votes_;
-    visit([&votes_](std::uint64_t id, const progress& p) {
+    visit([&votes_](std::uint64_t id, progress& p) {
       if (p.is_learner()) {
         return;
       }
       votes_.insert_or_assign(id, p.recent_active());
     });
-    return config_.voters.vote_result_statistics(votes_) ==
-           quorum::vote_result::VOTE_WON;
+    return config_.voters.vote_result_statistics(votes_) == quorum::vote_result::VOTE_WON;
   }
 
   // VoterNodes returns a sorted slice of voters.
@@ -267,8 +253,7 @@ class progress_tracker {
 
   std::vector<std::uint64_t> learner_nodes() const {
     if (config_.learners) {
-      return std::vector<std::uint64_t>{config_.learners->begin(),
-                                        config_.learners->end()};
+      return std::vector<std::uint64_t>{config_.learners->begin(), config_.learners->end()};
     }
     return std::vector<std::uint64_t>{};
   }

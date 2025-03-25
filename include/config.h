@@ -140,6 +140,35 @@ struct config {
   // to the leader.
   bool disable_proposal_forwarding;
 
+  // DisableConfChangeValidation turns off propose-time verification of
+  // configuration changes against the currently active configuration of the
+  // raft instance. These checks are generally sensible (cannot leave a joint
+  // config unless in a joint config, et cetera) but they have false positives
+  // because the active configuration may not be the most recent
+  // configuration. This is because configurations are activated during log
+  // application, and even the leader can trail log application by an
+  // unbounded number of entries.
+  // Symmetrically, the mechanism has false negatives - because the check may
+  // not run against the "actual" config that will be the predecessor of the
+  // newly proposed one, the check may pass but the new config may be invalid
+  // when it is being applied. In other words, the checks are best-effort.
+  //
+  // Users should *not* use this option unless they have a reliable mechanism
+  // (above raft) that serializes and verifies configuration changes. If an
+  // invalid configuration change enters the log and gets applied, a panic
+  // will result.
+  //
+  // This option may be removed once false positives are no longer possible.
+  // See: https://github.com/etcd-io/raft/issues/80
+  bool disable_conf_change_validation;
+
+  // StepDownOnRemoval makes the leader step down when it is removed from the
+  // group or demoted to a learner.
+  //
+  // This behavior will become unconditional in the future. See:
+  // https://github.com/etcd-io/raft/issues/83
+  bool step_down_on_removal;
+
   leaf::result<void> validate() const;
 };
 }  // namespace lepton

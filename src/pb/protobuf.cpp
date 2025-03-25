@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstddef>
 
+#include "conf_change.h"
 #include "conf_state.h"
 #include "error.h"
 
@@ -38,7 +39,7 @@ repeated_entry extract_range_without_copy(repeated_entry& src, int start,
   // 核心操作：提取元素指针
   src.UnsafeArenaExtractSubrange(start,         // 起始索引
                                  num_elements,  // 提取数量
-                                 extracted  // 输出参数: 接收指针的数组
+                                 extracted      // 输出参数: 接收指针的数组
   );
 
   // 转移所有权到目标容器
@@ -88,6 +89,16 @@ bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
 
 bool is_empty_hard_state(const raftpb::hard_state& hs) {
   return hs == EMPTY_STATE;
+}
+
+raftpb::conf_change_v2 convert_conf_change_v2(
+    raftpb::conf_change&& cc) {
+  raftpb::conf_change_v2 obj;
+  auto changes = obj.add_changes();
+  changes->set_type(cc.type());
+  changes->set_node_id(cc.node_id());
+  obj.set_allocated_context(cc.release_context());
+  return obj;
 }
 
 }  // namespace pb
