@@ -17,25 +17,16 @@ using namespace lepton;
 
 class unstable_test_suit : public testing::Test {
  protected:
-  static void SetUpTestSuite() {
-    std::cout << "run before first case..." << std::endl;
-  }
+  static void SetUpTestSuite() { std::cout << "run before first case..." << std::endl; }
 
-  static void TearDownTestSuite() {
-    std::cout << "run after last case..." << std::endl;
-  }
+  static void TearDownTestSuite() { std::cout << "run after last case..." << std::endl; }
 
-  virtual void SetUp() override {
-    std::cout << "enter from SetUp" << std::endl;
-  }
+  virtual void SetUp() override { std::cout << "enter from SetUp" << std::endl; }
 
-  virtual void TearDown() override {
-    std::cout << "exit from TearDown" << std::endl;
-  }
+  virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
 
-lepton::pb::snapshot_ptr create_snapshot_ptr(std::uint64_t index,
-                                             std::uint64_t term) {
+lepton::pb::snapshot_ptr create_snapshot_ptr(std::uint64_t index, std::uint64_t term) {
   auto snapshot_metadata = new raftpb::snapshot_metadata();
   snapshot_metadata->set_index(index);
   snapshot_metadata->set_term(term);
@@ -44,16 +35,13 @@ lepton::pb::snapshot_ptr create_snapshot_ptr(std::uint64_t index,
   return snapshot;
 }
 
-unstable create_unstable(
-    const std::vector<std::tuple<std::uint64_t, std::uint64_t>> &entrie_params,
-    std::uint64_t offset,
-    const std::optional<std::tuple<std::uint64_t, std::uint64_t>>
-        &snapshot_params) {
+unstable create_unstable(const std::vector<std::tuple<std::uint64_t, std::uint64_t>> &entrie_params,
+                         std::uint64_t offset,
+                         const std::optional<std::tuple<std::uint64_t, std::uint64_t>> &snapshot_params) {
   lepton::pb::repeated_entry entries = create_entries(entrie_params);
   if (snapshot_params) {
     auto [snapshot_index, snapshot_term] = snapshot_params.value();
-    return {create_snapshot(snapshot_index, snapshot_term), std::move(entries),
-            offset};
+    return {create_snapshot(snapshot_index, snapshot_term), std::move(entries), offset};
   } else {
     return {std::move(entries), offset};
   }
@@ -61,13 +49,12 @@ unstable create_unstable(
 
 TEST_F(unstable_test_suit, maybe_first_index) {
   // 初始化 std::vector<std::tuple<...>>
-  std::vector<
-      std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
-                 uint64_t,                                       // offset
-                 std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
-                 bool,                                           // wok
-                 uint64_t                                        // windex
-                 >>
+  std::vector<std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
+                         uint64_t,                                       // offset
+                         std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
+                         bool,                                           // wok
+                         uint64_t                                        // windex
+                         >>
       params = {{
                     // no snapshot
                     {{5, 1}},      // entries: vector of tuples
@@ -85,22 +72,21 @@ TEST_F(unstable_test_suit, maybe_first_index) {
                 },
                 // has snapshot
                 {
-                    {{5, 1}},  // entries: single tuple in vector
-                    5,         // offset
+                    {{5, 1}},                                   // entries: single tuple in vector
+                    5,                                          // offset
                     std::make_optional(std::make_tuple(4, 1)),  // snapshot
                     true,                                       // wok
                     5                                           // windex
                 },
                 {
-                    {},  // entries: single tuple in vector
-                    5,   // offset
+                    {},                                         // entries: single tuple in vector
+                    5,                                          // offset
                     std::make_optional(std::make_tuple(4, 1)),  // snapshot
                     true,                                       // wok
                     5                                           // windex
                 }};
 
-  for (const auto &[entrie_params, offset, snapshot_params, wok, windex] :
-       params) {
+  for (const auto &[entrie_params, offset, snapshot_params, wok, windex] : params) {
     auto u = create_unstable(entrie_params, offset, snapshot_params);
     auto result = u.maybe_first_index();
     if (wok) {
@@ -114,13 +100,12 @@ TEST_F(unstable_test_suit, maybe_first_index) {
 
 TEST_F(unstable_test_suit, maybe_last_index) {
   // 初始化 std::vector<std::tuple<...>>
-  std::vector<
-      std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
-                 uint64_t,                                       // offset
-                 std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
-                 bool,                                           // wok
-                 uint64_t                                        // windex
-                 >>
+  std::vector<std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
+                         uint64_t,                                       // offset
+                         std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
+                         bool,                                           // wok
+                         uint64_t                                        // windex
+                         >>
       params = {{
                     // last in entries
                     {{5, 1}},      // entries: vector of tuples
@@ -130,16 +115,16 @@ TEST_F(unstable_test_suit, maybe_last_index) {
                     5              // windex
                 },
                 {
-                    {{5, 1}},  // entries: single tuple in vector
-                    5,         // offset
+                    {{5, 1}},                                   // entries: single tuple in vector
+                    5,                                          // offset
                     std::make_optional(std::make_tuple(4, 1)),  // snapshot
                     true,                                       // wok
                     5                                           // windex
                 },
                 // last in snapshot
                 {
-                    {},  // entries: single tuple in vector
-                    5,   // offset
+                    {},                                         // entries: single tuple in vector
+                    5,                                          // offset
                     std::make_optional(std::make_tuple(4, 1)),  // snapshot
                     true,                                       // wok
                     4                                           // windex
@@ -153,8 +138,7 @@ TEST_F(unstable_test_suit, maybe_last_index) {
                     0              // windex
                 }};
 
-  for (const auto &[entrie_params, offset, snapshot_params, wok, windex] :
-       params) {
+  for (const auto &[entrie_params, offset, snapshot_params, wok, windex] : params) {
     auto u = create_unstable(entrie_params, offset, snapshot_params);
     auto result = u.maybe_last_index();
     if (wok) {
@@ -167,14 +151,13 @@ TEST_F(unstable_test_suit, maybe_last_index) {
 }
 
 TEST_F(unstable_test_suit, maybe_term) {
-  std::vector<
-      std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
-                 uint64_t,                                       // offset
-                 std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
-                 uint64_t,                                       // index
-                 bool,                                           // wok
-                 uint64_t                                        // wterm
-                 >>
+  std::vector<std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
+                         uint64_t,                                       // offset
+                         std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
+                         uint64_t,                                       // index
+                         bool,                                           // wok
+                         uint64_t                                        // wterm
+                         >>
       params = {// term from entries
                 {
                     {{5, 1}},      // entries: vector of tuples
@@ -201,59 +184,53 @@ TEST_F(unstable_test_suit, maybe_term) {
                     0              // wterm
                 },
                 {
-                    {{5, 1}},  // entries: vector of tuples
-                    5,         // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    5,           // index
-                    true,        // wok
-                    1            // wterm
+                    {{5, 1}},                                   // entries: vector of tuples
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    5,                                          // index
+                    true,                                       // wok
+                    1                                           // wterm
                 },
                 {
-                    {{5, 1}},  // entries: vector of tuples
-                    5,         // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    6,           // index
-                    false,       // wok
-                    0            // wterm
+                    {{5, 1}},                                   // entries: vector of tuples
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    6,                                          // index
+                    false,                                      // wok
+                    0                                           // wterm
                 },
                 // term from snapshot
                 {
-                    {{5, 1}},  // entries: vector of tuples
-                    5,         // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    4,           // index
-                    true,        // wok
-                    1            // wterm
+                    {{5, 1}},                                   // entries: vector of tuples
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    4,                                          // index
+                    true,                                       // wok
+                    1                                           // wterm
                 },
                 {
-                    {{5, 1}},  // entries: vector of tuples
-                    5,         // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    3,           // index
-                    false,       // wok
-                    0            // wterm
+                    {{5, 1}},                                   // entries: vector of tuples
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    3,                                          // index
+                    false,                                      // wok
+                    0                                           // wterm
                 },
                 {
-                    {},  // entries: empty vector
-                    5,   // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    5,           // index
-                    false,       // wok
-                    0            // wterm
+                    {},                                         // entries: empty vector
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    5,                                          // index
+                    false,                                      // wok
+                    0                                           // wterm
                 },
                 {
-                    {},  // entries: empty vector
-                    5,   // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    4,           // index
-                    true,        // wok
-                    1            // wterm
+                    {},                                         // entries: empty vector
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    4,                                          // index
+                    true,                                       // wok
+                    1                                           // wterm
                 },
                 {
                     {},            // entries: empty vector
@@ -263,8 +240,7 @@ TEST_F(unstable_test_suit, maybe_term) {
                     false,         // wok
                     0              // wterm
                 }};
-  for (const auto &[entrie_params, offset, snapshot_params, index, wok,
-                    windex] : params) {
+  for (const auto &[entrie_params, offset, snapshot_params, index, wok, windex] : params) {
     auto u = create_unstable(entrie_params, offset, snapshot_params);
     auto result = u.maybe_term(index);
     if (wok) {
@@ -278,8 +254,7 @@ TEST_F(unstable_test_suit, maybe_term) {
 
 TEST_F(unstable_test_suit, restore) {
   std::vector<std::tuple<std::uint64_t, std::uint64_t>> entrie_params{{5, 1}};
-  auto u =
-      create_unstable({{5, 1}}, 5, std::make_optional(std::make_tuple(4, 1)));
+  auto u = create_unstable({{5, 1}}, 5, std::make_optional(std::make_tuple(4, 1)));
   auto s = create_snapshot_ptr(6, 2);
   u.restore(create_snapshot(6, 2));
   ASSERT_EQ(u.offset(), s->metadata().index() + 1);
@@ -288,15 +263,14 @@ TEST_F(unstable_test_suit, restore) {
 }
 
 TEST_F(unstable_test_suit, stable_snap_to) {
-  std::vector<
-      std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
-                 uint64_t,                                       // offset
-                 std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
-                 uint64_t,                                       // index
-                 uint64_t,                                       // term
-                 uint64_t,                                       // woffset
-                 int                                             // wlen
-                 >>
+  std::vector<std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
+                         uint64_t,                                       // offset
+                         std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
+                         uint64_t,                                       // index
+                         uint64_t,                                       // term
+                         uint64_t,                                       // woffset
+                         int                                             // wlen
+                         >>
       params = {{
                     {},            // entries: empty vector
                     0,             // offset
@@ -353,57 +327,51 @@ TEST_F(unstable_test_suit, stable_snap_to) {
                 },
                 // with snapshot
                 {
-                    {{5, 1}},  // entries: vector with a single tuple
-                    5,         // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    5,           // index
-                    1,           // term
-                    6,           // woffset
-                    0            // wlen
+                    {{5, 1}},                                   // entries: vector with a single tuple
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    5,                                          // index
+                    1,                                          // term
+                    6,                                          // woffset
+                    0                                           // wlen
                 },
                 {
-                    {{5, 1}, {6, 1}},  // entries: vector with two tuples
-                    5,                 // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    5,           // index
-                    1,           // term
-                    6,           // woffset
-                    1            // wlen
+                    {{5, 1}, {6, 1}},                           // entries: vector with two tuples
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    5,                                          // index
+                    1,                                          // term
+                    6,                                          // woffset
+                    1                                           // wlen
                 },
                 {
-                    {{6, 2}},  // entries: vector with a single tuple
-                    6,         // offset
-                    std::make_optional(std::make_tuple(
-                        5, 1)),  // snapshot: tuple of (index, term)
-                    6,           // index
-                    1,           // term
-                    6,           // woffset
-                    1            // wlen
+                    {{6, 2}},                                   // entries: vector with a single tuple
+                    6,                                          // offset
+                    std::make_optional(std::make_tuple(5, 1)),  // snapshot: tuple of (index, term)
+                    6,                                          // index
+                    1,                                          // term
+                    6,                                          // woffset
+                    1                                           // wlen
                 },
                 {
-                    {{5, 1}},  // entries: vector with a single tuple
-                    5,         // offset
-                    std::make_optional(std::make_tuple(
-                        4, 1)),  // snapshot: tuple of (index, term)
-                    4,           // index
-                    1,           // term
-                    5,           // woffset
-                    1            // wlen
+                    {{5, 1}},                                   // entries: vector with a single tuple
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 1)),  // snapshot: tuple of (index, term)
+                    4,                                          // index
+                    1,                                          // term
+                    5,                                          // woffset
+                    1                                           // wlen
                 },
                 {
-                    {{5, 2}},  // entries: vector with a single tuple
-                    5,         // offset
-                    std::make_optional(std::make_tuple(
-                        4, 2)),  // snapshot: tuple of (index, term)
-                    4,           // index
-                    1,           // term
-                    5,           // woffset
-                    1            // wlen
+                    {{5, 2}},                                   // entries: vector with a single tuple
+                    5,                                          // offset
+                    std::make_optional(std::make_tuple(4, 2)),  // snapshot: tuple of (index, term)
+                    4,                                          // index
+                    1,                                          // term
+                    5,                                          // woffset
+                    1                                           // wlen
                 }};
-  for (const auto &[entrie_params, offset, snapshot_params, index, term,
-                    woffset, wlen] : params) {
+  for (const auto &[entrie_params, offset, snapshot_params, index, term, woffset, wlen] : params) {
     auto u = create_unstable(entrie_params, offset, snapshot_params);
     u.stable_to(index, term);
     if (u.offset() != woffset) {
@@ -415,14 +383,13 @@ TEST_F(unstable_test_suit, stable_snap_to) {
 }
 
 TEST_F(unstable_test_suit, truncate_and_append) {
-  std::vector<
-      std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
-                 uint64_t,                                       // offset
-                 std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
-                 std::vector<std::tuple<uint64_t, uint64_t>>,    // to_append
-                 uint64_t,                                       // woffset
-                 std::vector<std::tuple<uint64_t, uint64_t>>     // wentries
-                 >>
+  std::vector<std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
+                         uint64_t,                                       // offset
+                         std::optional<std::tuple<uint64_t, uint64_t>>,  // snapshot
+                         std::vector<std::tuple<uint64_t, uint64_t>>,    // to_append
+                         uint64_t,                                       // woffset
+                         std::vector<std::tuple<uint64_t, uint64_t>>     // wentries
+                         >>
       params = {// append to the end
                 {
                     {{5, 1}},                 // entries
@@ -466,8 +433,7 @@ TEST_F(unstable_test_suit, truncate_and_append) {
                     5,                                // woffset
                     {{5, 1}, {6, 1}, {7, 2}, {8, 2}}  // wentries
                 }};
-  for (const auto &[entrie_params, offset, snapshot_params, toappend, woffset,
-                    wentries_params] : params) {
+  for (const auto &[entrie_params, offset, snapshot_params, toappend, woffset, wentries_params] : params) {
     auto u = create_unstable(entrie_params, offset, snapshot_params);
     auto entries = create_entries(toappend);
     u.truncate_and_append(std::move(entries));

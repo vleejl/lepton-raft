@@ -23,8 +23,7 @@ namespace tracker {
 // Config reflects the configuration tracked in a ProgressTracker.
 struct config {
  private:
-  config(quorum::joint_config&& voters, bool auto_leave,
-         std::optional<std::set<std::uint64_t>>&& learners,
+  config(quorum::joint_config&& voters, bool auto_leave, std::optional<std::set<std::uint64_t>>&& learners,
          std::optional<std::set<std::uint64_t>>&& learners_next)
       : voters(std::move(voters)),
         auto_leave(auto_leave),
@@ -143,8 +142,8 @@ struct config {
 // index for each peer which in turn allows reasoning about the committed index.
 class progress_tracker {
   NOT_COPYABLE(progress_tracker)
-  progress_tracker(config&& cfg, progress_map&& pgs_map,
-                   std::unordered_map<std::uint64_t, bool> votes, std::size_t max_inflight)
+  progress_tracker(config&& cfg, progress_map&& pgs_map, std::unordered_map<std::uint64_t, bool> votes,
+                   std::size_t max_inflight)
       : config_(std::move(cfg)),
         progress_map_(std::move(pgs_map)),
         votes_(std::move(votes)),
@@ -154,9 +153,7 @@ class progress_tracker {
   explicit progress_tracker(std::size_t max_inflight) : config_(), max_inflight_(max_inflight) {}
   progress_tracker(progress_tracker&&) = default;
 
-  progress_tracker clone() {
-    return progress_tracker{config_.clone(), progress_map_.clone(), votes_, max_inflight_};
-  }
+  progress_tracker clone() { return progress_tracker{config_.clone(), progress_map_.clone(), votes_, max_inflight_}; }
 
   const config& config_view() const { return config_; }
 
@@ -184,8 +181,7 @@ class progress_tracker {
     if (config_.voters.is_secondary_config_valid()) {
       auto secondary_config_slice = config_.voters.secondary_config_slice();
 
-      conf_state.mutable_voters_outgoing()->Add(secondary_config_slice.begin(),
-                                                secondary_config_slice.end());
+      conf_state.mutable_voters_outgoing()->Add(secondary_config_slice.begin(), secondary_config_slice.end());
     }
 
     if (config_.learners) {
@@ -194,8 +190,7 @@ class progress_tracker {
     }
     if (config_.learners_next) {
       auto learners_next_slice = quorum::majority_config{config_.learners_next.value()}.slice();
-      conf_state.mutable_learners_next()->Add(learners_next_slice.begin(),
-                                              learners_next_slice.end());
+      conf_state.mutable_learners_next()->Add(learners_next_slice.begin(), learners_next_slice.end());
     }
     return conf_state;
   }
@@ -208,8 +203,7 @@ class progress_tracker {
   // what
   // the voting members of the group have acknowledged.
   std::uint64_t committed() {
-    return config_.voters.committed_index(
-        pro::proxy_view<quorum::acked_indexer_builer>{&progress_map_});
+    return config_.voters.committed_index(pro::proxy_view<quorum::acked_indexer_builer>{&progress_map_});
   }
 
   // using

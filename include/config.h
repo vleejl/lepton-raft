@@ -27,13 +27,10 @@ enum class read_only_option : int {
 
 // Config contains the parameters to start a raft.
 struct config {
-  config(std::uint64_t id, int election_tick, int heartbeat_tick,
-         pro::proxy_view<storage_builer> storage, std::uint64_t applied_index,
-         std::uint64_t max_size_per_msg,
-         std::uint64_t max_committed_size_per_ready,
-         std::uint64_t max_uncommitted_entries_size, int max_inflight_msgs,
-         bool check_quorum, read_only_option read_only_opt,
-         bool disable_proposal_forwarding)
+  config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy_view<storage_builer> storage,
+         std::uint64_t applied_index, std::uint64_t max_size_per_msg, std::uint64_t max_committed_size_per_ready,
+         std::uint64_t max_uncommitted_entries_size, int max_inflight_msgs, bool check_quorum,
+         read_only_option read_only_opt, bool disable_proposal_forwarding)
       : id(id),
         election_tick(election_tick),
         heartbeat_tick(heartbeat_tick),

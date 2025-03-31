@@ -13,8 +13,7 @@ lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term) {
   return entry;
 }
 
-lepton::pb::repeated_entry create_entries(
-    const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params) {
+lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params) {
   lepton::pb::repeated_entry entries;
   for (const auto &[index, term] : entrie_params) {
     auto entry = entries.Add();
@@ -43,8 +42,7 @@ bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs) {
   return true;
 }
 
-bool operator==(const absl::Span<const raftpb::entry *const> &lhs,
-                const absl::Span<const raftpb::entry *const> &rhs) {
+bool operator==(const absl::Span<const raftpb::entry *const> &lhs, const absl::Span<const raftpb::entry *const> &rhs) {
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
@@ -58,8 +56,7 @@ bool operator==(const absl::Span<const raftpb::entry *const> &lhs,
   return true;
 }
 
-bool operator==(const lepton::pb::repeated_entry &lhs,
-                const lepton::pb::repeated_entry &rhs) {
+bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs) {
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
@@ -80,8 +77,7 @@ raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term) {
   return snapshot;
 }
 
-raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term,
-                                 const std::string &data,
+raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, const std::string &data,
                                  std::optional<raftpb::conf_state> state) {
   raftpb::snapshot snapshot;
   snapshot.set_data(data);

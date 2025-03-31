@@ -24,9 +24,8 @@ namespace tracker {
 // certain State. All of this isn't ideal.
 class progress {
   NOT_COPYABLE(progress)
-  progress(std::uint64_t match, std::uint64_t next, state_type state,
-           std::uint64_t pending_snapshot, bool recent_active, bool probe_sent,
-           inflights&& inflights, bool is_learner)
+  progress(std::uint64_t match, std::uint64_t next, state_type state, std::uint64_t pending_snapshot,
+           bool recent_active, bool probe_sent, inflights&& inflights, bool is_learner)
       : match_(match),
         next_(next),
         state_(state),
@@ -37,8 +36,7 @@ class progress {
         is_learner_(is_learner) {}
 
  public:
-  progress(std::uint64_t next, inflights&& inflights, bool is_learner,
-           bool recent_active)
+  progress(std::uint64_t next, inflights&& inflights, bool is_learner, bool recent_active)
       : match_(0),
         next_(next),
         state_(state_type::STATE_PROBE),
@@ -50,13 +48,7 @@ class progress {
   progress(progress&&) = default;
 
   progress clone() const {
-    return progress{match_,
-                    next_,
-                    state_,
-                    pending_snapshot_,
-                    recent_active_,
-                    probe_sent_,
-                    inflights_.clone(),
+    return progress{match_,     next_, state_, pending_snapshot_, recent_active_, probe_sent_, inflights_.clone(),
                     is_learner_};
   }
 
@@ -180,8 +172,7 @@ class progress {
     // 和 Match）结合使用时。 因此，在 MaybeDecrTo 函数中，matchHint
     // 的使用是为了更精确地调整
     // Next，避免其变得过小或过大，从而保证日志同步的正确性。
-    next_ = std::max(std::min(rejected, match_hint + 1),
-                     static_cast<std::uint64_t>(1));
+    next_ = std::max(std::min(rejected, match_hint + 1), static_cast<std::uint64_t>(1));
     // 不再等待进一步的探测响应（即 follower 的进度可能已经发生变化）。
     probe_sent_ = false;
     return true;
@@ -362,15 +353,11 @@ class progress_map {
   progress_map(progress_map&&) = default;
   progress_map& operator=(progress_map&&) = default;
 
-  const std::unordered_map<std::uint64_t, progress>& view() const {
-    return map_;
-  }
+  const std::unordered_map<std::uint64_t, progress>& view() const { return map_; }
 
   std::unordered_map<std::uint64_t, progress>& mutable_view() { return map_; }
 
-  void add_progress(std::uint64_t id, progress&& p) {
-    map_.emplace(id, std::move(p));
-  }
+  void add_progress(std::uint64_t id, progress&& p) { map_.emplace(id, std::move(p)); }
 
   void delete_progress(std::uint64_t id) {
     if (map_.contains(id)) {

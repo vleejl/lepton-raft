@@ -2,9 +2,6 @@
 
 namespace lepton {
 
-namespace tracker {
-
-
-}  // namespace tracker
+namespace tracker {}  // namespace tracker
 
 }  // namespace lepton

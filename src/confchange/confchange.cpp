@@ -18,20 +18,17 @@
 namespace lepton {
 namespace confchange {
 
-leaf::result<void> foreach_id_set(const std::set<std::uint64_t> &set,
-                                  const tracker::progress_map::type &prs) {
+leaf::result<void> foreach_id_set(const std::set<std::uint64_t> &set, const tracker::progress_map::type &prs) {
   for (const auto &id : set) {
     if (!prs.contains(id)) {
-      return new_error(logic_error::KEY_NOT_FOUND,
-                       fmt::format("no progress for {}", id));
+      return new_error(logic_error::KEY_NOT_FOUND, fmt::format("no progress for {}", id));
     }
   }
   return {};
 };
 
-leaf::result<void> foreach_id_set(
-    const std::optional<std::set<std::uint64_t>> &set,
-    const tracker::progress_map::type &prs) {
+leaf::result<void> foreach_id_set(const std::optional<std::set<std::uint64_t>> &set,
+                                  const tracker::progress_map::type &prs) {
   if (set) {
     return foreach_id_set(set.value(), prs);
   }
@@ -43,8 +40,7 @@ leaf::result<void> foreach_id_set(
 // as well as what it returns.
 // 验证 Raft 配置和进度状态的一致性。
 // 它确保了配置（cfg）和进度（prs）之间的相互兼容性，即它检查配置中定义的选民、学习者以及配置中的其他信息是否与当前的进度状态相匹配。
-leaf::result<void> check_invariants(const tracker::config &cfg,
-                                    const tracker::progress_map &prs) {
+leaf::result<void> check_invariants(const tracker::config &cfg, const tracker::progress_map &prs) {
   // NB: intentionally allow the empty config. In production we'll never see a
   // non-empty config (we prevent it from being created) but we will need to
   // be able to *create* an initial config, for example during bootstrap (or
@@ -69,45 +65,33 @@ leaf::result<void> check_invariants(const tracker::config &cfg,
   // to a conflicting voter in the outgoing config.
   if (cfg.learners_next) {
     const quorum::majority_config &secondary_config =
-        cfg.voters.is_secondary_config_valid()
-            ? cfg.voters.secondary_config_view()
-            : empty_config_view;
+        cfg.voters.is_secondary_config_valid() ? cfg.voters.secondary_config_view() : empty_config_view;
     for (const auto &id : cfg.learners_next.value()) {
       if (!secondary_config.view().contains(id)) {
-        return new_error(
-            logic_error::CONFIG_INVALID,
-            fmt::format("{} is in LearnersNext, but not Voters[1]", id));
+        return new_error(logic_error::CONFIG_INVALID, fmt::format("{} is in LearnersNext, but not Voters[1]", id));
       }
       if (prs_view.contains(id) && prs_view.at(id).is_learner()) {
-        return new_error(
-            logic_error::CONFIG_INVALID,
-            fmt::format(
-                "{} is in LearnersNext, but is already marked as learner", id));
+        return new_error(logic_error::CONFIG_INVALID,
+                         fmt::format("{} is in LearnersNext, but is already marked as learner", id));
       }
     }
   }
 
   // Conversely Learners and Voters doesn't intersect at all.
   if (cfg.learners) {
-    const quorum::majority_config &primary_config =
-        cfg.voters.primary_config_view();
+    const quorum::majority_config &primary_config = cfg.voters.primary_config_view();
     const quorum::majority_config &secondary_config =
-        cfg.voters.is_secondary_config_valid()
-            ? cfg.voters.secondary_config_view()
-            : empty_config_view;
+        cfg.voters.is_secondary_config_valid() ? cfg.voters.secondary_config_view() : empty_config_view;
     for (const auto &id : cfg.learners.value()) {
       if (primary_config.view().contains(id)) {
-        return new_error(logic_error::CONFIG_INVALID,
-                         fmt::format("{} is in Learners and Voters[1]", id));
+        return new_error(logic_error::CONFIG_INVALID, fmt::format("{} is in Learners and Voters[1]", id));
       }
       if (secondary_config.view().contains(id)) {
-        return new_error(logic_error::CONFIG_INVALID,
-                         fmt::format("{} is in Learners and Voters[1]", id));
+        return new_error(logic_error::CONFIG_INVALID, fmt::format("{} is in Learners and Voters[1]", id));
       }
       if (prs_view.contains(id) && !prs_view.at(id).is_learner()) {
-        return new_error(
-            logic_error::CONFIG_INVALID,
-            fmt::format("{} is in Learners, but is not marked as learner", id));
+        return new_error(logic_error::CONFIG_INVALID,
+                         fmt::format("{} is in Learners, but is not marked as learner", id));
       }
     }
   }
@@ -115,16 +99,13 @@ leaf::result<void> check_invariants(const tracker::config &cfg,
   if (!cfg.joint()) {
     // We enforce that empty maps are nil instead of zero.
     if (cfg.voters.is_secondary_config_valid()) {
-      return new_error(logic_error::CONFIG_INVALID,
-                       "cfg.Voters[1] must be nil when not joint");
+      return new_error(logic_error::CONFIG_INVALID, "cfg.Voters[1] must be nil when not joint");
     }
     if (cfg.learners_next) {
-      return new_error(logic_error::CONFIG_INVALID,
-                       "cfg.LearnersNext must be nil when not joint");
+      return new_error(logic_error::CONFIG_INVALID, "cfg.LearnersNext must be nil when not joint");
     }
     if (cfg.auto_leave) {
-      return new_error(logic_error::CONFIG_INVALID,
-                       "AutoLeave must be false when not joint");
+      return new_error(logic_error::CONFIG_INVALID, "AutoLeave must be false when not joint");
     }
   }
   return {};
@@ -132,48 +113,40 @@ leaf::result<void> check_invariants(const tracker::config &cfg,
 
 // checkAndReturn calls checkInvariants on the input and returns either the
 // resulting error or the input.
-changer::result check_and_return(tracker::config &&cfg,
-                                 tracker::progress_map &&prs) {
+changer::result check_and_return(tracker::config &&cfg, tracker::progress_map &&prs) {
   BOOST_LEAF_CHECK(check_invariants(cfg, prs));
   return {std::move(cfg), std::move(prs)};
 }
 
 changer::result changer::check_and_copy() const {
-  return check_and_return(tracker_.config_view().clone(),
-                          tracker_.progress_map_view().clone());
+  return check_and_return(tracker_.config_view().clone(), tracker_.progress_map_view().clone());
 }
 
-void changer::init_pregress(std::uint64_t id, bool is_learner,
-                            tracker::config &cfg,
-                            tracker::progress_map &prs) const {
+void changer::init_pregress(std::uint64_t id, bool is_learner, tracker::config &cfg, tracker::progress_map &prs) const {
   if (!is_learner) {
     cfg.voters.insert_node_into_primary_config(id);
   } else {
     cfg.add_leaner_node(id);
   }
 
-  prs.add_progress(
-      id,
-      tracker::progress{
-          // Initializing the Progress with the last index means that the
-          // follower
-          // can be probed (with the last index).
-          //
-          // TODO(tbg): seems awfully optimistic. Using the first index would be
-          // better. The general expectation here is that the follower has no
-          // log
-          // at all (and will thus likely need a snapshot), though the app may
-          // have applied a snapshot out of band before adding the replica (thus
-          // making the first index the better choice).
-          last_index_, tracker::inflights{tracker_.max_inflight()}, is_learner,
-          // When a node is first added, we should mark it as recently active.
-          // Otherwise, CheckQuorum may cause us to step down if it is invoked
-          // before the added node has had a chance to communicate with us.
-          true});
+  prs.add_progress(id, tracker::progress{// Initializing the Progress with the last index means that the
+                                         // follower
+                                         // can be probed (with the last index).
+                                         //
+                                         // TODO(tbg): seems awfully optimistic. Using the first index would be
+                                         // better. The general expectation here is that the follower has no
+                                         // log
+                                         // at all (and will thus likely need a snapshot), though the app may
+                                         // have applied a snapshot out of band before adding the replica (thus
+                                         // making the first index the better choice).
+                                         last_index_, tracker::inflights{tracker_.max_inflight()}, is_learner,
+                                         // When a node is first added, we should mark it as recently active.
+                                         // Otherwise, CheckQuorum may cause us to step down if it is invoked
+                                         // before the added node has had a chance to communicate with us.
+                                         true});
 }
 
-void changer::make_voters(std::uint64_t id, tracker::config &cfg,
-                          tracker::progress_map &prs) const {
+void changer::make_voters(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const {
   if (!prs.view().contains(id)) {
     init_pregress(id, false, cfg, prs);
     return;
@@ -190,13 +163,9 @@ void remove_node_from_tracker_config(std::uint64_t id, tracker::config &cfg) {
   cfg.delete_learner_next(id);
 }
 
-void remove_node_from_tracker_progress(std::uint64_t id,
-                                       tracker::progress_map &prs) {
-  prs.delete_progress(id);
-}
+void remove_node_from_tracker_progress(std::uint64_t id, tracker::progress_map &prs) { prs.delete_progress(id); }
 
-void changer::make_learners(std::uint64_t id, tracker::config &cfg,
-                            tracker::progress_map &prs) const {
+void changer::make_learners(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const {
   if (!prs.view().contains(id)) {
     init_pregress(id, true, cfg, prs);
     prs.refresh_learner(id, true);
@@ -222,8 +191,7 @@ void changer::make_learners(std::uint64_t id, tracker::config &cfg,
   }
 }
 
-void changer::remove(std::uint64_t id, tracker::config &cfg,
-                     tracker::progress_map &prs) const {
+void changer::remove(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const {
   if (!prs.view().contains(id)) {
     return;
   }
@@ -235,9 +203,8 @@ void changer::remove(std::uint64_t id, tracker::config &cfg,
   }
 }
 
-leaf::result<void> changer::apply(
-    const absl::Span<const raftpb::conf_change_single> &ccs,
-    tracker::config &cfg, tracker::progress_map &prs) const {
+leaf::result<void> changer::apply(const absl::Span<const raftpb::conf_change_single> &ccs, tracker::config &cfg,
+                                  tracker::progress_map &prs) const {
   for (const auto &cc : ccs) {
     if (!cc.has_node_id()) {
       continue;
@@ -266,8 +233,7 @@ leaf::result<void> changer::apply(
       }
       default:
         return new_error(logic_error::CONFIG_INVALID,
-                         fmt::format("unexpected conf type {}",
-                                     magic_enum::enum_name(cc.type())));
+                         fmt::format("unexpected conf type {}", magic_enum::enum_name(cc.type())));
     }
   }
   if (cfg.voters.primary_config_view().empty()) {
@@ -276,9 +242,7 @@ leaf::result<void> changer::apply(
   return {};
 }
 
-changer::result changer::enter_joint(
-    bool auto_leave,
-    const absl::Span<const raftpb::conf_change_single> &ccs) const {
+changer::result changer::enter_joint(bool auto_leave, const absl::Span<const raftpb::conf_change_single> &ccs) const {
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (cfg.joint()) {
@@ -287,14 +251,12 @@ changer::result changer::enter_joint(
   if (cfg.voters.primary_config_view().empty()) {
     // We allow adding nodes to an empty config for convenience (testing and
     // bootstrap), but you can't enter a joint state.
-    return new_error(logic_error::CONFIG_INVALID,
-                     "can't make a zero-voter config joint");
+    return new_error(logic_error::CONFIG_INVALID, "can't make a zero-voter config joint");
   }
   // Clear the outgoing config.
   // actually no need clean outgoing config because of check_and_copy before
   if (cfg.voters.is_secondary_config_valid()) {
-    return new_error(logic_error::CONFIG_INVALID,
-                     "cfg.Voters[1] must be nil when not joint");
+    return new_error(logic_error::CONFIG_INVALID, "cfg.Voters[1] must be nil when not joint");
   }
   // Copy incoming to outgoing.
   cfg.voters.sync_secondary_with_primary();
@@ -308,8 +270,7 @@ changer::result changer::leave_joint() const {
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (!cfg.joint()) {
-    return new_error(logic_error::CONFIG_INVALID,
-                     "can't leave a non-joint config");
+    return new_error(logic_error::CONFIG_INVALID, "can't leave a non-joint config");
   }
   if (!cfg.voters.is_secondary_config_valid()) {
     return new_error(logic_error::CONFIG_INVALID, "configuration is not joint");
@@ -334,8 +295,7 @@ changer::result changer::leave_joint() const {
   return check_and_return(std::move(cfg), std::move(prs));
 }
 
-auto symdiff(const std::set<std::uint64_t> &set1,
-             const std::set<std::uint64_t> &set2) {
+auto symdiff(const std::set<std::uint64_t> &set1, const std::set<std::uint64_t> &set2) {
   size_t intersection_count = 0;
   for (const auto &id : set1) {
     if (!set2.contains(id)) {
@@ -350,23 +310,18 @@ auto symdiff(const std::set<std::uint64_t> &set1,
   return intersection_count;
 }
 
-changer::result changer::simple(
-    absl::Span<const raftpb::conf_change_single> ccs) const {
+changer::result changer::simple(absl::Span<const raftpb::conf_change_single> ccs) const {
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (cfg.joint()) {
-    return new_error(logic_error::CONFIG_INVALID,
-                     "can't apply simple config change in joint config");
+    return new_error(logic_error::CONFIG_INVALID, "can't apply simple config change in joint config");
   }
   BOOST_LEAF_CHECK(apply(ccs, cfg, prs));
   // 这里约束了投票数的前后变化小于等于1，也就是能保证多数派的 voter 没有变化
   if (auto n =
-          symdiff(tracker_.config_view().voters.primary_config_view().view(),
-                  cfg.voters.primary_config_view().view());
+          symdiff(tracker_.config_view().voters.primary_config_view().view(), cfg.voters.primary_config_view().view());
       n > 1) {
-    return new_error(
-        logic_error::CONFIG_INVALID,
-        "more than one voter changed without entering joint config");
+    return new_error(logic_error::CONFIG_INVALID, "more than one voter changed without entering joint config");
   }
   return check_and_return(std::move(cfg), std::move(prs));
 }

@@ -107,13 +107,10 @@ struct channel_message {
 
 using message_channel = channel<void(asio::error_code, channel_message)>;
 
-awaitable<void> product_tick(steady_timer::duration interval,
-                             message_channel &chann) {
+awaitable<void> product_tick(steady_timer::duration interval, message_channel &chann) {
   steady_timer timer(co_await this_coro::executor);
   for (;;) {
-    co_await chann.async_send(asio::error_code{},
-                              channel_message{channel_message_type::TICK},
-                              use_awaitable);
+    co_await chann.async_send(asio::error_code{}, channel_message{channel_message_type::TICK}, use_awaitable);
 
     timer.expires_after(interval);
     co_await timer.async_wait(use_awaitable);
@@ -129,8 +126,7 @@ awaitable<void> consume_message(message_channel &chann) {
         std::cout << "tick is running ... " << std::endl;
         break;
       default:
-        std::cerr << "can not recognize message type "
-                  << static_cast<std::uint8_t>(message_type) << std::endl;
+        std::cerr << "can not recognize message type " << static_cast<std::uint8_t>(message_type) << std::endl;
     }
   }
 }

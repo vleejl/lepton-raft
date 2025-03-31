@@ -39,9 +39,8 @@ leaf::result<raft> new_raft(const config& c) {
          c.disable_proposal_forwarding,
          c.disable_conf_change_validation};
   BOOST_LEAF_AUTO(restore_result,
-                  confchange::restor(conf_state, confchange::changer{
-                                                     tracker::progress_tracker{c.max_inflight_msgs},
-                                                     r.raft_log_handle_.last_index()}));
+                  confchange::restor(conf_state, confchange::changer{tracker::progress_tracker{c.max_inflight_msgs},
+                                                                     r.raft_log_handle_.last_index()}));
   auto [cfg, prs] = std::move(restore_result);
   pb::assert_conf_states_equivalent(conf_state, r.switch_to_config(std::move(cfg), std::move(prs)));
 
@@ -60,9 +59,8 @@ leaf::result<raft> new_raft(const config& c) {
   SPDLOG_INFO(
       "newRaft {} [peers: [{}], term: {}, commit: {}, applied: {}, lastindex: "
       "{}, lastterm: {}]",
-      r.id_, absl::StrJoin(node_strs, ","), r.term_, r.raft_log_handle_.committed(),
-      r.raft_log_handle_.applied(), r.raft_log_handle_.last_index(),
-      r.raft_log_handle_.last_term());
+      r.id_, absl::StrJoin(node_strs, ","), r.term_, r.raft_log_handle_.committed(), r.raft_log_handle_.applied(),
+      r.raft_log_handle_.last_index(), r.raft_log_handle_.last_term());
   return r;
 }
 
@@ -165,8 +163,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
                 r.id_, cc->DebugString(), r.trk_.config_view().string(), failed_check);
             e.set_type(raftpb::ENTRY_NORMAL);
           } else {
-            r.pending_conf_index_ =
-                r.raft_log_handle_.last_index() + static_cast<std::uint64_t>(i) + 1;
+            r.pending_conf_index_ = r.raft_log_handle_.last_index() + static_cast<std::uint64_t>(i) + 1;
             trace_change_conf_event(*cc, r);
           }
         }
@@ -183,13 +180,12 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
     case raftpb::MSG_READ_INDEX: {
       // only one voting member (the leader) in the cluster
       if (r.trk_.is_singleton()) {
-        if (auto resp = r.response_to_read_index_req(std::move(m), r.raft_log_handle_.committed());
-            resp.to() != NONE) {
+        if (auto resp = r.response_to_read_index_req(std::move(m), r.raft_log_handle_.committed()); resp.to() != NONE) {
           r.send(std::move(resp));
         }
         return {};
       }
-      
+
       // Postpone read only request when this leader has not committed
       // any log entry at its term.
     }
@@ -431,10 +427,9 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
 }
 
 void raft::load_state(const raftpb::hard_state& state) {
-  if (state.commit() < raft_log_handle_.committed() ||
-      state.commit() > raft_log_handle_.last_index()) {
-    LEPTON_CRITICAL("{} state.commit {} is out of range [{}, {}]", id_, state.commit(),
-                    raft_log_handle_.committed(), raft_log_handle_.last_index());
+  if (state.commit() < raft_log_handle_.committed() || state.commit() > raft_log_handle_.last_index()) {
+    LEPTON_CRITICAL("{} state.commit {} is out of range [{}, {}]", id_, state.commit(), raft_log_handle_.committed(),
+                    raft_log_handle_.last_index());
   }
   raft_log_handle_.commit_to(state.commit());
   term_ = state.term();
@@ -450,10 +445,8 @@ void raft::send(raftpb::message&& message) {
 
   const auto msg_type = message.type();
   // 处理选举类消息
-  if (msg_type == raftpb::message_type::MSG_VOTE ||
-      msg_type == raftpb::message_type::MSG_VOTE_RESP ||
-      msg_type == raftpb::message_type::MSG_PRE_VOTE ||
-      msg_type == raftpb::message_type::MSG_PRE_VOTE_RESP) {
+  if (msg_type == raftpb::message_type::MSG_VOTE || msg_type == raftpb::message_type::MSG_VOTE_RESP ||
+      msg_type == raftpb::message_type::MSG_PRE_VOTE || msg_type == raftpb::message_type::MSG_PRE_VOTE_RESP) {
     if (message.term() == 0) {
       // All {pre-,}campaign messages need to have the term set when
       // sending.
@@ -479,8 +472,7 @@ void raft::send(raftpb::message&& message) {
     // MsgReadIndex is also forwarded to leader.
     // MsgProp 和 MsgReadIndex 不设置 Term，因为它们可能被转发给 Leader，由
     // Leader 处理时再填充正确 Term。
-    if (msg_type != raftpb::message_type::MSG_PROP &&
-        msg_type != raftpb::message_type::MSG_READ_INDEX) {
+    if (msg_type != raftpb::message_type::MSG_PROP && msg_type != raftpb::message_type::MSG_READ_INDEX) {
       message.set_term(term_);
     }
   }
@@ -607,16 +599,13 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progre
     // Otherwise, still probe the newly added replicas; there's no reason to
     // let them wait out a heartbeat interval (or the next incoming
     // proposal).
-    trk_.visit([&](std::uint64_t id, tracker::progress& p) {
-      maybe_send_append(id, false /* sendIfEmpty */);
-    });
+    trk_.visit([&](std::uint64_t id, tracker::progress& p) { maybe_send_append(id, false /* sendIfEmpty */); });
   }
 
   // 若正在进行的 Leadership 转移目标（leadTransferee）被移除，则取消转移
   // If the the leadTransferee was removed or demoted, abort the leadership
   // transfer.
-  if (auto exist = trk_.config_view().voters.id_set().contains(leader_transferee_);
-      !exist && leader_transferee_ != 0) {
+  if (auto exist = trk_.config_view().voters.id_set().contains(leader_transferee_); !exist && leader_transferee_ != 0) {
     abort_leader_transfer();
   }
   return cs;
@@ -633,14 +622,12 @@ void raft::campaign(campaign_type t) {
   // TODO
 }
 
-std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::uint64_t id,
-                                                                         raftpb::message_type vt,
+std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::uint64_t id, raftpb::message_type vt,
                                                                          bool vote) {
   if (vote) {
     SPDLOG_INFO("{} received {} from {} at term {}", id_, magic_enum::enum_name(vt), id, term_);
   } else {
-    SPDLOG_INFO("{} received {} rejiction from {} at term {}", id_, magic_enum::enum_name(vt), id,
-                term_);
+    SPDLOG_INFO("{} received {} rejiction from {} at term {}", id_, magic_enum::enum_name(vt), id, term_);
   }
   trk_.record_vote(id, vote);
   return trk_.tally_votes();

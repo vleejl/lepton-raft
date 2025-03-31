@@ -9,8 +9,7 @@
 template <typename T>
 lepton::leaf::result<std::uint64_t> safe_stoull(
     const T& str,
-    typename std::enable_if<std::is_same<T, std::string>::value ||
-                            std::is_same<T, std::string_view>::value>::type* =
+    typename std::enable_if<std::is_same<T, std::string>::value || std::is_same<T, std::string_view>::value>::type* =
         nullptr) {
   std::uint64_t result = 0;
 

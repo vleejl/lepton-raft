@@ -1,5 +1,6 @@
 #include "cli.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
@@ -7,7 +8,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <algorithm>
 // Function to read files from a directory
 std::vector<std::string> get_test_files(const std::string& dir) {
   std::vector<std::string> files;
@@ -20,8 +20,7 @@ std::vector<std::string> get_test_files(const std::string& dir) {
   return files;
 }
 
-std::string join(const std::vector<std::string>& vec,
-                 const std::string& delimiter) {
+std::string join(const std::vector<std::string>& vec, const std::string& delimiter) {
   std::ostringstream oss;
   for (size_t i = 0; i < vec.size(); ++i) {
     oss << vec[i];
@@ -32,8 +31,7 @@ std::string join(const std::vector<std::string>& vec,
   return oss.str();
 }
 
-std::string pre_parse_space_char(const std::string& cmd,
-                                 const std::string& line) {
+std::string pre_parse_space_char(const std::string& cmd, const std::string& line) {
   std::stringstream ss(line);
   std::string token;
   std::vector<std::string> tokens;
@@ -65,8 +63,7 @@ std::string pre_parse_space_char(const std::string& cmd,
 }
 
 // 通用命令行解析函数
-std::map<std::string, std::vector<std::string>> parse_command_line(
-    const std::string& cmd, const std::string& line) {
+std::map<std::string, std::vector<std::string>> parse_command_line(const std::string& cmd, const std::string& line) {
   std::stringstream ss(pre_parse_space_char(cmd, line));
   std::string token;
   std::map<std::string, std::vector<std::string>> result;

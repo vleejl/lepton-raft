@@ -16,9 +16,8 @@ class raft_log {
   NOT_COPYABLE(raft_log)
  public:
   raft_log(raft_log&& rhs) = default;
-  raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset,
-           std::uint64_t committed, std::uint64_t applied,
-           std::uint64_t max_next_ents_size);
+  raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset, std::uint64_t committed,
+           std::uint64_t applied, std::uint64_t max_next_ents_size);
 
   std::string string();
 
@@ -38,9 +37,7 @@ class raft_log {
 
   auto applied() const { return applied_; }
 
-  void stable_to(std::uint64_t i, std::uint64_t t) {
-    unstable_.stable_to(i, t);
-  }
+  void stable_to(std::uint64_t i, std::uint64_t t) { unstable_.stable_to(i, t); }
 
   void stable_snap_to(std::uint64_t i) { unstable_.stable_snap_to(i); }
 
@@ -92,11 +89,9 @@ class raft_log {
   absl::Span<const raftpb::entry* const> unstable_entries();
 
   // l.firstIndex <= lo <= hi <= l.firstIndex + len(l.entries)
-  leaf::result<void> must_check_out_of_bounds(std::uint64_t lo,
-                                              std::uint64_t hi);
+  leaf::result<void> must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi);
 
-  leaf::result<pb::repeated_entry> slice(std::uint64_t lo, std::uint64_t hi,
-                                         std::uint64_t max_size);
+  leaf::result<pb::repeated_entry> slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size);
 
   // nextEnts returns all the available entries for execution.
   // If applied is smaller than the index of snapshot, it returns all committed
@@ -107,8 +102,7 @@ class raft_log {
   // is a fast check without heavy raftLog.slice() in raftLog.nextEnts().
   bool has_next_ents() const;
 
-  leaf::result<pb::repeated_entry> entries(std::uint64_t i,
-                                           std::uint64_t max_size);
+  leaf::result<pb::repeated_entry> entries(std::uint64_t i, std::uint64_t max_size);
 
   // allEntries returns all entries in the log.
   pb::repeated_entry all_entries();
@@ -123,9 +117,7 @@ class raft_log {
 
   // maybeAppend returns (0, false) if the entries cannot be appended.
   // Otherwise, it returns (last index of new entries, true).
-  leaf::result<std::uint64_t> maybe_append(std::uint64_t index,
-                                           std::uint64_t log_term,
-                                           std::uint64_t committed,
+  leaf::result<std::uint64_t> maybe_append(std::uint64_t index, std::uint64_t log_term, std::uint64_t committed,
                                            pb::repeated_entry&& enrties);
 
  private:
@@ -160,11 +152,10 @@ class raft_log {
   std::uint64_t max_next_ents_size_;
 };
 
-leaf::result<raft_log> new_raft_log_with_size(
-    pro::proxy_view<storage_builer> storage, std::uint64_t max_next_ents_size);
+leaf::result<raft_log> new_raft_log_with_size(pro::proxy_view<storage_builer> storage,
+                                              std::uint64_t max_next_ents_size);
 
-inline leaf::result<raft_log> new_raft_log(
-    pro::proxy_view<storage_builer> storage) {
+inline leaf::result<raft_log> new_raft_log(pro::proxy_view<storage_builer> storage) {
   return new_raft_log_with_size(storage, NO_LIMIT);
 }
 

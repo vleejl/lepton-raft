@@ -27,8 +27,7 @@ namespace confchange {
 // 协议的原则。只有在集群能够承受的情况下，配置变更才会被提交，否则变更会被拒绝。
 class changer {
  public:
-  using result =
-      leaf::result<std::tuple<tracker::config, tracker::progress_map>>;
+  using result = leaf::result<std::tuple<tracker::config, tracker::progress_map>>;
   NONCOPYABLE_NONMOVABLE(changer)
   changer() = delete;
 
@@ -41,13 +40,11 @@ class changer {
   result check_and_copy() const;
 
   // initProgress initializes a new progress for the given node or learner.
-  void init_pregress(std::uint64_t id, bool is_learner, tracker::config &cfg,
-                     tracker::progress_map &prs) const;
+  void init_pregress(std::uint64_t id, bool is_learner, tracker::config &cfg, tracker::progress_map &prs) const;
 
   // makeVoter adds or promotes the given ID to be a voter in the incoming
   // majority config.
-  void make_voters(std::uint64_t id, tracker::config &cfg,
-                   tracker::progress_map &prs) const;
+  void make_voters(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const;
 
   // makeLearner makes the given ID a learner or stages it to be a learner once
   // an active joint configuration is exited.
@@ -62,41 +59,32 @@ class changer {
   // simultaneously. Instead, we add the learner to LearnersNext, so that it
   // will be added to Learners the moment the outgoing config is removed by
   // LeaveJoint().
-  void make_learners(std::uint64_t id, tracker::config &cfg,
-                     tracker::progress_map &prs) const;
+  void make_learners(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const;
 
   // remove this peer as a voter or learner from the incoming config.
-  void remove(std::uint64_t id, tracker::config &cfg,
-              tracker::progress_map &prs) const;
+  void remove(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const;
   // apply a change to the configuration. By convention, changes to voters are
   // always made to the incoming majority config Voters[0]. Voters[1] is either
   // empty or preserves the outgoing majority configuration while in a joint
   // state.
-  leaf::result<void> apply(
-      const absl::Span<const raftpb::conf_change_single> &ccs,
-      tracker::config &cfg, tracker::progress_map &prs) const;
+  leaf::result<void> apply(const absl::Span<const raftpb::conf_change_single> &ccs, tracker::config &cfg,
+                           tracker::progress_map &prs) const;
 
  public:
   changer(tracker::progress_tracker &&tracker, std::uint64_t last_index)
       : tracker_(std::move(tracker)), last_index_(last_index) {}
 
-  void update_tracker_config(tracker::config &&cfg) {
-    tracker_.update_config(std::move(cfg));
-  }
+  void update_tracker_config(tracker::config &&cfg) { tracker_.update_config(std::move(cfg)); }
 
   tracker::config &&move_config() { return tracker_.move_config(); }
 
   const tracker::config &config_view() { return tracker_.config_view(); }
 
-  void update_tracker_progress(tracker::progress_map &&map) {
-    tracker_.update_progress(std::move(map));
-  }
+  void update_tracker_progress(tracker::progress_map &&map) { tracker_.update_progress(std::move(map)); }
 
   tracker::progress_map &&move_progress() { return tracker_.move_progress(); }
 
-  const tracker::progress_map &progress_view() {
-    return tracker_.progress_map_view();
-  }
+  const tracker::progress_map &progress_view() { return tracker_.progress_map_view(); }
   // EnterJoint verifies that the outgoing (=right) majority config of the joint
   // config is empty and initializes it with a copy of the incoming (=left)
   // majority config. That is, it transitions from
@@ -112,9 +100,7 @@ class changer {
   // (Section 4.3) corresponds to `C_{new,old}`.
   //
   // [1]: https://github.com/ongardie/dissertation/blob/master/online-trim.pdf
-  result enter_joint(
-      bool auto_leave,
-      const absl::Span<const raftpb::conf_change_single> &ccs) const;
+  result enter_joint(bool auto_leave, const absl::Span<const raftpb::conf_change_single> &ccs) const;
 
   // LeaveJoint transitions out of a joint configuration. It is an error to call
   // this method if the configuration is not joint, i.e. if the outgoing

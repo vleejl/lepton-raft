@@ -24,12 +24,9 @@ class joint_config {
   NOT_COPYABLE(joint_config)
  public:
   joint_config() = delete;
-  joint_config(majority_config&& primary_config)
-      : primary_config_(std::move(primary_config)) {}
-  joint_config(majority_config&& primary_config,
-               majority_config&& secondary_config)
-      : primary_config_(std::move(primary_config)),
-        secondary_config_(std::move(secondary_config)) {}
+  joint_config(majority_config&& primary_config) : primary_config_(std::move(primary_config)) {}
+  joint_config(majority_config&& primary_config, majority_config&& secondary_config)
+      : primary_config_(std::move(primary_config)), secondary_config_(std::move(secondary_config)) {}
   joint_config(joint_config&&) = default;
   joint_config& operator=(joint_config&&) = default;
 
@@ -67,13 +64,10 @@ class joint_config {
 
   bool is_singleton() const {
     return (primary_config_.size() == 1 && !secondary_config_.has_value()) ||
-           (primary_config_.size() == 1 && secondary_config_.has_value() &&
-            secondary_config_->size() == 1);
+           (primary_config_.size() == 1 && secondary_config_.has_value() && secondary_config_->size() == 1);
   }
 
-  void insert_node_into_primary_config(std::uint64_t id) {
-    primary_config_.id_set_.insert(id);
-  }
+  void insert_node_into_primary_config(std::uint64_t id) { primary_config_.id_set_.insert(id); }
 
   void remove_node_from_primary_config(std::uint64_t id) {
     if (primary_config_.id_set_.contains(id)) {
@@ -81,9 +75,7 @@ class joint_config {
     }
   }
 
-  std::vector<std::uint64_t> primary_config_slice() const {
-    return primary_config_.slice();
-  }
+  std::vector<std::uint64_t> primary_config_slice() const { return primary_config_.slice(); }
 
   void sync_secondary_with_primary() {
     assert(!is_secondary_config_valid());
@@ -92,9 +84,7 @@ class joint_config {
 
   void reset_secondary() { secondary_config_.reset(); }
 
-  bool is_secondary_config_valid() const {
-    return secondary_config_.has_value();
-  }
+  bool is_secondary_config_valid() const { return secondary_config_.has_value(); }
 
   std::vector<std::uint64_t> secondary_config_slice() const {
     if (secondary_config_) {
@@ -152,8 +142,7 @@ class joint_config {
   // CommittedIndex returns the largest committed index for the given joint
   // quorum. An index is jointly committed if it is committed in both
   // constituent majorities.
-  log_index committed_index(
-      pro::proxy_view<acked_indexer_builer> indexer) const {
+  log_index committed_index(pro::proxy_view<acked_indexer_builer> indexer) const {
     auto log_idx0 = primary_config_.committed_index(indexer);
     if (!secondary_config_) {
       return log_idx0;
@@ -165,12 +154,9 @@ class joint_config {
   // VoteResult takes a mapping of voters to yes/no (true/false) votes and
   // returns a result indicating whether the vote is pending, lost, or won. A
   // joint quorum requires both majority quorums to vote in favor.
-  vote_result vote_result_statistics(
-      const std::unordered_map<std::uint64_t, bool>& vote) const {
+  vote_result vote_result_statistics(const std::unordered_map<std::uint64_t, bool>& vote) const {
     auto r1 = primary_config_.vote_result_statistics(vote);
-    auto r2 = secondary_config_.has_value()
-                  ? secondary_config_->vote_result_statistics(vote)
-                  : vote_result::VOTE_WON;
+    auto r2 = secondary_config_.has_value() ? secondary_config_->vote_result_statistics(vote) : vote_result::VOTE_WON;
 
     if (r1 == r2) {
       // If they agree, return the agreed state.

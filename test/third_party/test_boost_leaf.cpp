@@ -22,16 +22,14 @@ class Storage {
 };
 
 // 测试函数
-leaf::result<std::uint64_t> test_function(Storage& storage, int i,
-                                          bool& has_repeat_error) {
+leaf::result<std::uint64_t> test_function(Storage& storage, int i, bool& has_repeat_error) {
   return leaf::try_handle_some(
       [&]() -> leaf::result<std::uint64_t> {
         BOOST_LEAF_AUTO(v, storage.term(i));
         return v;
       },
       [&](const lepton_error& e) -> leaf::result<std::uint64_t> {
-        if (e.err_code == storage_error::COMPACTED ||
-            e.err_code == storage_error::UNAVAILABLE) {
+        if (e.err_code == storage_error::COMPACTED || e.err_code == storage_error::UNAVAILABLE) {
           throw std::runtime_error("target error code");
         }
         has_repeat_error = true;
@@ -44,9 +42,7 @@ leaf::result<std::uint64_t> test_function(Storage& storage, int i,
 TEST(TryHandleSomeTest, ThrowsOnCompactedError) {
   Storage storage;
   auto has_repeat_error = false;
-  EXPECT_THROW(
-      { test_function(storage, -1, has_repeat_error).value(); },
-      std::runtime_error);
+  EXPECT_THROW({ test_function(storage, -1, has_repeat_error).value(); }, std::runtime_error);
   EXPECT_FALSE(has_repeat_error);
 }
 

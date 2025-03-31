@@ -34,8 +34,7 @@ struct strong_type {
 namespace std {
 template <typename Tag, typename T>
 struct formatter<lepton::type::strong_type<Tag, T>> : formatter<T> {
-  auto format(const lepton::type::strong_type<Tag, T>& obj,
-              format_context& ctx) const {
+  auto format(const lepton::type::strong_type<Tag, T>& obj, format_context& ctx) const {
     // 直接使用底层类型的格式化逻辑
     return formatter<T>::format(obj.value, ctx);
 
@@ -46,8 +45,7 @@ struct formatter<lepton::type::strong_type<Tag, T>> : formatter<T> {
 };
 
 template <typename Tag, typename T>
-std::ostream& operator<<(std::ostream& os,
-                         const lepton::type::strong_type<Tag, T>& obj) {
+std::ostream& operator<<(std::ostream& os, const lepton::type::strong_type<Tag, T>& obj) {
   return os << obj.value;
 }
 

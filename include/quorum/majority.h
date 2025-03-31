@@ -28,10 +28,8 @@ class majority_config {
   NOT_COPYABLE(majority_config)
  public:
   majority_config() = default;
-  explicit majority_config(const std::set<std::uint64_t> &id_set)
-      : id_set_(id_set) {}
-  explicit majority_config(std::set<std::uint64_t> &&id_set)
-      : id_set_(std::move(id_set)) {}
+  explicit majority_config(const std::set<std::uint64_t> &id_set) : id_set_(id_set) {}
+  explicit majority_config(std::set<std::uint64_t> &&id_set) : id_set_(std::move(id_set)) {}
 
   majority_config(majority_config &&) = default;
   majority_config &operator=(majority_config &&) = default;
@@ -105,25 +103,21 @@ class majority_config {
       }
     }
 
-    std::sort(info.begin(), info.end(),
-              [](const tup &lhs, const tup &rhs) { return lhs.id < rhs.id; });
+    std::sort(info.begin(), info.end(), [](const tup &lhs, const tup &rhs) { return lhs.id < rhs.id; });
     std::ostringstream ss;
     ss << std::string(n, ' ') << "    idx\n";
     for (const auto &iter : info) {
       if (!iter.ok) {
         ss << '?' << std::string(n, ' ');
       } else {
-        ss << std::string(iter.bar, 'x') << '>'
-           << std::string(n - iter.bar, ' ');
+        ss << std::string(iter.bar, 'x') << '>' << std::string(n - iter.bar, ' ');
       }
       ss << fmt::format(" {:5d}    (id={})\n", iter.index, iter.id);
     }
     return ss.str();
   }
 
-  std::vector<std::uint64_t> slice() const {
-    return std::vector<std::uint64_t>{id_set_.begin(), id_set_.end()};
-  }
+  std::vector<std::uint64_t> slice() const { return std::vector<std::uint64_t>{id_set_.begin(), id_set_.end()}; }
 
   // CommittedIndex computes the committed index from those supplied via the
   // provided AckedIndexer (for the active config).
@@ -134,8 +128,7 @@ class majority_config {
   // 选择排序后的第 n/2 + 1 小的节点索引（保证大多数节点的承诺被采纳）。
   // 用途：计算并返回当前多数配置的承诺索引，这是 Raft
   // 协议中用于决定日志是否已经提交的关键值。
-  log_index committed_index(
-      const pro::proxy_view<acked_indexer_builer> indexer) const {
+  log_index committed_index(const pro::proxy_view<acked_indexer_builer> indexer) const {
     if (id_set_.empty()) {
       // This plays well with joint quorums which, when one half is the zero
       // MajorityConfig, should behave like the other half.
@@ -174,8 +167,7 @@ class majority_config {
   // 如果多数节点投票同意，返回 VoteWon。
   // 如果多数节点投票反对，返回 VoteLost。
   // 用途：用于处理集群中的投票决策，例如领导人选举或配置变更请求。
-  vote_result vote_result_statistics(
-      const std::unordered_map<std::uint64_t, bool> &vote) const {
+  vote_result vote_result_statistics(const std::unordered_map<std::uint64_t, bool> &vote) const {
     if (id_set_.empty()) {
       // By convention, the elections on an empty config win. This comes in
       // handy with joint quorums because it'll make a half-populated joint

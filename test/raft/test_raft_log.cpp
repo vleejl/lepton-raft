@@ -26,21 +26,13 @@ using namespace lepton;
 
 class raft_log_test_suit : public testing::Test {
  protected:
-  static void SetUpTestSuite() {
-    std::cout << "run before first case..." << std::endl;
-  }
+  static void SetUpTestSuite() { std::cout << "run before first case..." << std::endl; }
 
-  static void TearDownTestSuite() {
-    std::cout << "run after last case..." << std::endl;
-  }
+  static void TearDownTestSuite() { std::cout << "run after last case..." << std::endl; }
 
-  virtual void SetUp() override {
-    std::cout << "enter from SetUp" << std::endl;
-  }
+  virtual void SetUp() override { std::cout << "enter from SetUp" << std::endl; }
 
-  virtual void TearDown() override {
-    std::cout << "exit from TearDown" << std::endl;
-  }
+  virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
 
 TEST_F(raft_log_test_suit, test_storage_term) {
@@ -66,16 +58,14 @@ TEST_F(raft_log_test_suit, test_storage_term) {
       {create_entries({{4, 4}, {5, 4}}), 4},
 
       // 存在冲突的情况
-      {create_entries({{1, 4}, {2, 4}}), 1},          // 索引1处term不匹配
-      {create_entries({{2, 1}, {3, 4}, {4, 4}}), 2},  // 索引2处term不匹配
-      {create_entries({{3, 1}, {4, 2}, {5, 4}, {6, 4}}),
-       3}  // 索引3处term不匹配
+      {create_entries({{1, 4}, {2, 4}}), 1},                 // 索引1处term不匹配
+      {create_entries({{2, 1}, {3, 4}, {4, 4}}), 2},         // 索引2处term不匹配
+      {create_entries({{3, 1}, {4, 2}, {5, 4}, {6, 4}}), 3}  // 索引3处term不匹配
 
   };
 
   for (const auto &iter_test : tests) {
-    pro::proxy<storage_builer> memory_storager =
-        pro::make_proxy<storage_builer, memory_storage>();
+    pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
     pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
     auto raft_log = new_raft_log(memory_storager_view);
     raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
@@ -85,8 +75,7 @@ TEST_F(raft_log_test_suit, test_storage_term) {
 }
 
 TEST_F(raft_log_test_suit, is_up_to_date) {
-  pro::proxy<storage_builer> memory_storager =
-      pro::make_proxy<storage_builer, memory_storage>();
+  pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
   pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
   auto raft_log = new_raft_log(memory_storager_view);
   raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
@@ -113,8 +102,7 @@ TEST_F(raft_log_test_suit, is_up_to_date) {
       {raft_log->last_index() + 1, 3, true},
   };
   for (const auto &iter_test : tests) {
-    auto gup_to_date =
-        raft_log->is_up_to_date(iter_test.last_index, iter_test.term);
+    auto gup_to_date = raft_log->is_up_to_date(iter_test.last_index, iter_test.term);
     ASSERT_EQ(iter_test.wup_to_date, gup_to_date);
   }
 }
@@ -127,34 +115,32 @@ TEST_F(raft_log_test_suit, append) {
     std::uint64_t wunstable;              // wunstable
   };
 
-  std::vector<test_case> tests = {
-      // 空输入，追加到索引2，预期生成条目[1:1,2:2]，不稳定点从3开始
-      {
-          create_entries({}),                // ents
-          2,                                 // windex
-          create_entries({{1, 1}, {2, 2}}),  // wents
-          3                                  // wunstable
-      },
+  std::vector<test_case> tests = {// 空输入，追加到索引2，预期生成条目[1:1,2:2]，不稳定点从3开始
+                                  {
+                                      create_entries({}),                // ents
+                                      2,                                 // windex
+                                      create_entries({{1, 1}, {2, 2}}),  // wents
+                                      3                                  // wunstable
+                                  },
 
-      // 在索引3追加新条目，预期完整日志包含[1:1,2:2,3:2]
-      {create_entries({{3, 2}}), 3, create_entries({{1, 1}, {2, 2}, {3, 2}}),
-       3},
+                                  // 在索引3追加新条目，预期完整日志包含[1:1,2:2,3:2]
+                                  {create_entries({{3, 2}}), 3, create_entries({{1, 1}, {2, 2}, {3, 2}}), 3},
 
-      // 在索引1发生冲突（term不同）
-      {
-          create_entries({{1, 2}}),  // 输入的term与现有条目冲突
-          1,                         // 冲突位置
-          create_entries({{1, 2}}),  // 冲突后日志仅保留新条目
-          1                          // 不稳定点重置到冲突位置
-      },
+                                  // 在索引1发生冲突（term不同）
+                                  {
+                                      create_entries({{1, 2}}),  // 输入的term与现有条目冲突
+                                      1,                         // 冲突位置
+                                      create_entries({{1, 2}}),  // 冲突后日志仅保留新条目
+                                      1                          // 不稳定点重置到冲突位置
+                                  },
 
-      // 在索引2发生冲突，覆盖后续条目
-      {
-          create_entries({{2, 3}, {3, 3}}),  // 索引2的term从2变为3
-          3,                                 // 最终写入到索引3
-          create_entries({{1, 1}, {2, 3}, {3, 3}}),  // 覆盖原索引2的条目
-          2  // 不稳定点从冲突位置开始
-      }};
+                                  // 在索引2发生冲突，覆盖后续条目
+                                  {
+                                      create_entries({{2, 3}, {3, 3}}),          // 索引2的term从2变为3
+                                      3,                                         // 最终写入到索引3
+                                      create_entries({{1, 1}, {2, 3}, {3, 3}}),  // 覆盖原索引2的条目
+                                      2                                          // 不稳定点从冲突位置开始
+                                  }};
   for (auto &iter_test : tests) {
     lepton::memory_storage mm_storage;
     mm_storage.append(create_entries({{1, 1}, {2, 2}}));
@@ -171,8 +157,7 @@ TEST_F(raft_log_test_suit, append) {
       GTEST_ASSERT_TRUE(false);
     }
 
-    if (auto goff = raft_log->unstable_view().offset();
-        goff != iter_test.wunstable) {
+    if (auto goff = raft_log->unstable_view().offset(); goff != iter_test.wunstable) {
       GTEST_ASSERT_TRUE(false);
     }
   }
@@ -311,8 +296,7 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
     test_index++;
     printf("current test case index:%d\n", test_index);
     // initial
-    pro::proxy<storage_builer> memory_storager =
-        pro::make_proxy<storage_builer, memory_storage>();
+    pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
     pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
     auto raft_log = new_raft_log(memory_storager_view);
     raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
@@ -322,19 +306,16 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
     lepton::pb::repeated_entry ents;
     ents.CopyFrom(iter_test.ents);
     if (iter_test.expect_exception) {
-      EXPECT_DEATH(raft_log->maybe_append(iter_test.index, iter_test.log_term,
-                                          iter_test.committed,
-                                          std::move(iter_test.ents)),
-                   "");
+      EXPECT_DEATH(
+          raft_log->maybe_append(iter_test.index, iter_test.log_term, iter_test.committed, std::move(iter_test.ents)),
+          "");
       continue;
     }
     auto has_called_error = false;
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<std::uint64_t> {
-          BOOST_LEAF_AUTO(
-              v, raft_log->maybe_append(iter_test.index, iter_test.log_term,
-                                        iter_test.committed,
-                                        std::move(iter_test.ents)));
+          BOOST_LEAF_AUTO(v, raft_log->maybe_append(iter_test.index, iter_test.log_term, iter_test.committed,
+                                                    std::move(iter_test.ents)));
           return v;
         },
         [&](const lepton::lepton_error &err) -> leaf::result<std::uint64_t> {
@@ -345,9 +326,8 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
     ASSERT_EQ(!has_called_error, iter_test.expected_append);
     ASSERT_EQ(raft_log->committed(), iter_test.expected_commit);
     if (iter_test.expected_append && !ents.empty()) {
-      auto gents = raft_log->slice(
-          raft_log->last_index() - static_cast<std::uint64_t>(ents.size()) + 1,
-          raft_log->last_index() + 1, NO_LIMIT);
+      auto gents = raft_log->slice(raft_log->last_index() - static_cast<std::uint64_t>(ents.size()) + 1,
+                                   raft_log->last_index() + 1, NO_LIMIT);
       GTEST_ASSERT_TRUE(gents.has_value());
       if (ents != gents.value()) {
         GTEST_ASSERT_TRUE(false);
@@ -490,8 +470,7 @@ TEST_F(raft_log_test_suit, unstable_ents) {
     auto raft_log = new_raft_log(memory_storager_view);
     ASSERT_TRUE(raft_log.has_value());
     ents.Clear();
-    for (std::uint64_t i = iter_test.unstable - 1; i < previous_ents.size();
-         ++i) {
+    for (std::uint64_t i = iter_test.unstable - 1; i < previous_ents.size(); ++i) {
       ents.Add()->CopyFrom(previous_ents[i]);
     }
     raft_log->append(std::move(ents));
@@ -503,8 +482,7 @@ TEST_F(raft_log_test_suit, unstable_ents) {
     }
     if (auto l = unstable_ents.size(); l > 0) {
       // 持久化后会清空 unstable entries；所以必须先对比才能stable
-      raft_log->stable_to(unstable_ents[l - 1]->index(),
-                          unstable_ents[l - 1]->term());
+      raft_log->stable_to(unstable_ents[l - 1]->index(), unstable_ents[l - 1]->term());
     }
     auto w = previous_ents[previous_ents.size() - 1].index() + 1;
     ASSERT_EQ(w, raft_log->unstable_view().offset());
@@ -524,8 +502,7 @@ TEST_F(raft_log_test_suit, commit_to) {
       {4, 0, true},   // commit out of range -> panic
   };
   for (auto &iter_test : tests) {
-    pro::proxy<storage_builer> memory_storager =
-        pro::make_proxy<storage_builer, memory_storage>();
+    pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
     pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
     auto raft_log = new_raft_log(memory_storager_view);
     raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
@@ -553,8 +530,7 @@ TEST_F(raft_log_test_suit, stable_to) {
       {3, 1, 1},  // bad index
   };
   for (auto &iter_test : tests) {
-    pro::proxy<storage_builer> memory_storager =
-        pro::make_proxy<storage_builer, memory_storage>();
+    pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
     pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
     auto raft_log = new_raft_log(memory_storager_view);
     raft_log->append(create_entries({{1, 1}, {2, 2}}));
@@ -721,16 +697,14 @@ TEST_F(raft_log_test_suit, is_out_of_bounds) {
 
   for (auto &iter_test : tests) {
     if (iter_test.wpanic) {
-      EXPECT_DEATH(
-          raft_log->must_check_out_of_bounds(iter_test.lo, iter_test.hi), "");
+      EXPECT_DEATH(raft_log->must_check_out_of_bounds(iter_test.lo, iter_test.hi), "");
       continue;
     }
     std::error_code err_code;
     auto has_called_error = false;
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(
-              raft_log->must_check_out_of_bounds(iter_test.lo, iter_test.hi));
+          BOOST_LEAF_CHECK(raft_log->must_check_out_of_bounds(iter_test.lo, iter_test.hi));
           return {};
         },
         [&](const lepton::lepton_error &err) -> leaf::result<void> {
@@ -767,11 +741,7 @@ TEST_F(raft_log_test_suit, term) {
     std::uint64_t w;
   };
   std::vector<test_case> tests = {
-      {offset - 1, 0},
-      {offset, 1},
-      {offset + num / 2, num / 2},
-      {offset + num - 1, num - 1},
-      {offset + num, 0},
+      {offset - 1, 0}, {offset, 1}, {offset + num / 2, num / 2}, {offset + num - 1, num - 1}, {offset + num, 0},
   };
   for (auto &iter_test : tests) {
     auto term = raft_log->term(iter_test.index);
@@ -834,28 +804,20 @@ TEST_F(raft_log_test_suit, slice) {
       // test no limit
       {offset - 1, offset + 1, UINT64_MAX, create_entries({}), false},
       {offset, offset + 1, UINT64_MAX, create_entries({}), false},
-      {half - 1, half + 1, UINT64_MAX,
-       create_entries({{half - 1, half - 1}, {half, half}}), false},
+      {half - 1, half + 1, UINT64_MAX, create_entries({{half - 1, half - 1}, {half, half}}), false},
       {half, half + 1, UINT64_MAX, create_entries({{half, half}}), false},
-      {last - 1, last, UINT64_MAX, create_entries({{last - 1, last - 1}}),
-       false},
+      {last - 1, last, UINT64_MAX, create_entries({{last - 1, last - 1}}), false},
       {last, last + 1, UINT64_MAX, create_entries({}), true},
 
       // test limit
       {half - 1, half + 1, 0, create_entries({{half - 1, half - 1}}), false},
-      {half - 1, half + 1, base_entry_size + 1,
-       create_entries({{half - 1, half - 1}}), false},
-      {half - 2, half + 1, base_entry_size + 1,
-       create_entries({{half - 2, half - 2}}), false},
-      {half - 1, half + 1, base_entry_size * 2,
-       create_entries({{half - 1, half - 1}, {half, half}}), false},
+      {half - 1, half + 1, base_entry_size + 1, create_entries({{half - 1, half - 1}}), false},
+      {half - 2, half + 1, base_entry_size + 1, create_entries({{half - 2, half - 2}}), false},
+      {half - 1, half + 1, base_entry_size * 2, create_entries({{half - 1, half - 1}, {half, half}}), false},
       {half - 1, half + 2, base_entry_size * 3,
-       create_entries(
-           {{half - 1, half - 1}, {half, half}, {half + 1, half + 1}}),
-       false},
+       create_entries({{half - 1, half - 1}, {half, half}, {half + 1, half + 1}}), false},
       {half, half + 2, base_entry_size, create_entries({{half, half}}), false},
-      {half, half + 2, base_entry_size * 2,
-       create_entries({{half, half}, {half + 1, half + 1}}), false},
+      {half, half + 2, base_entry_size * 2, create_entries({{half, half}, {half + 1, half + 1}}), false},
   };
 
   lepton::memory_storage mm_storage;
@@ -878,27 +840,23 @@ TEST_F(raft_log_test_suit, slice) {
     test_index++;
     printf("current test case index:%d\n", test_index);
     if (iter_test.wpanic) {
-      EXPECT_DEATH(
-          raft_log->slice(iter_test.from, iter_test.to, iter_test.limit), "");
+      EXPECT_DEATH(raft_log->slice(iter_test.from, iter_test.to, iter_test.limit), "");
       continue;
     }
     std::error_code err_code;
     auto has_called_error = false;
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<lepton::pb::repeated_entry> {
-          BOOST_LEAF_AUTO(v, raft_log->slice(iter_test.from, iter_test.to,
-                                             iter_test.limit));
+          BOOST_LEAF_AUTO(v, raft_log->slice(iter_test.from, iter_test.to, iter_test.limit));
           return v;
         },
-        [&](const lepton::lepton_error &err)
-            -> leaf::result<lepton::pb::repeated_entry> {
+        [&](const lepton::lepton_error &err) -> leaf::result<lepton::pb::repeated_entry> {
           has_called_error = true;
           err_code = err.err_code;
           return new_error(err);
         });
     ASSERT_FALSE(iter_test.wpanic);
-    if (iter_test.from <= offset &&
-        err_code != make_error_code(storage_error::COMPACTED)) {
+    if (iter_test.from <= offset && err_code != make_error_code(storage_error::COMPACTED)) {
       ASSERT_TRUE(false);
     }
     if (iter_test.from > offset && has_called_error) {

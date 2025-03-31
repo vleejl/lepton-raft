@@ -32,8 +32,7 @@ using namespace lepton;
 // - rn: remove n, and
 // - un: update n.
 static leaf::result<std::string> process_single_test_case(
-    const std::string& cmd, const std::string& input,
-    const std::map<std::string, std::vector<std::string>>& args_map,
+    const std::string& cmd, const std::string& input, const std::map<std::string, std::vector<std::string>>& args_map,
     confchange::changer& c) {
   defer func([&c]() { c.increase_last_index(); });
   std::vector<raftpb::conf_change_single> ccs;
@@ -99,8 +98,7 @@ static leaf::result<std::string> process_single_test_case(
   } else {
     return "unknown command";
   }
-  return fmt::format("{}\n{}", c.config_view().string(),
-                     c.progress_view().string());
+  return fmt::format("{}\n{}", c.config_view().string(), c.progress_view().string());
 }
 
 TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
@@ -121,19 +119,14 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
         0  // incremented in this test with each cmd
     };
     data_driven runner{test_file};
-    auto func =
-        [&c](const std::string& cmd, const std::string& input,
-             const std::map<std::string, std::vector<std::string>>& args_map)
-        -> std::string {
+    auto func = [&c](const std::string& cmd, const std::string& input,
+                     const std::map<std::string, std::vector<std::string>>& args_map) -> std::string {
       leaf::result<std::string> r = leaf::try_handle_some(
           [&]() -> leaf::result<std::string> {
-            BOOST_LEAF_AUTO(v,
-                            process_single_test_case(cmd, input, args_map, c));
+            BOOST_LEAF_AUTO(v, process_single_test_case(cmd, input, args_map, c));
             return v;
           },
-          [](const lepton_error& e) -> leaf::result<std::string> {
-            return std::string(e.message) + '\n';
-          });
+          [](const lepton_error& e) -> leaf::result<std::string> { return std::string(e.message) + '\n'; });
       if (r.has_error()) {
         auto a = 1;
       }

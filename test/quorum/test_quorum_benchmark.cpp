@@ -19,14 +19,12 @@ static void BM_majority_config_committed_index(benchmark::State& state) {
   // Initialize MajorityConfig and AckedIndexer
   for (uint64_t i = 0; i < static_cast<uint64_t>(n); ++i) {
     id_set.insert(i + 1);  // Add dummy value to MajorityConfig
-    id_log_index_ack_map[i + 1] = static_cast<quorum::log_index>(
-        rand() % (std::numeric_limits<int64_t>::max()));  // Random Index
+    id_log_index_ack_map[i + 1] =
+        static_cast<quorum::log_index>(rand() % (std::numeric_limits<int64_t>::max()));  // Random Index
   }
 
   quorum::majority_config c{std::move(id_set)};
-  auto l =
-      pro::make_proxy<quorum::acked_indexer_builer, quorum::map_ack_indexer>(
-          std::move(id_log_index_ack_map));
+  auto l = pro::make_proxy<quorum::acked_indexer_builer, quorum::map_ack_indexer>(std::move(id_log_index_ack_map));
   pro::proxy_view<quorum::acked_indexer_builer> l_pro_view = l;
 
   // Run the benchmark for n iterations

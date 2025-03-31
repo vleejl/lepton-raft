@@ -20,13 +20,11 @@ struct RaftMessage {
 
 class RaftNode {
  public:
-  RaftNode(io_context &io_context)
-      : io_context_(io_context), stop_flag_(false), timer_(io_context) {}
+  RaftNode(io_context &io_context) : io_context_(io_context), stop_flag_(false), timer_(io_context) {}
 
   // 启动协程事件循环
   void start() {
-    co_spawn(
-        io_context_, [this] { return event_loop(); }, detached);
+    co_spawn(io_context_, [this] { return event_loop(); }, detached);
   }
 
   void stop() { stop_flag_ = true; }
@@ -51,7 +49,7 @@ class RaftNode {
     while (!stop_flag_) {
       // 每100ms执行一次 Raft tick 操作
       timer_.expires_after(std::chrono::milliseconds(100));  // 设置定时器
-      co_await timer_.async_wait(use_awaitable);  // 等待定时器到期
+      co_await timer_.async_wait(use_awaitable);             // 等待定时器到期
 
       std::cout << "RaftNode ticking..." << std::endl;
 

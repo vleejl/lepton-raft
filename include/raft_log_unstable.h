@@ -29,21 +29,16 @@ class unstable {
     }
     auto upper = offset_ + static_cast<std::uint64_t>(entries_.size());
     if ((lo < offset_) || hi > upper) {
-      LEPTON_CRITICAL("unstable.slice[{},{}) out of bound [{},{}]", lo, hi,
-                      offset_, upper);
+      LEPTON_CRITICAL("unstable.slice[{},{}) out of bound [{},{}]", lo, hi, offset_, upper);
       assert(false);
     }
   }
 
  public:
   unstable(std::uint64_t offset) : offset_(offset) {}
-  unstable(pb::repeated_entry&& entries, std::uint64_t offset)
-      : entries_(std::move(entries)), offset_(offset) {}
-  unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries,
-           std::uint64_t offset)
-      : snapshot_(std::move(snapshot)),
-        entries_(std::move(entries)),
-        offset_(offset) {}
+  unstable(pb::repeated_entry&& entries, std::uint64_t offset) : entries_(std::move(entries)), offset_(offset) {}
+  unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries, std::uint64_t offset)
+      : snapshot_(std::move(snapshot)), entries_(std::move(entries)), offset_(offset) {}
   unstable(unstable&& lhs) = default;
 
   const auto& entries_view() const { return entries_; }
@@ -57,12 +52,10 @@ class unstable {
 
     auto upper = offset_ + static_cast<uint64_t>(entries_.size());
     if (lhs_idx < offset_ || rhs_idx > upper) {
-      LEPTON_CRITICAL("unstable.slice[{},{}) out of bound [{},{}]", lhs_idx,
-                      rhs_idx, offset_, upper);
+      LEPTON_CRITICAL("unstable.slice[{},{}) out of bound [{},{}]", lhs_idx, rhs_idx, offset_, upper);
     }
 
-    return absl::Span<const raftpb::entry* const>(
-        entries_span().data() + lhs_idx - offset_, rhs_idx - lhs_idx);
+    return absl::Span<const raftpb::entry* const>(entries_span().data() + lhs_idx - offset_, rhs_idx - lhs_idx);
   }
 
   std::uint64_t offset() const { return offset_; }
@@ -74,9 +67,7 @@ class unstable {
     return *snapshot_;
   }
 
-  bool has_pending_snapshot() const {
-    return has_snapshot() && pb::is_empty_snap(*snapshot_);
-  }
+  bool has_pending_snapshot() const { return has_snapshot() && pb::is_empty_snap(*snapshot_); }
 
   // maybeFirstIndex returns the index of the first possible entry in entries
   // if it has a snapshot.
@@ -96,8 +87,7 @@ class unstable {
     if (has_snapshot()) {
       return snapshot_->metadata().index();
     }
-    return new_error(encoding_error::NULL_POINTER,
-                     "entries and snapshot both null ptr");
+    return new_error(encoding_error::NULL_POINTER, "entries and snapshot both null ptr");
   }
 
   // maybeTerm returns the term of the entry at index i, if there
@@ -140,9 +130,8 @@ class unstable {
         entries_.Clear();
       } else {
         // 移动 i 之后的元素并重新赋值给 entries_
-        entries_ = pb::repeated_entry(
-            std::make_move_iterator(entries_.begin() + index),
-            std::make_move_iterator(entries_.end()));
+        entries_ = pb::repeated_entry(std::make_move_iterator(entries_.begin() + index),
+                                      std::make_move_iterator(entries_.end()));
       }
       offset_ = i + 1;
     }
@@ -163,10 +152,8 @@ class unstable {
   void truncate_and_append(pb::repeated_entry&& entry_list) {
     assert(!entry_list.empty());
     auto after = entry_list[0].index();
-    if (after == (offset_ + static_cast<std::uint64_t>(
-                                entries_.size()))) {  // max after value
-      entries_.Add(std::make_move_iterator(entry_list.begin()),
-                   std::make_move_iterator(entry_list.end()));
+    if (after == (offset_ + static_cast<std::uint64_t>(entries_.size()))) {  // max after value
+      entries_.Add(std::make_move_iterator(entry_list.begin()), std::make_move_iterator(entry_list.end()));
     } else if (after <= offset_) {  // min after value
       SPDLOG_INFO("replace the unstable entries from index {}", after);
       // The log is being truncated to before our current offset
@@ -180,11 +167,9 @@ class unstable {
       auto start = static_cast<std::ptrdiff_t>(offset_ - offset_);
       auto end = static_cast<std::ptrdiff_t>(after - offset_);
       // 截取 offset 到 after 之间的 entry
-      entries_ =
-          pb::repeated_entry(std::make_move_iterator(entries_.begin() + start),
-                             std::make_move_iterator(entries_.begin() + end));
-      entries_.Add(std::make_move_iterator(entry_list.begin()),
-                   std::make_move_iterator(entry_list.end()));
+      entries_ = pb::repeated_entry(std::make_move_iterator(entries_.begin() + start),
+                                    std::make_move_iterator(entries_.begin() + end));
+      entries_.Add(std::make_move_iterator(entry_list.begin()), std::make_move_iterator(entry_list.end()));
     }
   }
 
@@ -202,10 +187,8 @@ class unstable {
   std::uint64_t offset_;
 };
 
-static_assert(std::is_move_constructible_v<raftpb::snapshot>,
-              "raftpb::snapshot is not move constructible");
-static_assert(std::is_move_assignable_v<raftpb::snapshot>,
-              "raftpb::snapshot is not move assignable");
+static_assert(std::is_move_constructible_v<raftpb::snapshot>, "raftpb::snapshot is not move constructible");
+static_assert(std::is_move_assignable_v<raftpb::snapshot>, "raftpb::snapshot is not move assignable");
 
 }  // namespace lepton
 

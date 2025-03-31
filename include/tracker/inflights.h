@@ -16,8 +16,7 @@ namespace tracker {
 // 也就是一个环形队列实现
 class inflights {
   NOT_COPYABLE(inflights)
-  inflights(size_t size, std::deque<std::uint64_t> &&buffer)
-      : capacity_(size), buffer_(buffer) {}
+  inflights(size_t size, std::deque<std::uint64_t> &&buffer) : capacity_(size), buffer_(buffer) {}
 
  public:
   // NewInflights sets up an Inflights that allows up to 'size' inflight

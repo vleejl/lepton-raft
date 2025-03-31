@@ -12,9 +12,7 @@ namespace lepton {
 // first index + 1 是因为第一个 entry 是 dummy entry
 auto memory_storage::_first_index() const { return ents_[0].index() + 1; }
 
-auto memory_storage::_last_index() const {
-  return ents_[0].index() + static_cast<std::uint64_t>(ents_.size()) - 1;
-}
+auto memory_storage::_last_index() const { return ents_[0].index() + static_cast<std::uint64_t>(ents_.size()) - 1; }
 
 memory_storage::memory_storage() {
   // When starting from scratch populate the list with a dummy entry at term
@@ -48,8 +46,7 @@ memory_storage::memory_storage() {
   entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
 }
 
-leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>
-memory_storage::initial_state() const {
+leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> memory_storage::initial_state() const {
   return {hard_state_, snapshot_.metadata().conf_state()};
 }
 
@@ -60,8 +57,7 @@ void memory_storage::set_hard_state(const raftpb::hard_state hard_state) {
   hard_state_ = hard_state;
 }
 
-leaf::result<pb::repeated_entry> memory_storage::entries(
-    std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) {
+leaf::result<pb::repeated_entry> memory_storage::entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) {
   std::lock_guard<std::mutex> guard(mutex_);
   const auto offset = ents_[0].index();
   if (lo <= offset) {
@@ -69,8 +65,7 @@ leaf::result<pb::repeated_entry> memory_storage::entries(
   }
   const auto last_log_index = _last_index();
   if (hi > last_log_index + 1) {
-    LEPTON_CRITICAL("entries' hi({}) is out of bound lastindex({})", hi,
-                    last_log_index);
+    LEPTON_CRITICAL("entries' hi({}) is out of bound lastindex({})", hi, last_log_index);
   }
 
   // only cotanin dummy entry
@@ -133,20 +128,18 @@ leaf::result<void> memory_storage::apply_snapshot(raftpb::snapshot&& snapshot) {
   return {};
 }
 
-leaf::result<raftpb::snapshot> memory_storage::create_snapshot(
-    std::uint64_t i, std::optional<raftpb::conf_state> cs, std::string&& data) {
+leaf::result<raftpb::snapshot> memory_storage::create_snapshot(std::uint64_t i, std::optional<raftpb::conf_state> cs,
+                                                               std::string&& data) {
   std::lock_guard<std::mutex> guard(mutex_);
   if (i <= snapshot_.metadata().index()) {
     return new_error(storage_error::SNAP_OUT_OF_DATE);
   }
   if (i > _last_index()) {
-    LEPTON_CRITICAL("snapshot {} is out of bound lastindex({})", i,
-                    _last_index());
+    LEPTON_CRITICAL("snapshot {} is out of bound lastindex({})", i, _last_index());
   }
   const auto offset = ents_[0].index();
   snapshot_.mutable_metadata()->set_index(i);
-  snapshot_.mutable_metadata()->set_term(
-      ents_[static_cast<int>(i - offset)].term());
+  snapshot_.mutable_metadata()->set_term(ents_[static_cast<int>(i - offset)].term());
   if (cs.has_value()) {
     snapshot_.mutable_metadata()->mutable_conf_state()->CopyFrom(cs.value());
   }
@@ -161,8 +154,7 @@ leaf::result<void> memory_storage::compact(std::uint64_t compact_index) {
     return new_error(storage_error::COMPACTED);
   }
   if (compact_index > _last_index()) {
-    LEPTON_CRITICAL("compact {} is out of bound lastindex({})", compact_index,
-                    _last_index());
+    LEPTON_CRITICAL("compact {} is out of bound lastindex({})", compact_index, _last_index());
   }
   const auto start = static_cast<int>(compact_index - offset);
   pb::repeated_entry new_ents;
@@ -185,27 +177,22 @@ leaf::result<void> memory_storage::append(pb::repeated_entry&& entries) {
   }
   std::lock_guard<std::mutex> guard(mutex_);
   const auto first = _first_index();
-  const auto entries_last =
-      entries[0].index() + static_cast<std::uint64_t>(entries.size()) - 1;
+  const auto entries_last = entries[0].index() + static_cast<std::uint64_t>(entries.size()) - 1;
   // shortcut if there is no new entry.
   if (entries_last < first) {
     return {};
   }
   if (first > entries[0].index()) {  // truncate compacted entries
-    entries = pb::extract_range_without_copy(
-        entries, static_cast<int>(first - entries[0].index()), entries.size());
+    entries = pb::extract_range_without_copy(entries, static_cast<int>(first - entries[0].index()), entries.size());
   }
   const auto offset = entries[0].index() - ents_[0].index();
   if (offset < ents_.size()) {
     ents_ = pb::extract_range_without_copy(ents_, 0, static_cast<int>(offset));
-    ents_.Add(std::make_move_iterator(entries.begin()),
-              std::make_move_iterator(entries.end()));
+    ents_.Add(std::make_move_iterator(entries.begin()), std::make_move_iterator(entries.end()));
   } else if (offset == ents_.size()) {
-    ents_.Add(std::make_move_iterator(entries.begin()),
-              std::make_move_iterator(entries.end()));
+    ents_.Add(std::make_move_iterator(entries.begin()), std::make_move_iterator(entries.end()));
   } else {
-    LEPTON_CRITICAL("offset({}) is out of range [len({})]", offset,
-                    ents_.size());
+    LEPTON_CRITICAL("offset({}) is out of range [len({})]", offset, ents_.size());
   }
   return {};
 }

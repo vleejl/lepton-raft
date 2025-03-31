@@ -105,8 +105,7 @@ class raft {
   // called after verifying that this is a legitimate transition.
   void campaign(campaign_type t);
 
-  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id,
-                                                                     raftpb::message_type vt,
+  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id, raftpb::message_type vt,
                                                                      bool vote);
 
   // responseToReadIndexReq constructs a response for `req`. If `req` comes from the peer
@@ -116,9 +115,9 @@ class raft {
  public:
   //  字段初始化顺序和etcd-raft 一致
   raft(std::uint64_t id, raft_log&& raft_log_handle, std::uint64_t max_size_per_msg,
-       std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, int election_tick,
-       int heartbeat_tick, bool check_quorum, bool pre_vote, read_only_option read_only_opt,
-       bool disable_proposal_forwarding, bool disable_conf_change_validation)
+       std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, int election_tick, int heartbeat_tick,
+       bool check_quorum, bool pre_vote, read_only_option read_only_opt, bool disable_proposal_forwarding,
+       bool disable_conf_change_validation)
       : id_(id),
         raft_log_handle_(std::move(raft_log_handle)),
         max_msg_size_(max_size_per_msg),

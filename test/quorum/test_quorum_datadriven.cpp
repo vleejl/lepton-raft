@@ -38,9 +38,8 @@ std::string vote_result2etcd_raft(quorum::vote_result v) {
   assert(false);
 }
 
-quorum::map_ack_indexer make_lookuper(
-    const std::vector<quorum::log_index>& idxs,
-    const std::vector<uint64_t>& ids, const std::vector<uint64_t>& idsj) {
+quorum::map_ack_indexer make_lookuper(const std::vector<quorum::log_index>& idxs, const std::vector<uint64_t>& ids,
+                                      const std::vector<uint64_t>& idsj) {
   std::map<std::uint64_t, quorum::log_index> l;
   size_t p = 0;  // next to consume from idxs
 
@@ -71,9 +70,8 @@ quorum::map_ack_indexer make_lookuper(
 }
 
 // This is an alternative implementation of (MajorityConfig).CommittedIndex(l).
-quorum::log_index alternative_majority_committed_index(
-    const quorum::majority_config& c,
-    pro::proxy_view<quorum::acked_indexer_builer> l) {
+quorum::log_index alternative_majority_committed_index(const quorum::majority_config& c,
+                                                       pro::proxy_view<quorum::acked_indexer_builer> l) {
   if (c.empty()) {
     return quorum::INVALID_LOG_INDEX;
   }
@@ -113,9 +111,8 @@ quorum::log_index alternative_majority_committed_index(
   return max_quorum_idx;
 }
 
-static std::string process_single_test_case(
-    const std::string& cmd, const std::string& input,
-    const std::map<std::string, std::vector<std::string>>& args_map) {
+static std::string process_single_test_case(const std::string& cmd, const std::string& input,
+                                            const std::map<std::string, std::vector<std::string>>& args_map) {
   // Two majority configs. The first one is always used (though it may
   // be empty) and the second one is used iff joint is true.
   bool joint = false;
@@ -224,30 +221,20 @@ static std::string process_single_test_case(
       buf << c.describe(l_pro_view);
       // These alternative computations should return the same
       // result. If not, print to the output.
-      if (auto a_idx = alternative_majority_committed_index(c, l_pro_view);
-          a_idx != idx) {
-        buf << quorum::log_index_to_string(a_idx)
-            << " <-- via alternative computation\n";
+      if (auto a_idx = alternative_majority_committed_index(c, l_pro_view); a_idx != idx) {
+        buf << quorum::log_index_to_string(a_idx) << " <-- via alternative computation\n";
       }
       // Joining a majority with the empty majority should give same result.
-      if (auto a_idx =
-              quorum::joint_config{c.clone()}.committed_index(l_pro_view);
-          a_idx != idx) {
-        buf << quorum::log_index_to_string(a_idx)
-            << " <-- via zero-joint quorum\n";
+      if (auto a_idx = quorum::joint_config{c.clone()}.committed_index(l_pro_view); a_idx != idx) {
+        buf << quorum::log_index_to_string(a_idx) << " <-- via zero-joint quorum\n";
       }
       // Joining a majority with itself should give same result.
-      if (auto a_idx = quorum::joint_config(c.clone(), c.clone())
-                           .committed_index(l_pro_view);
-          a_idx != idx) {
-        buf << quorum::log_index_to_string(a_idx)
-            << " <-- via self-joint quorum\n";
+      if (auto a_idx = quorum::joint_config(c.clone(), c.clone()).committed_index(l_pro_view); a_idx != idx) {
+        buf << quorum::log_index_to_string(a_idx) << " <-- via self-joint quorum\n";
       }
 
-      auto overlay = [](const quorum::majority_config& c,
-                        pro::proxy_view<quorum::acked_indexer_builer> l,
-                        std::uint64_t id,
-                        quorum::log_index idx) -> quorum::map_ack_indexer {
+      auto overlay = [](const quorum::majority_config& c, pro::proxy_view<quorum::acked_indexer_builer> l,
+                        std::uint64_t id, quorum::log_index idx) -> quorum::map_ack_indexer {
         std::map<std::uint64_t, quorum::log_index> ll;
         for (auto iid : c.view()) {
           if (iid == id) {
@@ -268,15 +255,13 @@ static std::string process_single_test_case(
             auto lo = overlay(c, l_pro_view, id, iidx - 1);
             pro::proxy_view<quorum::acked_indexer_builer> lo_pro_view = &lo;
             if (auto a_idx = c.committed_index(lo_pro_view); a_idx != idx) {
-              buf << quorum::log_index_to_string(a_idx) << " <-- overlaying "
-                  << id << "->" << iidx;
+              buf << quorum::log_index_to_string(a_idx) << " <-- overlaying " << id << "->" << iidx;
             }
 
             auto lo0 = overlay(c, l_pro_view, id, iidx);
             pro::proxy_view<quorum::acked_indexer_builer> lo0_pro_view = &lo0;
             if (auto a_idx = c.committed_index(lo0_pro_view); a_idx != idx) {
-              buf << quorum::log_index_to_string(a_idx) << " <-- overlaying "
-                  << id << "->" << iidx;
+              buf << quorum::log_index_to_string(a_idx) << " <-- overlaying " << id << "->" << iidx;
             }
           }
         }
@@ -288,10 +273,7 @@ static std::string process_single_test_case(
       auto idx = cc.committed_index(l_pro_view);
       // Interchanging the majorities shouldn't make a difference. If it does,
       // print.
-      if (auto a_idx =
-              quorum::joint_config{cj.clone(), c.clone()}.committed_index(
-                  l_pro_view);
-          a_idx != idx) {
+      if (auto a_idx = quorum::joint_config{cj.clone(), c.clone()}.committed_index(l_pro_view); a_idx != idx) {
         buf << quorum::log_index_to_string(a_idx) << " <-- via symmetry\n";
       }
       buf << quorum::log_index_to_string(idx) << "\n";
@@ -309,11 +291,8 @@ static std::string process_single_test_case(
       buf << vote_result2etcd_raft(r) << "\n";
     } else {
       // Run a joint quorum test case.
-      auto r =
-          quorum::joint_config{c.clone(), cj.clone()}.vote_result_statistics(l);
-      if (auto ar = quorum::joint_config{cj.clone(), c.clone()}
-                        .vote_result_statistics(l);
-          ar != r) {
+      auto r = quorum::joint_config{c.clone(), cj.clone()}.vote_result_statistics(l);
+      if (auto ar = quorum::joint_config{cj.clone(), c.clone()}.vote_result_statistics(l); ar != r) {
         buf << fmt::format("{} <-- via symmetry\n", vote_result2etcd_raft(ar));
       }
       buf << vote_result2etcd_raft(r) << "\n";

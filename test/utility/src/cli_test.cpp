@@ -8,8 +8,7 @@
 
 TEST(parse_command_line_test_suit, basic_key_value) {
   std::string line = "committed cfg=(1, 2) idx=(_,_)";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 2);
   auto cfg_expected = std::vector<std::string>{"1", "2"};
@@ -20,8 +19,7 @@ TEST(parse_command_line_test_suit, basic_key_value) {
 
 TEST(parse_command_line_test_suit, single_value) {
   std::string line = "committed cfg=1 idx=2";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 2);
 
@@ -34,8 +32,7 @@ TEST(parse_command_line_test_suit, single_value) {
 
 TEST(parse_command_line_test_suit, space_in_brackets) {
   std::string line = "committed cfg=(1, 2) idx=(_, _)";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 2);
 
@@ -48,8 +45,7 @@ TEST(parse_command_line_test_suit, space_in_brackets) {
 
 TEST(parse_command_line_test_suit, empty_bracket) {
   std::string line = "committed cfg=() idx=()";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 2);
 
@@ -62,8 +58,7 @@ TEST(parse_command_line_test_suit, empty_bracket) {
 
 TEST(parse_command_line_test_suit, multiple_values_with_spaces) {
   std::string line = "committed cfg=(1,  2 , 3) idx=( 4 , 5 )";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 2);
 
@@ -76,8 +71,7 @@ TEST(parse_command_line_test_suit, multiple_values_with_spaces) {
 
 TEST(parse_command_line_test_suit, without_cmd) {
   std::string line = "cfg=(1, 2) idx=(_,_)";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 2);
 
@@ -90,24 +84,21 @@ TEST(parse_command_line_test_suit, without_cmd) {
 
 TEST(parse_command_line_test_suit, empty_input) {
   std::string line = "";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 0);
 }
 
 TEST(parse_command_line_test_suit, only_spaces) {
   std::string line = "     ";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 0);
 }
 
 TEST(parse_command_line_test_suit, only_cmd) {
   std::string line = "committed";
-  std::map<std::string, std::vector<std::string>> result =
-      parse_command_line("committed", line);
+  std::map<std::string, std::vector<std::string>> result = parse_command_line("committed", line);
 
   ASSERT_EQ(result.size(), 0);
 }

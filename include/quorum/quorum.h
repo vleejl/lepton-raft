@@ -15,8 +15,7 @@ namespace lepton {
 namespace quorum {
 // Index is a Raft log position.
 using log_index = std::uint64_t;
-constexpr auto INVALID_LOG_INDEX =
-    static_cast<log_index>(std::numeric_limits<std::uint64_t>::max());
+constexpr auto INVALID_LOG_INDEX = static_cast<log_index>(std::numeric_limits<std::uint64_t>::max());
 
 inline std::string log_index_to_string(log_index i) {
   if (i == std::numeric_limits<uint64_t>::max()) {
@@ -51,8 +50,7 @@ class map_ack_indexer {
   map_ack_indexer() = delete;
 
  public:
-  map_ack_indexer(std::map<std::uint64_t, log_index>&& id_log_idx_map)
-      : map_(id_log_idx_map) {}
+  map_ack_indexer(std::map<std::uint64_t, log_index>&& id_log_idx_map) : map_(id_log_idx_map) {}
 
   const auto& view() const { return map_; }
 
@@ -60,8 +58,7 @@ class map_ack_indexer {
     if (auto log_pos = map_.find(id); log_pos != map_.end()) {
       return log_pos->second;
     }
-    return new_error(logic_error::KEY_NOT_FOUND,
-                     fmt::format("{} not found", id));
+    return new_error(logic_error::KEY_NOT_FOUND, fmt::format("{} not found", id));
   }
 
  private:

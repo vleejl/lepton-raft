@@ -21,15 +21,13 @@ class memory_storage {
 #ifdef LEPTON_TEST
   memory_storage(const pb::repeated_entry& ents) : ents_(ents) {}
 #endif
-  leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>
-  initial_state() const;
+  leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> initial_state() const;
 
   const pb::repeated_entry& entries_view() const;
 
   void set_hard_state(const raftpb::hard_state hard_state);
 
-  leaf::result<pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi,
-                                           std::uint64_t max_size);
+  leaf::result<pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size);
 
   leaf::result<std::uint64_t> term(std::uint64_t i);
 
@@ -47,9 +45,8 @@ class memory_storage {
   // can be used to reconstruct the state at that point.
   // If any configuration changes have been made since the last compaction,
   // the result of the last ApplyConfChange must be passed in.
-  leaf::result<raftpb::snapshot> create_snapshot(
-      std::uint64_t i, std::optional<raftpb::conf_state> cs,
-      std::string&& data);
+  leaf::result<raftpb::snapshot> create_snapshot(std::uint64_t i, std::optional<raftpb::conf_state> cs,
+                                                 std::string&& data);
 
   // Compact discards all log entries prior to compactIndex.
   // It is the application's responsibility to not attempt to compact an index

@@ -23,8 +23,7 @@ bool is_empty_snap(const raftpb::snapshot& snap) {
 }
 
 // 高性能提取范围元素（需确保使用 Arena 分配）
-repeated_entry extract_range_without_copy(repeated_entry& src, int start,
-                                          int end) {
+repeated_entry extract_range_without_copy(repeated_entry& src, int start, int end) {
   repeated_entry dst;
 
   // 参数校验
@@ -33,8 +32,7 @@ repeated_entry extract_range_without_copy(repeated_entry& src, int start,
 
   // 预分配指针数组
   const int num_elements = end - start;
-  raftpb::entry** extracted =
-      new raftpb::entry*[static_cast<std::size_t>(num_elements)];
+  raftpb::entry** extracted = new raftpb::entry*[static_cast<std::size_t>(num_elements)];
 
   // 核心操作：提取元素指针
   src.UnsafeArenaExtractSubrange(start,         // 起始索引
@@ -51,8 +49,7 @@ repeated_entry extract_range_without_copy(repeated_entry& src, int start,
   return dst;
 }
 
-repeated_entry limit_entry_size(repeated_entry& entries,
-                                std::uint64_t max_size) {
+repeated_entry limit_entry_size(repeated_entry& entries, std::uint64_t max_size) {
   if (entries.empty()) {
     return entries;
   }
@@ -68,8 +65,7 @@ repeated_entry limit_entry_size(repeated_entry& entries,
   return extract_range_without_copy(entries, 0, i);
 }
 
-void assert_conf_states_equivalent(const raftpb::conf_state& lhs,
-                                   const raftpb::conf_state& rhs) {
+void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::conf_state& rhs) {
   auto result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
         BOOST_LEAF_CHECK(conf_state_equivalent(lhs, rhs));
@@ -83,16 +79,12 @@ void assert_conf_states_equivalent(const raftpb::conf_state& lhs,
 }
 
 bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
-  return lhs.term() == rhs.term() && lhs.vote() == rhs.vote() &&
-         lhs.commit() == rhs.commit();
+  return lhs.term() == rhs.term() && lhs.vote() == rhs.vote() && lhs.commit() == rhs.commit();
 }
 
-bool is_empty_hard_state(const raftpb::hard_state& hs) {
-  return hs == EMPTY_STATE;
-}
+bool is_empty_hard_state(const raftpb::hard_state& hs) { return hs == EMPTY_STATE; }
 
-raftpb::conf_change_v2 convert_conf_change_v2(
-    raftpb::conf_change&& cc) {
+raftpb::conf_change_v2 convert_conf_change_v2(raftpb::conf_change&& cc) {
   raftpb::conf_change_v2 obj;
   auto changes = obj.add_changes();
   changes->set_type(cc.type());

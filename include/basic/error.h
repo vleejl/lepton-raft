@@ -137,48 +137,38 @@ const storage_error_category& get_storage_error_category();
 const logic_error_category& get_logic_error_category();
 
 // make_error_code 实现
-inline std::error_code make_error_code(system_error e) {
-  return {static_cast<int>(e), get_system_error_category()};
-}
+inline std::error_code make_error_code(system_error e) { return {static_cast<int>(e), get_system_error_category()}; }
 
 inline std::error_code make_error_code(encoding_error e) {
   return {static_cast<int>(e), get_encoding_error_category()};
 }
 
-inline std::error_code make_error_code(storage_error e) {
-  return {static_cast<int>(e), get_storage_error_category()};
-}
+inline std::error_code make_error_code(storage_error e) { return {static_cast<int>(e), get_storage_error_category()}; }
 
-inline std::error_code make_error_code(logic_error e) {
-  return {static_cast<int>(e), get_logic_error_category()};
-}
+inline std::error_code make_error_code(logic_error e) { return {static_cast<int>(e), get_logic_error_category()}; }
 
 template <typename error_code_type>
-concept err_types = std::is_same_v<error_code_type, lepton::system_error> ||
-                    std::is_same_v<error_code_type, lepton::encoding_error> ||
-                    std::is_same_v<error_code_type, lepton::storage_error> ||
-                    std::is_same_v<error_code_type, lepton::logic_error>;
+concept err_types =
+    std::is_same_v<error_code_type, lepton::system_error> || std::is_same_v<error_code_type, lepton::encoding_error> ||
+    std::is_same_v<error_code_type, lepton::storage_error> || std::is_same_v<error_code_type, lepton::logic_error>;
 struct lepton_error {
   std::error_code err_code;
   std::string_view message;
   std::source_location location;
 
   template <err_types err_type>
-  lepton_error(err_type code, std::source_location&& location)
-      : err_code(make_error_code(code)), location(location) {}
+  lepton_error(err_type code, std::source_location&& location) : err_code(make_error_code(code)), location(location) {}
 
   template <err_types err_type>
   lepton_error(err_type code, const char* msg, std::source_location&& location)
       : err_code(make_error_code(code)), message(msg), location(location) {}
 
   template <err_types err_type>
-  lepton_error(err_type code, std::string_view msg,
-               std::source_location&& location)
+  lepton_error(err_type code, std::string_view msg, std::source_location&& location)
       : err_code(make_error_code(code)), message(msg), location(location) {}
 
   template <err_types err_type>
-  lepton_error(err_type code, const std::string& msg,
-               std::source_location&& location)
+  lepton_error(err_type code, const std::string& msg, std::source_location&& location)
       : err_code(make_error_code(code)), message(msg), location(location) {}
 
   template <err_types err_type>
@@ -186,9 +176,7 @@ struct lepton_error {
     return err_code <=> make_error_code(error_code);
   }
 
-  auto operator<=>(const std::error_code& rhs_err_code) const {
-    return err_code <=> rhs_err_code;
-  }
+  auto operator<=>(const std::error_code& rhs_err_code) const { return err_code <=> rhs_err_code; }
 };
 
 template <err_types err_type>
@@ -201,13 +189,9 @@ bool operator==(const err_type& code, const lepton_error& error) {
   return code == error.err_code;
 }
 
-inline bool operator==(const lepton_error& error, const std::error_code& code) {
-  return error.err_code == code;
-}
+inline bool operator==(const lepton_error& error, const std::error_code& code) { return error.err_code == code; }
 
-inline bool operator==(const std::error_code& code, const lepton_error& error) {
-  return code == error.err_code;
-}
+inline bool operator==(const std::error_code& code, const lepton_error& error) { return code == error.err_code; }
 
 template <err_types err_type>
 bool operator==(const std::error_code& err_code, const err_type& code) {
@@ -230,28 +214,21 @@ bool operator!=(const err_type& code, const std::error_code& err_code) {
 }
 
 template <err_types error_code_type, typename error_msg_type>
-auto new_error(
-    error_code_type code, error_msg_type msg,
-    std::source_location location = std::source_location::current()) {
+auto new_error(error_code_type code, error_msg_type msg,
+               std::source_location location = std::source_location::current()) {
   return leaf::new_error(lepton_error{code, msg, std::move(location)});
 }
 
 template <err_types error_code_type>
-auto new_error(error_code_type code, std::source_location location =
-                                         std::source_location::current()) {
+auto new_error(error_code_type code, std::source_location location = std::source_location::current()) {
   return leaf::new_error(lepton_error{code, std::move(location)});
 }
 
-inline auto new_error(const lepton::lepton_error& err) {
-  return leaf::new_error(err);
-}
+inline auto new_error(const lepton::lepton_error& err) { return leaf::new_error(err); }
 
-inline void panic(
-    std::string_view message,
-    std::source_location location = std::source_location::current()) {
-  LEPTON_CRITICAL("panic error {}, file_name:{} line:{} column:{} function:{}",
-                  message, location.file_name(), location.line(),
-                  location.column(), location.function_name());
+inline void panic(std::string_view message, std::source_location location = std::source_location::current()) {
+  LEPTON_CRITICAL("panic error {}, file_name:{} line:{} column:{} function:{}", message, location.file_name(),
+                  location.line(), location.column(), location.function_name());
   assert(false);  // TODO(bdarnell)
 }
 }  // namespace lepton

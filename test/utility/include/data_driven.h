@@ -26,19 +26,16 @@ struct parse_result {
 
 class data_driven {
  public:
-  using process_func = std::function<std::string(
-      const std::string&, const std::string&,
-      const std::map<std::string, std::vector<std::string>>&)>;
+  using process_func = std::function<std::string(const std::string&, const std::string&,
+                                                 const std::map<std::string, std::vector<std::string>>&)>;
 
  private:
-  void run_test_case(process_func process_test_case_func, parse_result& result,
-                     std::size_t& line_no) {
+  void run_test_case(process_func process_test_case_func, parse_result& result, std::size_t& line_no) {
     auto test_expected_result = result.test_expected_result_stream.str();
     std::cout << "current test_file: " << test_file_ << std::endl;
     std::cout << "current process result line no: " << line_no << std::endl;
     std::cout << "expected result:\n" << test_expected_result << std::endl;
-    auto test_actual_result =
-        process_test_case_func(result.cmd, result.input, result.args_map);
+    auto test_actual_result = process_test_case_func(result.cmd, result.input, result.args_map);
     std::cout << "actual result:\n" << test_actual_result << std::endl;
     ASSERT_EQ(test_actual_result, test_expected_result);
     result = parse_result{parse_state::INIT};
