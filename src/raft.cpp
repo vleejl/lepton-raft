@@ -64,6 +64,33 @@ leaf::result<raft> new_raft(const config& c) {
   return r;
 }
 
+void send_msg_read_index_response(raft& r, raftpb::message&& m) {
+  // thinking: use an internally defined context instead of the user given context.
+  // We can express this in terms of the term and index instead of a user-supplied value.
+  // This would allow multiple reads to piggyback on the same message.
+  switch (r.read_only_.read_only_opt()) {
+    // If more than the local vote is needed, go through a full broadcast.
+    case read_only_option::READ_ONLY_SAFE: {
+      std::string ctx = m.entries().begin()->data();
+      r.read_only_.add_request(r.raft_log_handle_.committed(), std::move(m));
+      // The local node automatically acks the request.
+      r.read_only_.recv_ack(r.id_, ctx);
+      r.bcast_heartbeat_with_ctx(std::move(ctx));
+      break;
+    }
+    case read_only_option::READ_ONLY_LEASE_BASED: {
+      auto resp = r.response_to_read_index_req(std::move(m), r.raft_log_handle_.committed());
+      if (resp.to() != NONE) {
+        // 发送响应消息
+        r.send(std::move(resp));
+      }
+      break;
+    }
+    default:
+      assert(false);
+  }
+}
+
 leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
   // These message types do not require any progress for m.From.
   switch (m.type()) {
@@ -188,6 +215,15 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
 
       // Postpone read only request when this leader has not committed
       // any log entry at its term.
+      if (!r.committed_entry_in_current_term()) {
+        r.pending_read_index_messages_.Add(std::move(m));
+        return {};
+      }
+      send_msg_read_index_response(r, std::move(m));
+      return {};
+    }
+    case raftpb::MSG_FORGET_LEADER: {
+      return {};  // noop on leader
     }
     default:
       break;
@@ -376,7 +412,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
     case raftpb::MSG_FORGET_LEADER: {  // 强制 Follower 忘记当前
                                        // Leader（用于网络分区恢复后清理旧
                                        // Leader）。
-      if (r.read_only_.read_only_opt == read_only_option::READ_ONLY_LEASE_BASED) {
+      if (r.read_only_.read_only_opt() == read_only_option::READ_ONLY_LEASE_BASED) {
         // 若使用 ReadOnlyLeaseBased（租约机制需持续 Leader 心跳），忽略此消息。
         SPDLOG_INFO("{} [term {}] ignoring MsgForgetLeader", r.id_, r.term_);
         return {};
@@ -510,6 +546,24 @@ bool raft::maybe_send_append(std::uint64_t id, bool send_if_empty) {
 
 void raft::send_append(std::uint64_t id) { maybe_send_append(id, true); }
 
+void raft::send_heartbeat(std::uint64_t id, std::string&& ctx) {
+  auto pr_iter = trk_.progress_map_mutable_view().mutable_view().find(id);
+  // Attach the commit as min(to.matched, r.committed).
+  // When the leader sends out heartbeat message,
+  // the receiver(follower) might not be matched with the leader
+  // or it might not have all the committed entries.
+  // The leader MUST NOT forward the follower's commit to
+  // an unmatched index.
+  auto commit = std::min(pr_iter->second.match(), raft_log_handle_.committed());
+  raftpb::message m;
+  m.set_to(id_);
+  m.set_type(raftpb::message_type::MSG_HEARTBEAT);
+  m.set_commit(commit);
+  *m.mutable_context() = std::move(ctx);
+  send(std::move(m));
+  pr_iter->second.sent_commit(commit);
+}
+
 void raft::bcast_append() {
   auto& progress_map = trk_.progress_map_view().view();
   for (const auto& [id, pr] : progress_map) {
@@ -518,6 +572,17 @@ void raft::bcast_append() {
     }
     send_append(id);
   }
+}
+
+void raft::bcast_heartbeat() { bcast_heartbeat_with_ctx(read_only_.last_pending_request_ctx()); }
+
+void raft::bcast_heartbeat_with_ctx(std::string&& ctx) {
+  trk_.visit([&](std::uint64_t id, tracker::progress& pr) {
+    if (id == id_) {
+      return;
+    }
+    send_heartbeat(id, std::move(ctx));
+  });
 }
 
 bool raft::maybe_commit() {
@@ -647,6 +712,12 @@ void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
 
 leaf::result<void> raft::step(raftpb::message&& m) {
   // TODO
+}
+
+bool raft::committed_entry_in_current_term() const {
+  // NB: r.Term is never 0 on a leader, so if zeroTermOnOutOfBounds returns 0,
+  // we won't see it as a match with r.Term.
+  return raft_log_handle_.zero_term_on_err_compacted(raft_log_handle_.committed()) == term_;
 }
 
 raftpb::message raft::response_to_read_index_req(raftpb::message&& req, std::uint64_t read_index) {

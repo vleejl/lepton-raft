@@ -38,7 +38,7 @@ std::uint64_t raft_log::first_index() const {
   return 0;
 }
 
-std::uint64_t raft_log::last_index() {
+std::uint64_t raft_log::last_index() const {
   if (auto result = unstable_.maybe_last_index(); result.has_value()) {
     return result.value();
   }
@@ -74,7 +74,7 @@ void raft_log::applied_to(std::uint64_t i) {
   applied_ = i;
 }
 
-leaf::result<std::uint64_t> raft_log::term(std::uint64_t i) {
+leaf::result<std::uint64_t> raft_log::term(std::uint64_t i) const {
   // the valid term range is [index of dummy entry, last index]
   auto first_idx = first_index();
   assert(first_idx > 0);
@@ -136,7 +136,7 @@ bool raft_log::is_up_to_date(std::uint64_t lasti, std::uint64_t term) {
   return false;
 }
 
-std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) {
+std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
   leaf::result<std::uint64_t> r = leaf::try_handle_some(
       [&]() -> leaf::result<std::uint64_t> {
         BOOST_LEAF_AUTO(v, term(i));
@@ -144,6 +144,9 @@ std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) {
       },
       [](const lepton_error& e) -> leaf::result<std::uint64_t> {
         if (e.err_code == storage_error::COMPACTED) {
+          return 0;
+        }
+        if (e.err_code == storage_error::UNAVAILABLE) {
           return 0;
         }
         panic(fmt::format("unexpected error {}", e.message));

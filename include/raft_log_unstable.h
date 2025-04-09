@@ -80,7 +80,7 @@ class unstable {
 
   // maybeLastIndex returns the last index if it has at least one
   // unstable entry or snapshot.
-  leaf::result<std::uint64_t> maybe_last_index() {
+  leaf::result<std::uint64_t> maybe_last_index() const {
     if (auto l = entries_.size(); l != 0) {
       return offset_ + static_cast<std::uint64_t>(l) - 1;
     }
@@ -92,7 +92,7 @@ class unstable {
 
   // maybeTerm returns the term of the entry at index i, if there
   // is any.
-  leaf::result<std::uint64_t> maybe_term(std::uint64_t i) {
+  leaf::result<std::uint64_t> maybe_term(std::uint64_t i) const {
     if (i < offset_) {
       if ((has_snapshot()) && (snapshot_->metadata().index() == i)) {
         return snapshot_->metadata().term();

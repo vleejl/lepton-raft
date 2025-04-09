@@ -23,7 +23,7 @@ class raft_log {
 
   std::uint64_t first_index() const;
 
-  std::uint64_t last_index();
+  std::uint64_t last_index() const;
 
 #ifdef LEPTON_TEST
   void set_commit(std::uint64_t tocommit) { committed_ = tocommit; }
@@ -41,7 +41,7 @@ class raft_log {
 
   void stable_snap_to(std::uint64_t i) { unstable_.stable_snap_to(i); }
 
-  leaf::result<std::uint64_t> term(std::uint64_t i);
+  leaf::result<std::uint64_t> term(std::uint64_t i) const;
 
   std::uint64_t last_term();
 
@@ -55,7 +55,7 @@ class raft_log {
   // the same, the given log is up-to-date.
   bool is_up_to_date(std::uint64_t lasti, std::uint64_t term);
 
-  std::uint64_t zero_term_on_err_compacted(std::uint64_t i);
+  std::uint64_t zero_term_on_err_compacted(std::uint64_t i) const;
 
   bool maybe_commit(std::uint64_t max_index, std::uint64_t term);
 

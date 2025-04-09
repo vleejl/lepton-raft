@@ -1,9 +1,10 @@
 #ifndef _LEPTON_INFLIGHTS_H_
 #define _LEPTON_INFLIGHTS_H_
+#include <cassert>
 #include <cstdint>
 #include <deque>
 
-#include "log.h"
+#include "error.h"
 #include "utility_macros.h"
 namespace lepton {
 namespace tracker {
@@ -14,41 +15,49 @@ namespace tracker {
 // ack is received.
 // 用来限制未确认的日志消息（MsgApp）的数量，确保在向跟随者发送新的日志条目时，不会超出消息队列的容量。它充当了一个“缓冲区”，用于跟踪已经发送但尚未得到确认的日志消息。
 // 也就是一个环形队列实现
+struct inflights_data {
+  std::uint64_t index;
+  std::uint64_t bytes;
+  auto operator<=>(const inflights_data &) const = default;
+};
 class inflights {
   NOT_COPYABLE(inflights)
-  inflights(size_t size, std::deque<std::uint64_t> &&buffer) : capacity_(size), buffer_(buffer) {}
+  inflights(size_t size, std::deque<inflights_data> &&buffer) : capacity_(size), buffer_(buffer) {}
 
  public:
   // NewInflights sets up an Inflights that allows up to 'size' inflight
   // messages.
-  inflights(size_t size) : capacity_(size) {}
+  inflights(size_t size, std::uint64_t max_bytes) : capacity_(size), max_bytes_(max_bytes) {}
 
   inflights(inflights &&) = default;
 
   inflights clone() const {
-    std::deque<std::uint64_t> buffer = buffer_;
+    std::deque<inflights_data> buffer = buffer_;
     return inflights{capacity_, std::move(buffer)};
   }
 
-  bool full() const { return buffer_.size() == capacity_; }
+  bool full() const { return buffer_.size() == capacity_ || ((max_bytes_ != 0) && (bytes_ >= max_bytes_)); }
 
-  void add(std::uint64_t inflight) {
+  void add(std::uint64_t inflight, std::uint64_t bytes) {
     if (full()) {
-      LEPTON_CRITICAL("cannot add into a Full inflights");
+      panic("cannot add into a Full inflights");
       return;
     }
-    buffer_.push_back(inflight);
+    bytes_ += bytes;
+    buffer_.push_back(inflights_data{inflight, bytes});
   }
 
   void free_le(std::uint64_t to) {
-    if (buffer_.empty() || (to < buffer_.front())) {
+    if (buffer_.empty() || (to < buffer_.front().index)) {
       return;
     }
     while (!buffer_.empty()) {
       auto front = buffer_.front();
-      if (to < front) {
+      if (to < front.index) {
         break;
       }
+      assert(bytes_ >= front.bytes);
+      bytes_ -= front.bytes;
       buffer_.pop_front();
     }
   }
@@ -57,6 +66,9 @@ class inflights {
     if (buffer_.empty()) {  // 在空容器释放元素是未定义的
       return;
     }
+    auto front = buffer_.front();
+    assert(bytes_ >= front.bytes);
+    bytes_ -= front.bytes;
     buffer_.pop_front();
   }
 
@@ -64,19 +76,27 @@ class inflights {
 
   auto empty() const { return buffer_.empty(); }
 
-  void reset() { buffer_.clear(); }
+  void reset() {
+    buffer_.clear();
+    bytes_ = 0;
+  }
 
   auto capacity() { return capacity_; }
 
-  const std::deque<std::uint64_t> &buffer_view() { return buffer_; }
+  const std::deque<inflights_data> &buffer_view() { return buffer_; }
 
  private:
-  // the size of the buffer
+  // the max number of inflight messages
   size_t capacity_;
+  // the max total byte size of inflight messages
+  std::uint64_t max_bytes_;
+
+  // number of inflight bytes
+  std::uint64_t bytes_;
 
   // buffer contains the index of the last entry
   // inside one message.
-  std::deque<std::uint64_t> buffer_;
+  std::deque<inflights_data> buffer_;
 };
 }  // namespace tracker
 }  // namespace lepton

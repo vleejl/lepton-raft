@@ -29,6 +29,7 @@ class raft;
 using tick_func = std::function<void()>;
 using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
 leaf::result<raft> new_raft(const config&);
+void send_msg_read_index_response(raft& r, raftpb::message&& m);
 leaf::result<void> step_leader(raft& r, raftpb::message&& m);
 // stepCandidate is shared by StateCandidate and StatePreCandidate; the
 // difference is whether they respond to MsgVoteResp or MsgPreVoteResp.
@@ -39,6 +40,7 @@ class raft {
  private:
   NOT_COPYABLE(raft)
   friend leaf::result<raft> new_raft(const config&);
+  friend void send_msg_read_index_response(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_leader(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_follower(raft& r, raftpb::message&& m);
@@ -70,9 +72,17 @@ class raft {
   // current commit index to the given peer
   void send_append(std::uint64_t id);
 
+  // sendHeartbeat sends a heartbeat RPC to the given peer.
+  void send_heartbeat(std::uint64_t id, std::string&& ctx);
+
   // bcastAppend sends RPC, with entries to all peers that are not up-to-date
   // according to the progress recorded in r.prs.
   void bcast_append();
+
+  // bcastHeartbeat sends RPC, without entries to all the peers.
+  void bcast_heartbeat();
+
+  void bcast_heartbeat_with_ctx(std::string&& ctx);
 
   // maybeCommit attempts to advance the commit index. Returns true if
   // the commit index changed (in which case the caller should call
@@ -107,6 +117,9 @@ class raft {
 
   std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id, raftpb::message_type vt,
                                                                      bool vote);
+
+  // committedEntryInCurrentTerm return true if the peer has committed an entry in its term.
+  bool committed_entry_in_current_term() const;
 
   // responseToReadIndexReq constructs a response for `req`. If `req` comes from the peer
   // itself, a blank value will be returned.
@@ -269,7 +282,7 @@ class raft {
   // current term.
   // 待处理的读取索引消息。当有客户端请求读取日志时，pendingReadIndexMessages
   // 保存这些消息，直到领导者节点确认日志条目已提交后再进行响应。
-  pb::repeated_entry pending_read_index_messages_;
+  pb::repeated_message pending_read_index_messages_;
 };
 
 }  // namespace lepton

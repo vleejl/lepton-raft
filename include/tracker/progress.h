@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "fmt/format.h"
 #include "inflights.h"
 #include "log.h"
 #include "quorum.h"
@@ -31,7 +32,7 @@ class progress {
         state_(state),
         pending_snapshot_(pending_snapshot),
         recent_active_(recent_active),
-        probe_sent_(probe_sent),
+        msg_app_flow_paused_(probe_sent),
         inflights_(std::move(inflights)),
         is_learner_(is_learner) {}
 
@@ -42,15 +43,18 @@ class progress {
         state_(state_type::STATE_PROBE),
         pending_snapshot_(0),
         recent_active_(recent_active),
-        probe_sent_(false),
+        msg_app_flow_paused_(false),
         inflights_(std::move(inflights)),
         is_learner_(is_learner) {}
   progress(progress&&) = default;
 
   progress clone() const {
-    return progress{match_,     next_, state_, pending_snapshot_, recent_active_, probe_sent_, inflights_.clone(),
-                    is_learner_};
+    return progress{
+        match_,     next_, state_, pending_snapshot_, recent_active_, msg_app_flow_paused_, inflights_.clone(),
+        is_learner_};
   }
+
+  auto match() const { return match_; }
 
   auto is_learner() const { return is_learner_; }
 
@@ -61,13 +65,13 @@ class progress {
   // ProbeSent,
   // PendingSnapshot, and Inflights.
   void reset_state(state_type state) {
-    probe_sent_ = false;
+    msg_app_flow_paused_ = false;
     pending_snapshot_ = 0;
     state_ = state;
     inflights_.reset();
   }
 
-  void probe_acked() { probe_sent_ = false; }
+  void probe_acked() { msg_app_flow_paused_ = false; }
 
   void become_probe() {
     // If the original state is StateSnapshot, progress knows that
@@ -97,24 +101,56 @@ class progress {
     pending_snapshot_ = pending_snapshot;
   }
 
+  // SentEntries updates the progress on the given number of consecutive entries
+  // being sent in a MsgApp, with the given total bytes size, appended at log
+  // indices >= pr.Next.
+  //
+  // Must be used with StateProbe or StateReplicate.
+  void sent_entries(std::uint64_t entries, std::uint64_t bytes) {
+    switch (state_) {
+      case state_type::STATE_PROBE: {
+        // TODO(pavelkalinnikov): this condition captures the previous behaviour,
+        // but we should set MsgAppFlowPaused unconditionally for simplicity, because any
+        // MsgApp in StateProbe is a probe, not only non-empty ones.
+        if (entries > 0) {
+          msg_app_flow_paused_ = true;
+        }
+        break;
+      }
+      case state_type::STATE_REPLICATE: {
+        if (entries > 0) {
+          next_ += entries;
+          inflights_.add(next_ - 1, bytes);
+        }
+        // If this message overflows the in-flights tracker, or it was already full,
+        // consider this message being a probe, so that the flow is paused.
+        msg_app_flow_paused_ = inflights_.full();
+      }
+      default:
+        panic(fmt::format("sending append in unhandled state {}", magic_enum::enum_name(state_)));
+        break;
+    }
+  }
+
+  // CanBumpCommit returns true if sending the given commit index can potentially
+  // advance the follower's commit index.
+  bool can_bump_commit(std::uint64_t index) const { return index > sent_commit_ && sent_commit_ < next_ - 1; }
+
+  void sent_commit(std::uint64_t commit) { sent_commit_ = commit; }
+
   // MaybeUpdate is called when an MsgAppResp arrives from the follower, with
   // the index acked by it. The method returns false if the given n index comes
   // from an outdated message.
   // Otherwise it updates the progress and returns true.
   bool maybe_update(std::uint64_t n) {
-    auto updated = false;
-    if (match_ < n) {
-      match_ = n;
-      updated = true;
-      probe_acked();
+    if (n <= match_) {
+      return false;
     }
+    match_ = n;
     next_ = std::max(next_, n + 1);
-    return updated;
+    probe_acked();
+    return true;
   }
-
-  // OptimisticUpdate signals that appends all the way up to and including index
-  // n are in-flight. As a result, Next is increased to n+1.
-  void optimistic_update(std::uint64_t n) { next_ = n + 1; }
 
   // MaybeDecrTo adjusts the Progress to the receipt of a MsgApp rejection. The
   // arguments are the index of the append message rejected by the follower, and
@@ -174,14 +210,14 @@ class progress {
     // Next，避免其变得过小或过大，从而保证日志同步的正确性。
     next_ = std::max(std::min(rejected, match_hint + 1), static_cast<std::uint64_t>(1));
     // 不再等待进一步的探测响应（即 follower 的进度可能已经发生变化）。
-    probe_sent_ = false;
+    msg_app_flow_paused_ = false;
     return true;
   }
 
   bool is_paused() const {
     switch (state_) {
       case state_type::STATE_PROBE:
-        return probe_sent_;
+        return msg_app_flow_paused_;
       case state_type::STATE_REPLICATE:
         return inflights_.full();
       case state_type::STATE_SNAPSHOT:
@@ -271,6 +307,14 @@ class progress {
    */
   std::uint64_t next_;
 
+  // sentCommit is the highest commit index in flight to the follower.
+  //
+  // Generally, it is monotonic, but con regress in some cases, e.g. when
+  // converting to `StateProbe` or when receiving a rejection from a follower.
+  //
+  // In StateSnapshot, sentCommit == PendingSnapshot == Next-1.
+  std::uint64_t sent_commit_;
+
   // State defines how the leader should interact with the follower.
   //
   // When in StateProbe, leader sends at most one replication message
@@ -313,13 +357,16 @@ class progress {
   // false。这是一个用于追踪 follower 活跃性的标记。
   bool recent_active_;
 
-  // ProbeSent is used while this follower is in StateProbe. When ProbeSent is
-  // true, raft should pause sending replication message to this peer until
-  // ProbeSent is reset. See ProbeAcked() and IsPaused().
+  // MsgAppFlowPaused is used when the MsgApp flow to a node is throttled. This
+  // happens in StateProbe, or StateReplicate with saturated Inflights. In both
+  // cases, we need to continue sending MsgApp once in a while to guarantee
+  // progress, but we only do so when MsgAppFlowPaused is false (it is reset on
+  // receiving a heartbeat response), to not overflow the receiver. See
+  // IsPaused().
   // 该字段表示 follower 是否处于 StateProbe 状态。如果为 true，表示 leader
   // 在当前心跳间隔已经发送了一个探测消息。此时，leader
   // 暂时不会继续发送日志条目，直到 ProbeSent 被重置。
-  bool probe_sent_;
+  bool msg_app_flow_paused_;
 
   // Inflights is a sliding window for the inflight messages.
   // Each inflight message contains one or more log entries.

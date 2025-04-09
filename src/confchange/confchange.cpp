@@ -122,33 +122,35 @@ changer::result changer::check_and_copy() const {
   return check_and_return(tracker_.config_view().clone(), tracker_.progress_map_view().clone());
 }
 
-void changer::init_pregress(std::uint64_t id, bool is_learner, tracker::config &cfg, tracker::progress_map &prs) const {
+void changer::init_progress(std::uint64_t id, bool is_learner, tracker::config &cfg, tracker::progress_map &prs) const {
   if (!is_learner) {
     cfg.voters.insert_node_into_primary_config(id);
   } else {
     cfg.add_leaner_node(id);
   }
 
-  prs.add_progress(id, tracker::progress{// Initializing the Progress with the last index means that the
-                                         // follower
-                                         // can be probed (with the last index).
-                                         //
-                                         // TODO(tbg): seems awfully optimistic. Using the first index would be
-                                         // better. The general expectation here is that the follower has no
-                                         // log
-                                         // at all (and will thus likely need a snapshot), though the app may
-                                         // have applied a snapshot out of band before adding the replica (thus
-                                         // making the first index the better choice).
-                                         last_index_, tracker::inflights{tracker_.max_inflight()}, is_learner,
-                                         // When a node is first added, we should mark it as recently active.
-                                         // Otherwise, CheckQuorum may cause us to step down if it is invoked
-                                         // before the added node has had a chance to communicate with us.
-                                         true});
+  prs.add_progress(
+      id, tracker::progress{
+              // Initializing the Progress with the last index means that the
+              // follower
+              // can be probed (with the last index).
+              //
+              // TODO(tbg): seems awfully optimistic. Using the first index would be
+              // better. The general expectation here is that the follower has no
+              // log
+              // at all (and will thus likely need a snapshot), though the app may
+              // have applied a snapshot out of band before adding the replica (thus
+              // making the first index the better choice).
+              last_index_, tracker::inflights{tracker_.max_inflight(), tracker_.max_inflight_bytes()}, is_learner,
+              // When a node is first added, we should mark it as recently active.
+              // Otherwise, CheckQuorum may cause us to step down if it is invoked
+              // before the added node has had a chance to communicate with us.
+              true});
 }
 
 void changer::make_voters(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const {
   if (!prs.view().contains(id)) {
-    init_pregress(id, false, cfg, prs);
+    init_progress(id, false, cfg, prs);
     return;
   }
   prs.refresh_learner(id, false);
@@ -167,7 +169,7 @@ void remove_node_from_tracker_progress(std::uint64_t id, tracker::progress_map &
 
 void changer::make_learners(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const {
   if (!prs.view().contains(id)) {
-    init_pregress(id, true, cfg, prs);
+    init_progress(id, true, cfg, prs);
     prs.refresh_learner(id, true);
     return;
   }

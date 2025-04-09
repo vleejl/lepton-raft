@@ -40,7 +40,7 @@ class changer {
   result check_and_copy() const;
 
   // initProgress initializes a new progress for the given node or learner.
-  void init_pregress(std::uint64_t id, bool is_learner, tracker::config &cfg, tracker::progress_map &prs) const;
+  void init_progress(std::uint64_t id, bool is_learner, tracker::config &cfg, tracker::progress_map &prs) const;
 
   // makeVoter adds or promotes the given ID to be a voter in the incoming
   // majority config.

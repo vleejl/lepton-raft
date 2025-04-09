@@ -143,17 +143,20 @@ struct config {
 class progress_tracker {
   NOT_COPYABLE(progress_tracker)
   progress_tracker(config&& cfg, progress_map&& pgs_map, std::unordered_map<std::uint64_t, bool> votes,
-                   std::size_t max_inflight)
+                   std::size_t max_inflight, std::uint64_t max_inflight_bytes)
       : config_(std::move(cfg)),
         progress_map_(std::move(pgs_map)),
         votes_(std::move(votes)),
-        max_inflight_(max_inflight) {}
+        max_inflight_(max_inflight),
+        max_inflight_bytes_(max_inflight_bytes) {}
 
  public:
   explicit progress_tracker(std::size_t max_inflight) : config_(), max_inflight_(max_inflight) {}
   progress_tracker(progress_tracker&&) = default;
 
-  progress_tracker clone() { return progress_tracker{config_.clone(), progress_map_.clone(), votes_, max_inflight_}; }
+  progress_tracker clone() {
+    return progress_tracker{config_.clone(), progress_map_.clone(), votes_, max_inflight_, max_inflight_bytes_};
+  }
 
   const config& config_view() const { return config_; }
 
@@ -162,6 +165,8 @@ class progress_tracker {
   progress_map& progress_map_mutable_view() { return progress_map_; }
 
   auto max_inflight() const { return max_inflight_; }
+
+  auto max_inflight_bytes() const { return max_inflight_bytes_; }
 
   void update_config(config&& cfg) { config_ = std::move(cfg); };
 
@@ -284,6 +289,7 @@ class progress_tracker {
   progress_map progress_map_;
   std::unordered_map<std::uint64_t, bool> votes_;
   std::size_t max_inflight_;
+  std::uint64_t max_inflight_bytes_;
 };
 }  // namespace tracker
 }  // namespace lepton
