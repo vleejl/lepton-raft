@@ -25,6 +25,7 @@ class inflights {
   inflights(size_t size, std::deque<inflights_data> &&buffer) : capacity_(size), buffer_(buffer) {}
 
  public:
+  inflights(size_t size) : capacity_(size) {}
   // NewInflights sets up an Inflights that allows up to 'size' inflight
   // messages.
   inflights(size_t size, std::uint64_t max_bytes) : capacity_(size), max_bytes_(max_bytes) {}
@@ -74,6 +75,8 @@ class inflights {
 
   auto count() const { return buffer_.size(); }
 
+  auto bytes() const { return bytes_; }
+
   auto empty() const { return buffer_.empty(); }
 
   void reset() {
@@ -81,18 +84,20 @@ class inflights {
     bytes_ = 0;
   }
 
-  auto capacity() { return capacity_; }
+  auto capacity() const { return capacity_; }
+
+  auto max_bytes() const { return max_bytes_; }
 
   const std::deque<inflights_data> &buffer_view() { return buffer_; }
 
  private:
   // the max number of inflight messages
-  size_t capacity_;
+  size_t capacity_ = 0;
   // the max total byte size of inflight messages
-  std::uint64_t max_bytes_;
+  std::uint64_t max_bytes_ = 0;
 
   // number of inflight bytes
-  std::uint64_t bytes_;
+  std::uint64_t bytes_ = 0;
 
   // buffer contains the index of the last entry
   // inside one message.
