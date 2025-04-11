@@ -29,6 +29,7 @@ class raft;
 using tick_func = std::function<void()>;
 using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
 leaf::result<raft> new_raft(const config&);
+void release_pending_read_index_message(raft& r);
 void send_msg_read_index_response(raft& r, raftpb::message&& m);
 leaf::result<void> step_leader(raft& r, raftpb::message&& m);
 // stepCandidate is shared by StateCandidate and StatePreCandidate; the
@@ -40,6 +41,7 @@ class raft {
  private:
   NOT_COPYABLE(raft)
   friend leaf::result<raft> new_raft(const config&);
+  friend void release_pending_read_index_message(raft& r);
   friend void send_msg_read_index_response(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_leader(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
@@ -94,6 +96,8 @@ class raft {
   void tick_election();
 
   void reset(std::uint64_t term);
+
+  void send_timmeout_now(std::uint64_t id);
 
   void abort_leader_transfer();
 

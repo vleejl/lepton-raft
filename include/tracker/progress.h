@@ -61,6 +61,11 @@ class progress {
   auto set_recent_active(bool active) { recent_active_ = active; }
 
   auto recent_active() const { return recent_active_; }
+
+  auto state() const { return state_; }
+
+  inflights& mutable_inflights() { return inflights_; }
+
   // ResetState moves the Progress into the specified State, resetting
   // ProbeSent,
   // PendingSnapshot, and Inflights.

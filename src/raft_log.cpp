@@ -185,30 +185,17 @@ std::uint64_t raft_log::find_conflict(absl::Span<const raftpb::entry* const> ent
   return 0;
 }
 
-std::uint64_t raft_log::find_conflict_by_term(std::uint64_t index, std::uint64_t term) {
-  if (auto li = last_index(); li > term) {
-    SPDLOG_WARN("index({}) is out of range [0, lastIndex({})] in findConflictByTerm", index, li);
-    // NB: such calls should not exist, but since there is a straightfoward
-    // way to recover, do it.
-    //
-    // It is tempting to also check something about the first index, but
-    // there is odd behavior with peers that have no log, in which case
-    // lastIndex will return zero and firstIndex will return one, which
-    // leads to calls with an index of zero into this method.
-    return index;
-  }
-  while (true) {
-    auto log_term = this->term(index);
-    if (log_term.has_error()) {
-      break;
+std::tuple<std::uint64_t, std::uint64_t> raft_log::find_conflict_by_term(std::uint64_t index, std::uint64_t term) {
+  for(;index > 0; index--) {
+    auto our_term = this->term(index);
+    if (our_term.has_error()) {
+      return {index, 0};
     }
-    if (log_term.value() <= term) {
-      break;
+    if (our_term.value() <= term) {
+      return {index, our_term.value()};
     }
-    assert(index > 0);
-    index--;
   }
-  return index;
+  return {0, 0};
 }
 
 absl::Span<const raftpb::entry* const> raft_log::unstable_entries() {

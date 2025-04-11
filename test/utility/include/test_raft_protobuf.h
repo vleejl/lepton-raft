@@ -4,6 +4,7 @@
 #include "raft.pb.h"
 
 lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
+lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms);
 lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params);
 
 bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs);

@@ -17,6 +17,7 @@
 #include "read_only.h"
 #include "restore.h"
 #include "spdlog/spdlog.h"
+#include "state.h"
 #include "state_trace.h"
 #include "status.h"
 
@@ -64,6 +65,23 @@ leaf::result<raft> new_raft(const config& c) {
   return r;
 }
 
+void release_pending_read_index_message(raft& r) {
+  if (r.pending_read_index_messages_.empty()) {
+    // Fast path for the common case to avoid a call to storage.LastIndex()
+    // via committedEntryInCurrentTerm.
+    return;
+  }
+  if (!r.committed_entry_in_current_term()) {
+    SPDLOG_ERROR("pending MsgReadIndex should be released only after first commit in current term");
+    return;
+  }
+  for (auto&& m : r.pending_read_index_messages_) {
+    // 发送响应消息
+    send_msg_read_index_response(r, std::move(m));
+  }
+  r.pending_read_index_messages_.Clear();
+}
+
 void send_msg_read_index_response(raft& r, raftpb::message&& m) {
   // thinking: use an internally defined context instead of the user given context.
   // We can express this in terms of the term and index instead of a user-supplied value.
@@ -92,11 +110,13 @@ void send_msg_read_index_response(raft& r, raftpb::message&& m) {
 }
 
 leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
+  const auto msg_type = m.type();
   // These message types do not require any progress for m.From.
-  switch (m.type()) {
-    case raftpb::MSG_BEAT:
-      r.bcast_append();
+  switch (msg_type) {
+    case raftpb::MSG_BEAT: {
+      r.bcast_heartbeat();
       return {};
+    }
     case raftpb::MSG_CHECK_QUORUM: {
       // MsgCheckQuorum
       // 消息用于领导者主动检查自己是否仍然拥有集群的多数节点（即法定人数）的支持
@@ -227,6 +247,250 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
     }
     default:
       break;
+  }
+
+  // All other message types require a progress for m.From (pr).
+  const auto msg_from = m.from();
+  auto pr_iter = r.trk_.progress_map_mutable_view().mutable_view().find(msg_from);
+  if (pr_iter == r.trk_.progress_map_mutable_view().mutable_view().end()) {
+    // If we are not currently a member of the range (i.e. this node
+    // was removed from the configuration while serving as leader),
+    // drop any new proposals.
+    SPDLOG_DEBUG("{} no progress available for {}", r.id_, msg_from);
+    SPDLOG_INFO("{} [term {}] ignoring message from unknown node {}", r.id_, r.term_, msg_from);
+    return {};
+  }
+  auto& pr = pr_iter->second;
+  switch (msg_type) {
+    // Follower → Leader的日志追加响应（场景：日志复制完成通知，发送角色：Follower，接收角色：Leader
+    case raftpb::MSG_APP_RESP: {
+      // NB: this code path is also hit from (*raft).advance, where the leader steps
+      // an MsgAppResp to acknowledge the appended entries in the last Ready.
+
+      // 将对应跟随者（Progress）标记为活跃状态，避免被领导者误认为宕机
+      pr.set_recent_active(true);
+      if (m.reject()) {
+        // RejectHint is the suggested next base entry for appending (i.e.
+        // we try to append entry RejectHint+1 next), and LogTerm is the
+        // term that the follower has at index RejectHint. Older versions
+        // of this library did not populate LogTerm for rejections and it
+        // is zero for followers with an empty log.
+        //
+        // Under normal circumstances, the leader's log is longer than the
+        // follower's and the follower's log is a prefix of the leader's
+        // (i.e. there is no divergent uncommitted suffix of the log on the
+        // follower). In that case, the first probe reveals where the
+        // follower's log ends (RejectHint=follower's last index) and the
+        // subsequent probe succeeds.
+        //
+        // However, when networks are partitioned or systems overloaded,
+        // large divergent log tails can occur. The naive attempt, probing
+        // entry by entry in decreasing order, will be the product of the
+        // length of the diverging tails and the network round-trip latency,
+        // which can easily result in hours of time spent probing and can
+        // even cause outright outages. The probes are thus optimized as
+        // described below.
+
+        // ​​RejectHint​​：跟随者建议的起始索引（即跟随者日志的最后一条索引）。
+        // ​​LogTerm​​：跟随者在RejectHint处的任期。
+        SPDLOG_DEBUG("{} received MsgAppResp(rejected, hint: (index {}, term {})) from {} for index {}", r.id_,
+                     m.reject_hint(), m.log_term(), msg_from, m.index());
+        auto next_probe = m.reject_hint();
+        if (m.log_term() > 0) {
+          // If the follower has an uncommitted log tail, we would end up
+          // probing one by one until we hit the common prefix.
+          //
+          // For example, if the leader has:
+          //
+          //   idx        1 2 3 4 5 6 7 8 9
+          //              -----------------
+          //   term (L)   1 3 3 3 5 5 5 5 5
+          //   term (F)   1 1 1 1 2 2
+          //
+          // Then, after sending an append anchored at (idx=9,term=5) we
+          // would receive a RejectHint of 6 and LogTerm of 2. Without the
+          // code below, we would try an append at index 6, which would
+          // fail again.
+          //
+          // However, looking only at what the leader knows about its own
+          // log and the rejection hint, it is clear that a probe at index
+          // 6, 5, 4, 3, and 2 must fail as well:
+          //
+          // For all of these indexes, the leader's log term is larger than
+          // the rejection's log term. If a probe at one of these indexes
+          // succeeded, its log term at that index would match the leader's,
+          // i.e. 3 or 5 in this example. But the follower already told the
+          // leader that it is still at term 2 at index 6, and since the
+          // log term only ever goes up (within a log), this is a contradiction.
+          //
+          // At index 1, however, the leader can draw no such conclusion,
+          // as its term 1 is not larger than the term 2 from the
+          // follower's rejection. We thus probe at 1, which will succeed
+          // in this example. In general, with this approach we probe at
+          // most once per term found in the leader's log.
+          //
+          // There is a similar mechanism on the follower (implemented in
+          // handleAppendEntries via a call to findConflictByTerm) that is
+          // useful if the follower has a large divergent uncommitted log
+          // tail[1], as in this example:
+          //
+          //   idx        1 2 3 4 5 6 7 8 9
+          //              -----------------
+          //   term (L)   1 3 3 3 3 3 3 3 7
+          //   term (F)   1 3 3 4 4 5 5 5 6
+          //
+          // Naively, the leader would probe at idx=9, receive a rejection
+          // revealing the log term of 6 at the follower. Since the leader's
+          // term at the previous index is already smaller than 6, the leader-
+          // side optimization discussed above is ineffective. The leader thus
+          // probes at index 8 and, naively, receives a rejection for the same
+          // index and log term 5. Again, the leader optimization does not improve
+          // over linear probing as term 5 is above the leader's term 3 for that
+          // and many preceding indexes; the leader would have to probe linearly
+          // until it would finally hit index 3, where the probe would succeed.
+          //
+          // Instead, we apply a similar optimization on the follower. When the
+          // follower receives the probe at index 8 (log term 3), it concludes
+          // that all of the leader's log preceding that index has log terms of
+          // 3 or below. The largest index in the follower's log with a log term
+          // of 3 or below is index 3. The follower will thus return a rejection
+          // for index=3, log term=3 instead. The leader's next probe will then
+          // succeed at that index.
+          //
+          // [1]: more precisely, if the log terms in the large uncommitted
+          // tail on the follower are larger than the leader's. At first,
+          // it may seem unintuitive that a follower could even have such
+          // a large tail, but it can happen:
+          //
+          // 1. Leader appends (but does not commit) entries 2 and 3, crashes.
+          //   idx        1 2 3 4 5 6 7 8 9
+          //              -----------------
+          //   term (L)   1 2 2     [crashes]
+          //   term (F)   1
+          //   term (F)   1
+          //
+          // 2. a follower becomes leader and appends entries at term 3.
+          //              -----------------
+          //   term (x)   1 2 2     [down]
+          //   term (F)   1 3 3 3 3
+          //   term (F)   1
+          //
+          // 3. term 3 leader goes down, term 2 leader returns as term 4
+          //    leader. It commits the log & entries at term 4.
+          //
+          //              -----------------
+          //   term (L)   1 2 2 2
+          //   term (x)   1 3 3 3 3 [down]
+          //   term (F)   1
+          //              -----------------
+          //   term (L)   1 2 2 2 4 4 4
+          //   term (F)   1 3 3 3 3 [gets probed]
+          //   term (F)   1 2 2 2 4 4 4
+          //
+          // 4. the leader will now probe the returning follower at index
+          //    7, the rejection points it at the end of the follower's log
+          //    which is at a higher log term than the actually committed
+          //    log.
+          auto [next_probe_idx, _] = r.raft_log_handle_.find_conflict_by_term(m.index(), m.log_term());
+          next_probe = next_probe_idx;
+        }
+        if (pr.maybe_decr_to(m.index(), next_probe)) {
+          SPDLOG_DEBUG("{} decreased progress of {} to [{}]", r.id_, msg_from, pr.string());
+          if (pr.state() == tracker::state_type::STATE_REPLICATE) {
+            pr.become_probe();
+          }
+          r.send_append(msg_from);
+        }
+      } else {
+        // We want to update our tracking if the response updates our
+        // matched index or if the response can move a probing peer back
+        // into StateReplicate (see heartbeat_rep_recovers_from_probing.txt
+        // for an example of the latter case).
+        // NB: the same does not make sense for StateSnapshot - if `m.Index`
+        // equals pr.Match we know we don't m.Index+1 in our log, so moving
+        // back to replicating state is not useful; besides pr.PendingSnapshot
+        // would prevent it.
+
+        // 情况一：响应更新了匹配索引（pr.Match）​​
+        // 当 Follower 确认接收了新的日志条目时，Leader 需要更新该 Follower 的 Match 索引，以跟踪其日志复制进度。
+        // 当响应中的 m.Index 更新了 Follower 的匹配索引 pr.Match（即 Follower 确认了新的日志条目）。
+
+        // ​​情况二：响应使探测状态的节点回到正常复制状态（StateReplicate）​​
+        // 当 Follower 处于探测状态（StateProbe）时，Leader
+        // 可能因网络不稳定或日志不一致而逐条发送日志条目。若某次响应表明 Follower 已追上进度，Leader 可将其状态切换回
+        // StateReplicate，恢复高效批量复制。
+        // 当 Follower 处于 StateProbe（探测状态），且响应表明其日志已对齐到当前探测位置（可切换回批量复制模式）。
+        if (pr.maybe_update(m.index() || (pr.match() == m.index() && pr.state() == tracker::state_type::STATE_PROBE))) {
+          if (pr.state() == tracker::state_type::STATE_PROBE) {
+            pr.become_replicate();
+          } else if ((pr.state() == tracker::state_type::STATE_SNAPSHOT) &&
+                     ((pr.match() + 1) >= r.raft_log_handle_.first_index())) {
+            // Follower 处于快照传输状态 (StateSnapshot)。
+            // 其匹配索引 pr.Match + 1 大于等于 Leader 日志的起始索引（即快照已应用，可继续同步后续日志）。
+            // 即使存在未完成的快照传输（PendingSnapshot），只要 Follower
+            // 的日志索引足够新，允许其通过日志追赶（而非等待快照完成），即可切换回正常复制状态。
+
+            // Note that we don't take into account PendingSnapshot to
+            // enter this branch. No matter at which index a snapshot
+            // was actually applied, as long as this allows catching up
+            // the follower from the log, we will accept it. This gives
+            // systems more flexibility in how they implement snapshots;
+            // see the comments on PendingSnapshot.
+            SPDLOG_DEBUG("{} recovered from needing snapshot, resumed sending replication messages to {} [{}]", r.id_,
+                         msg_from, pr.string());
+            // Transition back to replicating state via probing state
+            // (which takes the snapshot into account). If we didn't
+            // move to replicating state, that would only happen with
+            // the next round of appends (but there may not be a next
+            // round for a while, exposing an inconsistent RaftStatus).
+            // -- ​​必要性​​
+            // ​1. ​验证日志连续性​​：
+            // 快照可能覆盖部分日志，切换为 StateProbe 后，Leader 会逐条探测 Follower
+            // 的日志是否与快照后的日志连续（例如通过 AppendEntries 心跳验证 prevLogIndex 和 prevLogTerm）。
+            // ​​2. 确保安全性​​：
+            // 避免因快照传输与日志追加的时序问题导致状态不一致（如快照未完全应用时误判日志位置）。
+
+            // -- 直接切换的风险​
+            // 1. 状态更新延迟​​：
+            // 若 Leader 暂时没有新日志需要发送（next round of appends 未触发），Follower 的状态会停留在
+            // StateSnapshot，导致 RaftStatus 显示不一致（例如监控工具误认为 Follower 仍需快照）。
+            // 2. ​​潜在逻辑漏洞​​：
+            // 快照可能未完全生效，直接切换会导致后续日志追加失败（如 Follower 的日志索引未正确更新）。
+            pr.become_probe();
+            pr.become_replicate();
+          } else if (pr.state() == tracker::state_type::STATE_REPLICATE) {
+            pr.mutable_inflights().free_le(m.index());
+          }
+        }
+        if (r.maybe_commit()) {
+          // committed index has progressed for the term, so it is safe
+          // to respond to pending read index requests
+          release_pending_read_index_message(r);
+          r.bcast_append();
+        } else if (r.id_ != msg_from && pr.can_bump_commit(r.raft_log_handle_.committed())) {
+          // This node may be missing the latest commit index, so send it.
+          // NB: this is not strictly necessary because the periodic heartbeat
+          // messages deliver commit indices too. However, a message sent now
+          // may arrive earlier than the next heartbeat fires.
+          r.send_append(msg_from);
+        }
+        // We've updated flow control information above, which may
+        // allow us to send multiple (size-limited) in-flight messages
+        // at once (such as when transitioning from probe to
+        // replicate, or when freeTo() covers multiple messages). If
+        // we have more entries to send, send as many messages as we
+        // can (without sending empty messages for the commit index)
+        if (r.id_ != msg_from) {
+          while (r.maybe_send_append(msg_from, false));
+        }
+        // Transfer leadership is in progress.
+        if ((msg_from == r.leader_transferee_) && (pr.match() >= r.raft_log_handle_.last_index())) {
+          SPDLOG_INFO("{} sent MsgTimeoutNow to {} after received MsgAppResp", r.id_, msg_from);
+          r.send_timmeout_now(msg_from);
+        }
+      }
+    }
+      // TODO
   }
 }
 
@@ -607,6 +871,13 @@ void raft::tick_election() {
 
 void raft::reset(std::uint64_t term) {
   // TODO
+}
+
+void raft::send_timmeout_now(std::uint64_t id) {
+  raftpb::message m;
+  m.set_to(id);
+  m.set_type(raftpb::message_type::MSG_TIMEOUT_NOW);
+  send(std::move(m));
 }
 
 void raft::abort_leader_transfer() { leader_transferee_ = NONE; }

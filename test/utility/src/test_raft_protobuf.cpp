@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <ostream>
 #include <string>
+#include <vector>
 
 #include "raft.pb.h"
 
@@ -11,6 +12,17 @@ lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term) {
   entry->set_index(index);
   entry->set_term(term);
   return entry;
+}
+
+lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms) {
+  lepton::pb::repeated_entry entries;
+  for (const auto &term : terms) {
+    auto entry = entries.Add();
+    entry->set_index(index);
+    entry->set_term(term);
+    ++index;
+  }
+  return entries;
 }
 
 lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params) {

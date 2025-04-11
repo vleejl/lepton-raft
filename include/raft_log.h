@@ -82,7 +82,7 @@ class raft_log {
   //
   // The index provided MUST be equal to or less than l.lastIndex(). Invalid
   // inputs log a warning and the input index is returned.
-  std::uint64_t find_conflict_by_term(std::uint64_t index, std::uint64_t term);
+  std::tuple<std::uint64_t,std::uint64_t> find_conflict_by_term(std::uint64_t index, std::uint64_t term);
 
   const unstable& unstable_view() const { return unstable_; }
 

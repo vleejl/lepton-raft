@@ -35,7 +35,7 @@ class raft_log_test_suit : public testing::Test {
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
 
-TEST_F(raft_log_test_suit, test_storage_term) {
+TEST_F(raft_log_test_suit, test_find_conflict) {
   struct test_case {
     lepton::pb::repeated_entry entries;
 
@@ -71,6 +71,62 @@ TEST_F(raft_log_test_suit, test_storage_term) {
     raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
     auto gconflict = raft_log->find_conflict(iter_test.entries);
     ASSERT_EQ(gconflict, iter_test.wconflict);
+  }
+}
+
+TEST_F(raft_log_test_suit, test_find_conflict_by_term) {
+  // 测试用例数据结构
+  struct test_case {
+    lepton::pb::repeated_entry entries;
+    uint64_t index;
+    uint64_t term;
+    uint64_t want;
+  };
+
+  // 测试用例集合
+  std::vector<test_case> test_cases = {
+      // 日志从 index 1 开始
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 100, 2, 100},  // ErrUnavailable
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 5, 6, 5},
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 5, 5, 5},
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 5, 4, 2},
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 5, 2, 2},
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 5, 1, 0},
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 1, 2, 1},
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 1, 1, 0},
+      {create_entries(0, {0, 2, 2, 5, 5, 5}), 0, 0, 0},
+
+      // 包含压缩日志的案例
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 30, 3, 30},  // ErrUnavailable
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 14, 9, 14},
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 14, 4, 14},
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 14, 3, 12},
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 14, 2, 9},
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 11, 5, 11},
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 10, 5, 10},
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 10, 3, 10},
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 10, 2, 9},
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 9, 2, 9},  // ErrCompacted
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 4, 2, 4},  // ErrCompacted
+      {create_entries(10, {3, 3, 3, 4, 4, 4}), 0, 0, 0},  // ErrCompacted
+  };
+  for (auto &iter_test : test_cases) {
+    ASSERT_NE(iter_test.entries.size(), 0);
+    lepton::memory_storage mm_storage;
+    auto snapshot = create_snapshot(iter_test.entries[0].index(), iter_test.entries[0].term());
+    mm_storage.apply_snapshot(std::move(snapshot));
+    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
+    iter_test.entries.DeleteSubrange(0, 1);
+    auto raft_log = new_raft_log(memory_storager_view);
+    raft_log->append(std::move(iter_test.entries));
+
+    auto gconflict = raft_log->find_conflict_by_term(iter_test.index, iter_test.term);
+    auto [index, term] = gconflict;
+    ASSERT_EQ(iter_test.want, index);
+    auto want_term = raft_log->zero_term_on_err_compacted(index);
+    if (want_term != term) {
+      ASSERT_EQ(want_term, term);
+    }
   }
 }
 
