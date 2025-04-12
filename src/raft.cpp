@@ -400,6 +400,8 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
             pr.become_probe();
           }
           r.send_append(msg_from);
+        } else {
+          // TDOO explain
         }
       } else {
         // We want to update our tracking if the response updates our
@@ -489,9 +491,129 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
           r.send_timmeout_now(msg_from);
         }
       }
+      break;
     }
-      // TODO
+    case raftpb::MSG_HEARTBEAT_RESP: {
+      pr.set_recent_active(true);
+      // 恢复向该 follower 发送日志条目（若之前因流量控制暂停）
+      pr.set_msg_app_flow_paused(false);
+      // NB: if the follower is paused (full Inflights), this will still send an
+      // empty append, allowing it to recover from situations in which all the
+      // messages that filled up Inflights in the first place were dropped. Note
+      // also that the outgoing heartbeat already communicated the commit index.
+      //
+      // If the follower is fully caught up but also in StateProbe (as can happen
+      // if ReportUnreachable was called), we also want to send an append (it will
+      // be empty) to allow the follower to transition back to StateReplicate once
+      // it responds.
+      //
+      // Note that StateSnapshot typically satisfies pr.Match < lastIndex, but
+      // `pr.Paused()` is always true for StateSnapshot, so sendAppend is a
+      // no-op.
+      if ((pr.match() < r.raft_log_handle_.last_index()) && (pr.state() != tracker::state_type::STATE_PROBE)) {
+        // 发送 empty append message to the follower
+        // 以便其可以恢复到正常的复制状态（StateReplicate）
+        r.send_append(msg_from);
+      }
+
+      // 仅当配置为 ReadOnlySafe（线性一致读）且心跳响应携带上下文（m.Context，即关联的只读请求 ID）时，继续处理。
+      if ((r.read_only_.read_only_opt() != read_only_option::READ_ONLY_SAFE) && (m.context().empty())) {
+        return {};
+      }
+
+      auto ack_result_ref = r.read_only_.recv_ack(msg_from, m.context());
+      assert(ack_result_ref);
+      auto vote_result = r.trk_.config_view().voters.vote_result_statistics(ack_result_ref->get());
+      if (vote_result != quorum::vote_result::VOTE_WON) {
+        return {};
+      }
+
+      auto rss = r.read_only_.advance(std::move(m));
+      for (auto& rs : rss) {
+        // C++标准未规定函数参数的求值顺序。需要临时保存这个变量而不是直接传递这个字段
+        auto index = rs.index;
+        if (auto resp = r.response_to_read_index_req(std::move(rs.req), index); resp.to() != NONE) {
+          r.send(std::move(resp));
+        }
+      }
+      break;
+    }
+    case raftpb::MSG_SNAP_STATUS: {  // 用于管理快照发送后的节点状态转换和流量控制
+      if (pr.state() != tracker::state_type::STATE_SNAPSHOT) {
+        SPDLOG_DEBUG("{} [term {}] ignoring MsgSnapStatus from {} in state {}", r.id_, r.term_, msg_from, pr.state());
+        return {};
+      }
+      if (!m.reject()) {
+        pr.become_probe();
+        SPDLOG_DEBUG("{} snapshot succeeded, resumed sending replication messages to {} [{}]", r.id_, msg_from,
+                     pr.string());
+      } else {
+        // NB: the order here matters or we'll be probing erroneously from
+        // the snapshot index, but the snapshot never applied.
+        // 先清除 PendingSnapshot，再切换状态。若顺序颠倒，可能错误地从已废弃的快照索引开始探测。
+
+        // 清除挂起的快照索引，避免后续误用无效快照。
+        pr.set_pending_snapshot(0);
+        // 进入探测状态，重新尝试日志同步。
+        pr.become_probe();
+        SPDLOG_DEBUG("{} snapshot failed, resumed sending replication messages to {} [{}]", r.id_, msg_from,
+                     pr.string());
+      }
+      // If snapshot finish, wait for the MsgAppResp from the remote node before sending
+      // out the next MsgApp.
+      // If snapshot failure, wait for a heartbeat interval before next try
+      pr.set_msg_app_flow_paused(true);
+      break;
+    }
+    case raftpb::MSG_UNREACHABLE: {  // 处理不可达节点的消息
+      // During optimistic replication, if the remote becomes unreachable,
+      // there is huge probability that a MsgApp is lost.
+      if (pr.state() == tracker::state_type::STATE_REPLICATE) {
+        pr.become_probe();
+      }
+      SPDLOG_DEBUG("{} failed to send message to {} because it is unreachable [{}]", r.id_, msg_from, pr.string());
+      break;
+    }
+    case raftpb::MSG_TRANSFER_LEADER: {
+      if (r.is_learner_) {
+        SPDLOG_DEBUG("{} is learner. Ignored transferring leadership", r.id_);
+        return {};
+      }
+      auto leader_transferee = m.from();
+      auto last_leader_transferee = r.leader_transferee_;
+      if (last_leader_transferee != NONE) {
+        if (leader_transferee == last_leader_transferee) {
+          SPDLOG_DEBUG("{} [term {}] transfer leadership to {} is in progress, ignores request to same node {}", r.id_,
+                       r.term_, last_leader_transferee, leader_transferee);
+          return {};
+        }
+        r.abort_leader_transfer();
+        SPDLOG_INFO("{} [term {}] abort transfer leadership to {} and transfer to {}", r.id_, r.term_,
+                    last_leader_transferee, leader_transferee);
+      }
+      if (leader_transferee == r.id_) {
+        SPDLOG_DEBUG("{} [term {}] transfer leadership to self, ignores request", r.id_, r.term_);
+        return {};
+      }
+      // Transfer leadership to third party.
+      SPDLOG_INFO("{} [term {}] starts to transfer leadership to {}", r.id_, r.term_, leader_transferee);
+      // Transfer leadership should be finished in one electionTimeout, so reset r.electionElapsed.
+      r.election_elapsed_ = 0;
+      r.leader_transferee_ = leader_transferee;
+      if (pr.match() == r.raft_log_handle_.last_index()) {
+        // If the transferee is up to date, send MsgTimeoutNow to it.
+        SPDLOG_INFO("{} sends MsgTimeoutNow to {} immediately as {} already has up-to-date log", r.id_, leader_transferee, leader_transferee);
+        r.send_timmeout_now(leader_transferee);
+      } else {
+        r.send_append(leader_transferee);
+      }
+      break;
+    }
+    default:
+      SPDLOG_DEBUG("{} [term {}] ignoring message from {} in state {}", r.id_, r.term_, msg_from, pr.state());
+      break;
   }
+  return {};
 }
 
 leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {

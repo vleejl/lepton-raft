@@ -20,8 +20,8 @@ TEST_CASE("test majority config", "[majority_config]") {
   using id_ack_map = std::map<std::uint64_t, log_index>;
   SECTION("majority_config describle", "no id has acked") {
     map_ack_indexer map_ack_indexer_{id_ack_map{}};
-    pro::proxy<acked_indexer_builer> indexer = pro::make_proxy<acked_indexer_builer, map_ack_indexer>(id_ack_map{});
-    pro::proxy_view<acked_indexer_builer> indexer_view = &map_ack_indexer_;
+    pro::proxy<acked_indexer_builder> indexer = pro::make_proxy<acked_indexer_builder, map_ack_indexer>(id_ack_map{});
+    pro::proxy_view<acked_indexer_builder> indexer_view = &map_ack_indexer_;
     fmt::print(stderr, "{}\n", config.describe(indexer_view));
     auto expected = R"(         idx
 ?          0    (id=1)

@@ -62,7 +62,11 @@ class progress {
 
   auto recent_active() const { return recent_active_; }
 
+  void set_msg_app_flow_paused(bool paused) { msg_app_flow_paused_ = paused; }
+
   auto state() const { return state_; }
+
+  void set_pending_snapshot(std::uint64_t pending_snapshot) { pending_snapshot_ = pending_snapshot; }
 
   inflights& mutable_inflights() { return inflights_; }
 

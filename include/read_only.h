@@ -86,7 +86,7 @@ class read_only {
   // It dequeues the requests until it finds the read only request that has
   // the same context as the given `m`.
   // 主要用于在只读请求队列中找到特定上下文对应的请求
-  leaf::result<std::vector<read_index_status>> advance(raftpb::message&& m) {
+  std::vector<read_index_status> advance(raftpb::message&& m) {
     int i = 0;
     auto found = false;
 
@@ -124,7 +124,7 @@ class read_only {
       }
       return rss;
     }
-    return new_error(logic_error::KEY_NOT_FOUND);
+    return {};
   }
 
   // lastPendingRequestCtx returns the context of the last pending read only

@@ -135,14 +135,14 @@ class joint_config {
 
   // Describe returns a (multi-line) representation of the commit indexes for
   // the given lookuper.
-  std::string describe(pro::proxy_view<acked_indexer_builer> indexer) const {
+  std::string describe(pro::proxy_view<acked_indexer_builder> indexer) const {
     return majority_config(id_set()).describe(indexer);
   }
 
   // CommittedIndex returns the largest committed index for the given joint
   // quorum. An index is jointly committed if it is committed in both
   // constituent majorities.
-  log_index committed_index(pro::proxy_view<acked_indexer_builer> indexer) const {
+  log_index committed_index(pro::proxy_view<acked_indexer_builder> indexer) const {
     auto log_idx0 = primary_config_.committed_index(indexer);
     if (!secondary_config_) {
       return log_idx0;

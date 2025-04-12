@@ -71,7 +71,7 @@ quorum::map_ack_indexer make_lookuper(const std::vector<quorum::log_index>& idxs
 
 // This is an alternative implementation of (MajorityConfig).CommittedIndex(l).
 quorum::log_index alternative_majority_committed_index(const quorum::majority_config& c,
-                                                       pro::proxy_view<quorum::acked_indexer_builer> l) {
+                                                       pro::proxy_view<quorum::acked_indexer_builder> l) {
   if (c.empty()) {
     return quorum::INVALID_LOG_INDEX;
   }
@@ -212,7 +212,7 @@ static std::string process_single_test_case(const std::string& cmd, const std::s
   std::ostringstream buf;
   if (cmd == "committed") {
     auto l = make_lookuper(idxs, ids, idsj);
-    pro::proxy_view<quorum::acked_indexer_builer> l_pro_view = &l;
+    pro::proxy_view<quorum::acked_indexer_builder> l_pro_view = &l;
 
     // Branch based on whether this is a majority or joint quorum
     // test case.
@@ -233,7 +233,7 @@ static std::string process_single_test_case(const std::string& cmd, const std::s
         buf << quorum::log_index_to_string(a_idx) << " <-- via self-joint quorum\n";
       }
 
-      auto overlay = [](const quorum::majority_config& c, pro::proxy_view<quorum::acked_indexer_builer> l,
+      auto overlay = [](const quorum::majority_config& c, pro::proxy_view<quorum::acked_indexer_builder> l,
                         std::uint64_t id, quorum::log_index idx) -> quorum::map_ack_indexer {
         std::map<std::uint64_t, quorum::log_index> ll;
         for (auto iid : c.view()) {
@@ -253,13 +253,13 @@ static std::string process_single_test_case(const std::string& cmd, const std::s
             // inspected idx, the result shouldn't change if we lower it
             // further.
             auto lo = overlay(c, l_pro_view, id, iidx - 1);
-            pro::proxy_view<quorum::acked_indexer_builer> lo_pro_view = &lo;
+            pro::proxy_view<quorum::acked_indexer_builder> lo_pro_view = &lo;
             if (auto a_idx = c.committed_index(lo_pro_view); a_idx != idx) {
               buf << quorum::log_index_to_string(a_idx) << " <-- overlaying " << id << "->" << iidx;
             }
 
             auto lo0 = overlay(c, l_pro_view, id, iidx);
-            pro::proxy_view<quorum::acked_indexer_builer> lo0_pro_view = &lo0;
+            pro::proxy_view<quorum::acked_indexer_builder> lo0_pro_view = &lo0;
             if (auto a_idx = c.committed_index(lo0_pro_view); a_idx != idx) {
               buf << quorum::log_index_to_string(a_idx) << " <-- overlaying " << id << "->" << iidx;
             }

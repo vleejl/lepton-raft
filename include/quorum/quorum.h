@@ -38,10 +38,10 @@ enum class vote_result : std::uint8_t {
 // from a corresponding MajorityConfig.
 PRO_DEF_MEM_DISPATCH(acked_indexer, acked_index);
 // clang-format off
-struct acked_indexer_builer : pro::facade_builder 
+struct acked_indexer_builder : pro::facade_builder 
   ::add_convention<acked_indexer, leaf::result<log_index>(std::uint64_t id)>
-  ::add_view<acked_indexer_builer>
-  ::add_view<const acked_indexer_builer>
+  ::add_view<acked_indexer_builder>
+  ::add_view<const acked_indexer_builder>
   ::build{};
 // clang-format on
 

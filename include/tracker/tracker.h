@@ -29,14 +29,14 @@ struct config {
         auto_leave(auto_leave),
         learners(std::move(learners)),
         learners_next(std::move(learners_next)) {}
-  static void remove_id_set(std::uint64_t id, std::optional<std::set<std::uint64_t>>& id_set) {
+  void remove_id_set(std::uint64_t id, std::optional<std::set<std::uint64_t>>& id_set) {
     if (id_set && id_set->contains(id)) {
       // 如果 id_set 有值，并且 id 存在于 id_set 中，删除该元素
       id_set->erase(id);
     }
   }
 
-  static void add_id_set(std::uint64_t id, std::optional<std::set<std::uint64_t>>& id_set) {
+  void add_id_set(std::uint64_t id, std::optional<std::set<std::uint64_t>>& id_set) {
     if (!id_set) {
       id_set = std::set<std::uint64_t>{id};
     } else {
@@ -208,7 +208,7 @@ class progress_tracker {
   // what
   // the voting members of the group have acknowledged.
   std::uint64_t committed() {
-    return config_.voters.committed_index(pro::proxy_view<quorum::acked_indexer_builer>{&progress_map_});
+    return config_.voters.committed_index(pro::proxy_view<quorum::acked_indexer_builder>{&progress_map_});
   }
 
   // using

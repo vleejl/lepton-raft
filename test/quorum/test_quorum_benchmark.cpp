@@ -24,8 +24,8 @@ static void BM_majority_config_committed_index(benchmark::State& state) {
   }
 
   quorum::majority_config c{std::move(id_set)};
-  auto l = pro::make_proxy<quorum::acked_indexer_builer, quorum::map_ack_indexer>(std::move(id_log_index_ack_map));
-  pro::proxy_view<quorum::acked_indexer_builer> l_pro_view = l;
+  auto l = pro::make_proxy<quorum::acked_indexer_builder, quorum::map_ack_indexer>(std::move(id_log_index_ack_map));
+  pro::proxy_view<quorum::acked_indexer_builder> l_pro_view = l;
 
   // Run the benchmark for n iterations
   for (auto _ : state) {
