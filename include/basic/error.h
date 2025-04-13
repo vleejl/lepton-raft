@@ -45,6 +45,7 @@ enum class logic_error {
   CONFIG_MISMATCH,
   KEY_NOT_FOUND,
   INVALID_PARAM,
+  EMPTY_ARRAY,
   PROPOSAL_DROPPED,
 };
 

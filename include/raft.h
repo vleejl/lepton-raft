@@ -57,6 +57,8 @@ class raft {
 
   void hup(campaign_type t);
 
+  bool has_unapplied_conf_change() const;
+
   void handle_append_entries(raftpb::message&& message);
 
   void handle_heartbeat(raftpb::message&& message);

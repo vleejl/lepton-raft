@@ -7,6 +7,7 @@
 
 #include "absl/types/span.h"
 #include "config.h"
+#include "error.h"
 #include "leaf.hpp"
 #include "protobuf.h"
 #include "raft.pb.h"
@@ -14,16 +15,17 @@
 
 namespace lepton {
 raft_log::raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset, std::uint64_t committed,
-                   std::uint64_t applied, std::uint64_t max_next_ents_size)
+                   std::uint64_t applying, std::uint64_t applied, std::uint64_t max_next_ents_size)
     : storage_(storage),
       unstable_(offset),
       committed_(committed),
+      applying_(applying),
       applied_(applied),
-      max_next_ents_size_(max_next_ents_size) {}
+      max_applying_ents_size_(max_next_ents_size) {}
 
 std::string raft_log::string() {
-  return fmt::format("committed={}, applied={}, unstable.offset={}, len(unstable.Entries)={}", committed_, applied_,
-                     unstable_.offset(), unstable_.entries_view().size());
+  return fmt::format("committed={}, applied={}, applying={}, unstable.offset={}, len(unstable.Entries)={}", committed_,
+                     applied_, applying_, unstable_.offset(), unstable_.entries_view().size());
 }
 
 std::uint64_t raft_log::first_index() const {
@@ -170,6 +172,20 @@ void raft_log::restore(raftpb::snapshot&& snapshot) {
   unstable_.restore(std::move(snapshot));
 }
 
+leaf::result<void> raft_log::scan(
+    std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
+    const std::function<leaf::result<void>(const pb::repeated_entry& entries)>& callback) {
+  while (lo < hi) {
+    slice(lo, hi, page_size);
+    BOOST_LEAF_AUTO(v, slice(lo, hi, page_size));
+    if (v.empty()) {
+      return new_error(logic_error::EMPTY_ARRAY);
+    }
+    BOOST_LEAF_CHECK(callback(v));
+    lo += static_cast<std::uint64_t>(v.size());
+  }
+}
+
 std::uint64_t raft_log::find_conflict(absl::Span<const raftpb::entry* const> entries) {
   for (const auto& entry : entries) {
     if (!match_term(entry->index(), entry->term())) {
@@ -186,7 +202,7 @@ std::uint64_t raft_log::find_conflict(absl::Span<const raftpb::entry* const> ent
 }
 
 std::tuple<std::uint64_t, std::uint64_t> raft_log::find_conflict_by_term(std::uint64_t index, std::uint64_t term) {
-  for(;index > 0; index--) {
+  for (; index > 0; index--) {
     auto our_term = this->term(index);
     if (our_term.has_error()) {
       return {index, 0};
@@ -198,11 +214,23 @@ std::tuple<std::uint64_t, std::uint64_t> raft_log::find_conflict_by_term(std::ui
   return {0, 0};
 }
 
-absl::Span<const raftpb::entry* const> raft_log::unstable_entries() {
+absl::Span<const raftpb::entry* const> raft_log::unstable_entries() const {
   if (unstable_.entries_view().empty()) {
     return {};
   }
   return unstable_.entries_span();
+}
+
+leaf::result<pb::repeated_entry> raft_log::next_committed_ents(bool allow_unstable) {
+  if (applying_ents_paused_) {
+    return {};
+  }
+  if (has_next_or_in_progress_snapshot()) {
+    // See comment in hasNextCommittedEnts.
+    return {};
+  }
+  auto lo = applying_ + 1;
+  // auto hi = max_app
 }
 
 leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) {
@@ -270,7 +298,7 @@ pb::repeated_entry raft_log::next_ents() {
   if (committed_ + 1 > off) {
     auto entries = leaf::try_handle_some(
         [&]() -> leaf::result<pb::repeated_entry> {
-          BOOST_LEAF_AUTO(v, slice(off, committed_ + 1, max_next_ents_size_));
+          BOOST_LEAF_AUTO(v, slice(off, committed_ + 1, max_applying_ents_size_));
           return v;
         },
         [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
@@ -389,13 +417,13 @@ Raft 要求 Leader 确保 Follower 的日志最终与 Leader 一致，即使需�
 }
 
 leaf::result<raft_log> new_raft_log_with_size(pro::proxy_view<storage_builer> storage,
-                                              std::uint64_t max_next_ents_size) {
+                                              pb::entry_encoding_size max_applying_ents_size) {
   if (!storage.has_value()) {
     return new_error(encoding_error::NULL_POINTER, "storage must not be nil");
   }
 
   BOOST_LEAF_AUTO(first_index, storage->first_index());
   BOOST_LEAF_AUTO(last_index, storage->last_index());
-  return raft_log{storage, last_index + 1, first_index - 1, first_index - 1, max_next_ents_size};
+  return raft_log{storage, last_index + 1, first_index - 1, first_index - 1, first_index - 1, max_applying_ents_size};
 }
 }  // namespace lepton

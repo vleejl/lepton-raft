@@ -5,7 +5,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <utility>
 
@@ -111,6 +110,16 @@ class unstable {
     return entries_[static_cast<int>(i - offset_)].term();
   }
 
+  // nextEntries returns the unstable entries that are not already in the process
+  // of being written to storage.
+  absl::Span<const raftpb::entry* const> next_entries() const {
+    // auto inProgress = 
+    auto in_progress = static_cast<std::ptrdiff_t>(offset_in_progress_ - offset_);
+    if (in_progress == )
+    auto end = static_cast<std::ptrdiff_t>(offset_ + entries_.size() - offset_);
+    return absl::Span<const raftpb::entry* const>(entries_span().data() + in_progress, end);
+  }
+
   // i: log index
   // t: term
   void stable_to(std::uint64_t i, std::uint64_t t) {
@@ -185,6 +194,14 @@ class unstable {
   // 使得在写入存储时，Raft
   // 能够知道从哪个位置开始写入，避免了重复写入或覆盖已存在的日志。
   std::uint64_t offset_;
+
+  // if true, snapshot is being written to storage.
+  bool snapshot_in_progress_ = false;
+  // entries[:offsetInProgress-offset] are being written to storage.
+  // Like offset, offsetInProgress is exclusive, meaning that it
+  // contains the index following the largest in-progress entry.
+  // Invariant: offset <= offsetInProgress
+  std::uint64_t offset_in_progress_ = 0;
 };
 
 static_assert(std::is_move_constructible_v<raftpb::snapshot>, "raftpb::snapshot is not move constructible");

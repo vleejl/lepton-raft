@@ -6,6 +6,7 @@
 #include <memory>
 namespace lepton {
 namespace pb {
+using entry_encoding_size = std::uint64_t;
 using snapshot_ptr = std::unique_ptr<raftpb::snapshot>;
 using entry_ptr = std::unique_ptr<raftpb::entry>;
 using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::entry>;

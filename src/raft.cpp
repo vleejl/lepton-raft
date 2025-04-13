@@ -602,7 +602,8 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
       r.leader_transferee_ = leader_transferee;
       if (pr.match() == r.raft_log_handle_.last_index()) {
         // If the transferee is up to date, send MsgTimeoutNow to it.
-        SPDLOG_INFO("{} sends MsgTimeoutNow to {} immediately as {} already has up-to-date log", r.id_, leader_transferee, leader_transferee);
+        SPDLOG_INFO("{} sends MsgTimeoutNow to {} immediately as {} already has up-to-date log", r.id_,
+                    leader_transferee, leader_transferee);
         r.send_timmeout_now(leader_transferee);
       } else {
         r.send_append(leader_transferee);
@@ -901,8 +902,44 @@ void raft::send(raftpb::message&& message) {
   msgs_.Add(std::move(message));
 }
 
+// hup 函数用于让当前 Raft 节点发起一次领导者选举（Campaign），但仅在以下条件满足时触发：
+// 节点当前不是领导者。
+// 节点有资格参与选举（可提升为候选者）。
+// 没有未应用的集群配置变更。
 void raft::hup(campaign_type t) {
-  // TODO
+  if (state_type_ == state_type::STATE_LEADER) {
+    SPDLOG_DEBUG("{} [term {}] ignoring MsgHup because already leader", id_, term_);
+    return;
+  }
+
+  if (promotable()) {
+    SPDLOG_WARN("{} is unpromotable and can not campaign", id_);
+    return;
+  }
+  if (has_unapplied_conf_change()) {
+    SPDLOG_WARN("{} cannot campaign at term {} since there are still pending configuration changes to apply", id_,
+                term_);
+    return;
+  }
+  SPDLOG_INFO("{} [term {}] starting a new election at term {}", id_, term_, term_);
+  campaign(t);
+}
+
+bool raft::has_unapplied_conf_change() const {
+  if (raft_log_handle_.applied() >= raft_log_handle_.committed()) {  // in fact applied == committed
+    return false;
+  }
+  auto found = false;
+  // Scan all unapplied committed entries to find a config change. Paginate the
+  // scan, to avoid a potentially unlimited memory spike.
+  auto lo = raft_log_handle_.applied() + 1;
+  auto hi = raft_log_handle_.committed();
+  // Reuse the maxApplyingEntsSize limit because it is used for similar purposes
+  // (limiting the read of unapplied committed entries) when raft sends entries
+  // via the Ready struct for application.
+  // TODO(pavelkalinnikov): find a way to budget memory/bandwidth for this scan
+  // outside the raft package.
+  // raft_log_handle_
 }
 
 void raft::handle_append_entries(raftpb::message&& message) {
@@ -1073,7 +1110,7 @@ bool raft::promotable() {
   auto pr_iter = trk_.progress_map_view().view().find(id_);
   assert(pr_iter != trk_.progress_map_view().view().end());
   auto& pr = pr_iter->second;
-  return !pr.is_learner() && !raft_log_handle_.has_pending_snapshot();
+  return !pr.is_learner() && !raft_log_handle_.has_next_or_in_progress_snapshot();
 }
 
 void raft::campaign(campaign_type t) {
