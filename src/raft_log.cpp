@@ -12,6 +12,7 @@
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "spdlog/spdlog.h"
+#include "types.h"
 
 namespace lepton {
 raft_log::raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset, std::uint64_t committed,
@@ -119,12 +120,12 @@ std::uint64_t raft_log::last_term() {
   return r.value();
 }
 
-bool raft_log::match_term(std::uint64_t i, std::uint64_t t) {
-  auto result = term(i);
+bool raft_log::match_term(const pb::entry_id& id) {
+  auto result = term(id.index);
   if (result.has_error()) {
     return false;
   }
-  return result.value() == t;
+  return result.value() == id.term;
 }
 
 bool raft_log::is_up_to_date(std::uint64_t lasti, std::uint64_t term) {
@@ -188,7 +189,7 @@ leaf::result<void> raft_log::scan(
 
 std::uint64_t raft_log::find_conflict(absl::Span<const raftpb::entry* const> entries) {
   for (const auto& entry : entries) {
-    if (!match_term(entry->index(), entry->term())) {
+    if (!match_term(pb::pb_entry_id(entry))) {
       if (entry->index() <= last_index()) {
         SPDLOG_INFO(
             "found conflict at index {} [existing term: {}, conflicting term: "
@@ -360,11 +361,10 @@ std::uint64_t raft_log::append(pb::repeated_entry&& entries) {
   return last_index();
 }
 
-leaf::result<std::uint64_t> raft_log::maybe_append(std::uint64_t index, std::uint64_t log_term, std::uint64_t committed,
-                                                   pb::repeated_entry&& enrties) {
-  if (match_term(index, log_term)) {
-    auto lastnewi = index + static_cast<std::uint64_t>(enrties.size());
-    auto ci = find_conflict(absl::MakeSpan(enrties));
+leaf::result<std::uint64_t> raft_log::maybe_append(pb::log_slice&& log_slice, std::uint64_t committed) {
+  if (match_term(log_slice.prev)) {
+    auto lastnewi = log_slice.prev.index + static_cast<std::uint64_t>(log_slice.entries.size());
+    auto ci = find_conflict(absl::MakeSpan(log_slice.entries));
     if (ci == 0) {  // 没有冲突
       // do nothing
     } else if (ci <= committed_) {
@@ -373,14 +373,14 @@ leaf::result<std::uint64_t> raft_log::maybe_append(std::uint64_t index, std::uin
       LEPTON_CRITICAL("entry {} conflict with committed entry [committed({})]", ci, committed_);
     } else {
       // 如果冲突位置在未提交的条目中，则从冲突的位置开始，将冲突后的新条目追加到日志中，确保不会丢失已提交的日志
-      auto offset = index + 1;
+      auto offset = log_slice.prev.index + 1;
       assert(ci >= offset);
       auto start = static_cast<std::ptrdiff_t>(ci - offset);
-      if (start > enrties.size()) {
-        LEPTON_CRITICAL("index, {}, is out of range [{}]", start, enrties.size());
+      if (start > log_slice.entries.size()) {
+        LEPTON_CRITICAL("index, {}, is out of range [{}]", start, log_slice.entries.size());
       }
-      auto sub_entries =
-          pb::repeated_entry(std::make_move_iterator(enrties.begin() + start), std::make_move_iterator(enrties.end()));
+      auto sub_entries = pb::repeated_entry(std::make_move_iterator(log_slice.entries.begin() + start),
+                                            std::make_move_iterator(log_slice.entries.end()));
       /*
       截断不影响 lastnewi 的语义：
 

@@ -3,14 +3,18 @@
 #include <absl/types/span.h>
 #include <raft.pb.h>
 
+#include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <utility>
 
 #include "error.h"
 #include "log.h"
 #include "protobuf.h"
+#include "spdlog/spdlog.h"
 #include "utility_macros.h"
 namespace lepton {
 // unstable.entries[i] has raft log position i+unstable.offset.
@@ -36,6 +40,10 @@ class unstable {
  public:
   unstable(std::uint64_t offset) : offset_(offset) {}
   unstable(pb::repeated_entry&& entries, std::uint64_t offset) : entries_(std::move(entries)), offset_(offset) {}
+  unstable(pb::repeated_entry&& entries, std::uint64_t offset, std::uint64_t offset_in_progress)
+      : entries_(std::move(entries)), offset_(offset), offset_in_progress_(offset_in_progress) {}
+  unstable(std::optional<raftpb::snapshot>&& s, bool snapshot_in_progress)
+      : snapshot_(std::move(s)), snapshot_in_progress_(snapshot_in_progress) {}
   unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries, std::uint64_t offset)
       : snapshot_(std::move(snapshot)), entries_(std::move(entries)), offset_(offset) {}
   unstable(unstable&& lhs) = default;
@@ -113,72 +121,130 @@ class unstable {
   // nextEntries returns the unstable entries that are not already in the process
   // of being written to storage.
   absl::Span<const raftpb::entry* const> next_entries() const {
-    // auto inProgress = 
     auto in_progress = static_cast<std::ptrdiff_t>(offset_in_progress_ - offset_);
-    if (in_progress == )
-    auto end = static_cast<std::ptrdiff_t>(offset_ + entries_.size() - offset_);
-    return absl::Span<const raftpb::entry* const>(entries_span().data() + in_progress, end);
+    if (entries_.size() == in_progress) {
+      return {};
+    }
+    return absl::MakeSpan(entries_.data() + in_progress,
+                          static_cast<std::size_t>(entries_.size()) - static_cast<std::size_t>(in_progress));
   }
 
-  // i: log index
-  // t: term
-  void stable_to(std::uint64_t i, std::uint64_t t) {
-    auto term_result = maybe_term(i);
+  // nextSnapshot returns the unstable snapshot, if one exists that is not already
+  // in the process of being written to storage.
+  std::optional<std::reference_wrapper<const raftpb::snapshot>> next_snapshot() const {
+    if (!snapshot_ || snapshot_in_progress_) {
+      return std::nullopt;
+    }
+    return std::cref(*snapshot_);
+  }
+
+  // acceptInProgress marks all entries and the snapshot, if any, in the unstable
+  // as having begun the process of being written to storage. The entries/snapshot
+  // will no longer be returned from nextEntries/nextSnapshot. However, new
+  // entries/snapshots added after a call to acceptInProgress will be returned
+  // from those methods, until the next call to acceptInProgress.
+  void accept_in_progress() {
+    if (entries_.size() > 0) {
+      // NOTE: +1 because offsetInProgress is exclusive, like offset.
+      offset_in_progress_ = entries_[entries_.size() - 1].index() + 1;
+    }
+    if (snapshot_) {
+      snapshot_in_progress_ = true;
+    }
+  }
+
+  // stableTo marks entries up to the entry with the specified (index, term) as
+  // being successfully written to stable storage.
+  //
+  // The method should only be called when the caller can attest that the entries
+  // can not be overwritten by an in-progress log append. See the related comment
+  // in newStorageAppendRespMsg.
+  void stable_to(const pb::entry_id& id) {
+    auto term_result = maybe_term(id.index);
     // 1. log index 可能已经被快照覆盖
     // 2. log index 可能已经无效
     if (!term_result) {
+      // Unstable entry missing. Ignore.
+      SPDLOG_INFO("entry at index {} missing from unstable log; ignoring", id.index);
       return;
     }
-    // 匹配到 log index 对应的日志
-    // if i < offset, term is matched with the snapshot
-    // only update the unstable entries if term is matched with
-    // an unstable entry.
-    if ((term_result.value() == t) && (i >= offset_)) {
-      auto index = static_cast<std::ptrdiff_t>(i + 1 - offset_);
-      if (entries_.begin() + index >= entries_.end()) {
-        entries_.Clear();
-      } else {
-        // 移动 i 之后的元素并重新赋值给 entries_
-        entries_ = pb::repeated_entry(std::make_move_iterator(entries_.begin() + index),
-                                      std::make_move_iterator(entries_.end()));
-      }
-      offset_ = i + 1;
+    if (id.index < offset_) {
+      // Index matched unstable snapshot, not unstable entry. Ignore.
+      SPDLOG_INFO("entry at index {} matched unstable snapshot; ignoring", id.index);
+      return;
     }
+    if (term_result.value() != id.term) {
+      // Term mismatch between unstable entry and specified entry. Ignore.
+      // This is possible if part or all of the unstable log was replaced
+      // between that time that a set of entries started to be written to
+      // stable storage and when they finished.
+      SPDLOG_INFO("entry at (index,term)=({},{}) mismatched with entry at ({},{}) in unstable log; ignoring", id.index,
+                  id.term, id.index, term_result.value());
+      return;
+    }
+
+    // 匹配到 log index 对应的日志
+    auto index = static_cast<std::ptrdiff_t>(id.index + 1 - offset_);
+    if (entries_.begin() + index >= entries_.end()) {
+      entries_.Clear();
+    } else {
+      // 移动 i 之后的元素并重新赋值给 entries_
+      entries_ = pb::repeated_entry(std::make_move_iterator(entries_.begin() + index),
+                                    std::make_move_iterator(entries_.end()));
+    }
+    offset_ = id.index + 1;
+    offset_in_progress_ = std::max(offset_in_progress_, offset_);
+    shrink_entries_array();
+  }
+
+  // shrinkEntriesArray discards the underlying array used by the entries slice
+  // if most of it isn't being used. This avoids holding references to a bunch of
+  // potentially large entries that aren't needed anymore. Simply clearing the
+  // entries wouldn't be safe because clients might still be using them.
+  void shrink_entries_array() {
+    // no need to do in cpp
   }
 
   void stable_snap_to(std::uint64_t i) {
     if ((has_snapshot()) && snapshot_->metadata().index() == i) {
       snapshot_.reset();
+      snapshot_in_progress_ = false;
     }
   }
 
   void restore(raftpb::snapshot&& snapshot) {
     offset_ = snapshot.metadata().index() + 1;
+    offset_in_progress_ = offset_;
     entries_.Clear();
     snapshot_ = std::move(snapshot);
+    snapshot_in_progress_ = false;
   }
 
   void truncate_and_append(pb::repeated_entry&& entry_list) {
     assert(!entry_list.empty());
-    auto after = entry_list[0].index();
-    if (after == (offset_ + static_cast<std::uint64_t>(entries_.size()))) {  // max after value
+    auto from_index = entry_list[0].index();
+    if (from_index == (offset_ + static_cast<std::uint64_t>(entries_.size()))) {  // max after value
       entries_.Add(std::make_move_iterator(entry_list.begin()), std::make_move_iterator(entry_list.end()));
-    } else if (after <= offset_) {  // min after value
-      SPDLOG_INFO("replace the unstable entries from index {}", after);
+    } else if (from_index <= offset_) {  // min after value
+      SPDLOG_INFO("replace the unstable entries from index {}", from_index);
       // The log is being truncated to before our current offset
       // portion, so set the offset and replace the entries
-      offset_ = after;
+      offset_ = from_index;
+      offset_in_progress_ = offset_;
       entries_ = std::move(entry_list);
     } else {  // after > u.offset && after < u.offset + uint64(len(u.entries))
       // truncate to after and copy to u.entries
       // then append
-      SPDLOG_INFO("truncate the unstable entries before index {}", after);
+      SPDLOG_INFO("truncate the unstable entries before index {}", from_index);
       auto start = static_cast<std::ptrdiff_t>(offset_ - offset_);
-      auto end = static_cast<std::ptrdiff_t>(after - offset_);
+      auto end = static_cast<std::ptrdiff_t>(from_index - offset_);
       // 截取 offset 到 after 之间的 entry
       entries_ = pb::repeated_entry(std::make_move_iterator(entries_.begin() + start),
                                     std::make_move_iterator(entries_.begin() + end));
       entries_.Add(std::make_move_iterator(entry_list.begin()), std::make_move_iterator(entry_list.end()));
+      // Only in-progress entries before fromIndex are still considered to be
+      // in-progress.
+      offset_in_progress_ = std::min(offset_in_progress_, from_index);
     }
   }
 
@@ -193,7 +259,7 @@ class unstable {
   // Raft 节点在日志持久化过程中能够准确地定位到这些日志条目的位置。offset
   // 使得在写入存储时，Raft
   // 能够知道从哪个位置开始写入，避免了重复写入或覆盖已存在的日志。
-  std::uint64_t offset_;
+  std::uint64_t offset_ = 0;
 
   // if true, snapshot is being written to storage.
   bool snapshot_in_progress_ = false;

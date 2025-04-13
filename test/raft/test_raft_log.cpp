@@ -21,6 +21,7 @@
 #include "raft_log.h"
 #include "raft_log_unstable.h"
 #include "test_raft_protobuf.h"
+#include "types.h"
 #include "utility_macros_test.h"
 using namespace lepton;
 
@@ -361,17 +362,19 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
     // run test
     lepton::pb::repeated_entry ents;
     ents.CopyFrom(iter_test.ents);
+    // TODO(pav-kv): for now, we pick a high enough app.term so that it
+    // represents a valid append message. The maybeAppend currently ignores it,
+    // but it must check that the append does not regress the term.
+    lepton::pb::entry_id id{iter_test.log_term, iter_test.index};
+    lepton::pb::log_slice app{100, id, std::move(iter_test.ents)};
     if (iter_test.expect_exception) {
-      EXPECT_DEATH(
-          raft_log->maybe_append(iter_test.index, iter_test.log_term, iter_test.committed, std::move(iter_test.ents)),
-          "");
+      EXPECT_DEATH(raft_log->maybe_append(std::move(app), iter_test.committed), "");
       continue;
     }
     auto has_called_error = false;
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<std::uint64_t> {
-          BOOST_LEAF_AUTO(v, raft_log->maybe_append(iter_test.index, iter_test.log_term, iter_test.committed,
-                                                    std::move(iter_test.ents)));
+          BOOST_LEAF_AUTO(v, raft_log->maybe_append(std::move(app), iter_test.committed));
           return v;
         },
         [&](const lepton::lepton_error &err) -> leaf::result<std::uint64_t> {
@@ -429,7 +432,7 @@ TEST_F(raft_log_test_suit, compaction_side_effects) {
     auto result = raft_log->term(i);
     ASSERT_TRUE(result.has_value());
     ASSERT_EQ(result.value(), term);
-    ASSERT_TRUE(raft_log->match_term(i, i));
+    ASSERT_TRUE(raft_log->match_term({i, i}));
   }
 
   auto ents = raft_log->unstable_entries();
@@ -538,7 +541,7 @@ TEST_F(raft_log_test_suit, unstable_ents) {
     }
     if (auto l = unstable_ents.size(); l > 0) {
       // 持久化后会清空 unstable entries；所以必须先对比才能stable
-      raft_log->stable_to(unstable_ents[l - 1]->index(), unstable_ents[l - 1]->term());
+      raft_log->stable_to({unstable_ents[l - 1]->term(), unstable_ents[l - 1]->index()});
     }
     auto w = previous_ents[previous_ents.size() - 1].index() + 1;
     ASSERT_EQ(w, raft_log->unstable_view().offset());
@@ -590,7 +593,7 @@ TEST_F(raft_log_test_suit, stable_to) {
     pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
     auto raft_log = new_raft_log(memory_storager_view);
     raft_log->append(create_entries({{1, 1}, {2, 2}}));
-    raft_log->stable_to(iter_test.stablei, iter_test.stablet);
+    raft_log->stable_to({iter_test.stablet, iter_test.stablei});
     ASSERT_EQ(raft_log->unstable_view().offset(), iter_test.wunstable);
   }
 }
@@ -637,7 +640,7 @@ TEST_F(raft_log_test_suit, stable_to_with_snapshot) {
     auto raft_log = new_raft_log(memory_storager_view);
     raft_log->append(std::move(iter_test.newEnts));
 
-    raft_log->stable_to(iter_test.stablei, iter_test.stablet);
+    raft_log->stable_to({iter_test.stablet, iter_test.stablei});
     ASSERT_EQ(raft_log->unstable_view().offset(), iter_test.wunstable);
   }
 }

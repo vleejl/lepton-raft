@@ -9,9 +9,11 @@
 #include <utility>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "protobuf.h"
 #include "raft_log_unstable.h"
 #include "test_raft_protobuf.h"
+#include "types.h"
 #include "utility_macros_test.h"
 using namespace lepton;
 
@@ -262,6 +264,83 @@ TEST_F(unstable_test_suit, restore) {
   ASSERT_EQ(u.snapshot_view().SerializeAsString(), s->SerializeAsString());
 }
 
+TEST_F(unstable_test_suit, next_entries) {
+  struct test_case {
+    lepton::pb::repeated_entry entries;
+    std::uint64_t offset;
+    std::uint64_t offset_in_progress;
+
+    lepton::pb::repeated_entry wentries;
+  };
+  std::vector<test_case> tests{
+      // nothing in progress
+      {create_entries(5, {1, 1}), 5, 5, create_entries(5, {1, 1})},
+      // partially in progress
+      {create_entries(5, {1, 1}), 5, 6, create_entries(6, {1})},
+      // everything in progress
+      {create_entries(5, {1, 1}), 5, 7, {}},
+  };
+  for (auto &iter : tests) {
+    unstable u{std::move(iter.entries), iter.offset, iter.offset_in_progress};
+    auto entries = u.next_entries();
+    if (entries != absl::MakeSpan(iter.wentries)) {
+      ASSERT_EQ(entries, absl::MakeSpan(iter.wentries));
+    }
+  }
+}
+
+TEST_F(unstable_test_suit, next_snapshot) {
+  auto s = create_snapshot(4, 1);
+  struct test_case {
+    std::optional<raftpb::snapshot> snapshot;
+    bool snapshot_in_progress;
+
+    std::optional<raftpb::snapshot> wsnapshot;
+  };
+  std::vector<test_case> tests{
+      // snapshot not unstable
+      {std::nullopt, false, std::nullopt},
+      {std::nullopt, true, std::nullopt},
+      // snapshot not in progress
+      {s, false, s},
+      // snapshot in progress
+      {s, true, std::nullopt},
+  };
+  for (auto &iter : tests) {
+    unstable u{std::move(iter.snapshot), iter.snapshot_in_progress};
+    auto res = u.next_snapshot();
+    if (!res) {
+      ASSERT_FALSE(iter.wsnapshot);
+    } else {
+      ASSERT_EQ(res->get().SerializeAsString(), iter.wsnapshot->SerializeAsString());
+    }
+  }
+}
+
+TEST_F(unstable_test_suit, accept_in_progress) {
+  struct test_case {
+    lepton::pb::repeated_entry entries;
+    std::optional<raftpb::snapshot> snapshot;
+    std::uint64_t offset_in_progress;
+    bool snapshot_in_progress;
+
+    std::uint64_t woffset_in_progress;
+    bool wsnapshot_in_progress;
+  };
+  std::vector<test_case> tests{
+      // nothing in progress
+      {create_entries(5, {1, 1}), std::nullopt, 5, false, 5, false},
+      // partially in progress
+      {create_entries(5, {1, 1}), std::nullopt, 5, true, 5, true},
+      // everything in progress
+      {create_entries(5, {1, 1}), std::nullopt, 6, true, 6, true},
+      // snapshot not in progress
+      {create_entries(5, {1, 1}), create_snapshot(4, 1), 5, false, 5, false},
+      // snapshot in progress
+      {create_entries(5, {1, 1}), create_snapshot(4, 1), 6, true, 6, true},
+  };
+}
+
 TEST_F(unstable_test_suit, stable_snap_to) {
   std::vector<std::tuple<std::vector<std::tuple<uint64_t, uint64_t>>,    // entries
                          uint64_t,                                       // offset
@@ -373,7 +452,7 @@ TEST_F(unstable_test_suit, stable_snap_to) {
                 }};
   for (const auto &[entrie_params, offset, snapshot_params, index, term, woffset, wlen] : params) {
     auto u = create_unstable(entrie_params, offset, snapshot_params);
-    u.stable_to(index, term);
+    u.stable_to({term, index});
     if (u.offset() != woffset) {
       ASSERT_EQ(u.offset(), offset);
     }

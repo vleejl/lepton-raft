@@ -3,14 +3,12 @@
 #include <raft.pb.h>
 
 #include <cstdint>
-#include <memory>
+
+#include "types.h"
 namespace lepton {
 namespace pb {
-using entry_encoding_size = std::uint64_t;
-using snapshot_ptr = std::unique_ptr<raftpb::snapshot>;
-using entry_ptr = std::unique_ptr<raftpb::entry>;
-using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::entry>;
-using repeated_message = google::protobuf::RepeatedPtrField<raftpb::message>;
+
+entry_id pb_entry_id(const raftpb::entry* const entry_ptr);
 
 bool is_empty_snap(const raftpb::snapshot& snap);
 

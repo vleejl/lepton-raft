@@ -37,7 +37,7 @@ class raft_log {
 
   auto applied() const { return applied_; }
 
-  void stable_to(std::uint64_t i, std::uint64_t t) { unstable_.stable_to(i, t); }
+  void stable_to(const pb::entry_id& id) { unstable_.stable_to(id); }
 
   void stable_snap_to(std::uint64_t i) { unstable_.stable_snap_to(i); }
 
@@ -45,7 +45,7 @@ class raft_log {
 
   std::uint64_t last_term();
 
-  bool match_term(std::uint64_t i, std::uint64_t term);
+  bool match_term(const pb::entry_id& id);
 
   // isUpToDate determines if the given (lastIndex,term) log is more up-to-date
   // by comparing the index and term of the last entries in the existing logs.
@@ -137,8 +137,7 @@ class raft_log {
 
   // maybeAppend returns (0, false) if the entries cannot be appended.
   // Otherwise, it returns (last index of new entries, true).
-  leaf::result<std::uint64_t> maybe_append(std::uint64_t index, std::uint64_t log_term, std::uint64_t committed,
-                                           pb::repeated_entry&& enrties);
+  leaf::result<std::uint64_t> maybe_append(pb::log_slice&& log_slice, std::uint64_t committed);
 
  private:
   // storage contains all stable entries since the last snapshot.

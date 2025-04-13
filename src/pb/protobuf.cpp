@@ -12,6 +12,10 @@ static raftpb::hard_state EMPTY_STATE;
 namespace lepton {
 
 namespace pb {
+entry_id pb_entry_id(const raftpb::entry* const entry_ptr) {
+  assert(entry_ptr != nullptr);
+  return {entry_ptr->term(), entry_ptr->index()};
+}
 bool is_empty_snap(const raftpb::snapshot& snap) {
   if (!snap.has_metadata()) {
     return false;
