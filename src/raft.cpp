@@ -939,7 +939,31 @@ bool raft::has_unapplied_conf_change() const {
   // via the Ready struct for application.
   // TODO(pavelkalinnikov): find a way to budget memory/bandwidth for this scan
   // outside the raft package.
-  // raft_log_handle_
+  auto page_size = raft_log_handle_.max_applying_ents_size();
+  auto result = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(
+            raft_log_handle_.scan(lo, hi, page_size, [&](const pb::repeated_entry& entries) -> leaf::result<void> {
+              for (auto& iter : entries) {
+                if (iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE ||
+                    iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE_V2) {
+                  found = true;
+                  return new_error(logic_error::LOOP_BREAK);
+                }
+              }
+              return {};
+            }));
+        return {};
+      },
+      [&](const lepton::lepton_error& err) -> leaf::result<void> {
+        if (err == logic_error::LOOP_BREAK) {
+          return {};
+        }
+        panic(fmt::format("error scanning unapplied entries [{}, {}): {}", lo, hi, err.message));
+        return new_error(err);
+      });
+  assert(!result);
+  return found;
 }
 
 void raft::handle_append_entries(raftpb::message&& message) {

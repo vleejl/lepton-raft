@@ -42,6 +42,12 @@ class unstable {
   unstable(pb::repeated_entry&& entries, std::uint64_t offset) : entries_(std::move(entries)), offset_(offset) {}
   unstable(pb::repeated_entry&& entries, std::uint64_t offset, std::uint64_t offset_in_progress)
       : entries_(std::move(entries)), offset_(offset), offset_in_progress_(offset_in_progress) {}
+  unstable(pb::repeated_entry&& entries, std::optional<raftpb::snapshot>&& s, std::uint64_t offset_in_progress,
+           bool snapshot_in_progress)
+      : snapshot_(std::move(s)),
+        entries_(std::move(entries)),
+        snapshot_in_progress_(snapshot_in_progress),
+        offset_in_progress_(offset_in_progress) {}
   unstable(std::optional<raftpb::snapshot>&& s, bool snapshot_in_progress)
       : snapshot_(std::move(s)), snapshot_in_progress_(snapshot_in_progress) {}
   unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries, std::uint64_t offset)
@@ -66,6 +72,10 @@ class unstable {
   }
 
   std::uint64_t offset() const { return offset_; }
+
+  auto offset_in_progress() const { return offset_in_progress_; }
+
+  auto snapshot_in_progress() const { return snapshot_in_progress_; }
 
   bool has_snapshot() const { return snapshot_.has_value(); }
 

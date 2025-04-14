@@ -173,11 +173,9 @@ void raft_log::restore(raftpb::snapshot&& snapshot) {
   unstable_.restore(std::move(snapshot));
 }
 
-leaf::result<void> raft_log::scan(
-    std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
-    const std::function<leaf::result<void>(const pb::repeated_entry& entries)>& callback) {
+leaf::result<void> raft_log::scan(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
+                                  std::function<leaf::result<void>(const pb::repeated_entry& entries)> callback) const {
   while (lo < hi) {
-    slice(lo, hi, page_size);
     BOOST_LEAF_AUTO(v, slice(lo, hi, page_size));
     if (v.empty()) {
       return new_error(logic_error::EMPTY_ARRAY);
@@ -185,6 +183,7 @@ leaf::result<void> raft_log::scan(
     BOOST_LEAF_CHECK(callback(v));
     lo += static_cast<std::uint64_t>(v.size());
   }
+  return {};
 }
 
 std::uint64_t raft_log::find_conflict(absl::Span<const raftpb::entry* const> entries) {
@@ -234,7 +233,7 @@ leaf::result<pb::repeated_entry> raft_log::next_committed_ents(bool allow_unstab
   // auto hi = max_app
 }
 
-leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) {
+leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const {
   if (lo > hi) {
     LEPTON_CRITICAL("invalid slice {} > {}", lo, hi);
   }
@@ -251,7 +250,7 @@ leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo, std::uin
   return {};
 }
 
-leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) {
+leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const {
   BOOST_LEAF_CHECK(must_check_out_of_bounds(lo, hi));
   if (lo == hi) {
     return {};

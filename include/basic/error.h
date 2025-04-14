@@ -46,6 +46,7 @@ enum class logic_error {
   KEY_NOT_FOUND,
   INVALID_PARAM,
   EMPTY_ARRAY,
+  LOOP_BREAK,  // 特殊错误码, errBreak is a sentinel error used to break a callback-based loop.
   PROPOSAL_DROPPED,
 };
 

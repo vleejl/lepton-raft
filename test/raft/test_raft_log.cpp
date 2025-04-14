@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include <raft.pb.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -929,4 +930,94 @@ TEST_F(raft_log_test_suit, slice) {
       ASSERT_TRUE(iter_test.w.empty());
     }
   }
+}
+
+TEST_F(raft_log_test_suit, scan) {
+  std::uint64_t offset = 47;
+  std::uint64_t num = 20;
+  auto last = offset + num;
+  auto half = offset + num / 2;
+  auto entries_func = [](std::uint64_t from, std::uint64_t to) -> lepton::pb::repeated_entry {
+    return create_entries_with_term_range(from, from, to);
+  };
+  auto entry_size = lepton::pb::ent_size(entries_func(half, half + 1));
+
+  lepton::memory_storage mm_storage;
+  ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(offset, 0)));
+  ASSERT_TRUE(mm_storage.append(entries_func(offset + 1, half)));
+  pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
+  auto raft_log = new_raft_log(memory_storager_view);
+  raft_log->append(entries_func(half, last));
+
+  // Test that scan() returns the same entries as slice(), on all inputs.
+  std::vector<lepton::pb::entry_encoding_size> page_size_list{0, 1, 10, 100, entry_size, entry_size + 1};
+  for (const auto page_size : page_size_list) {
+    for (auto lo = offset + 1; lo < last; lo++) {
+      for (auto hi = lo; hi <= last; hi++) {
+        lepton::pb::repeated_entry got;
+        raft_log->scan(lo, hi, page_size, [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
+          got.Add(entries.begin(), entries.end());
+          auto result = ((entries.size() == 1) || (lepton::pb::ent_size(entries) <= page_size));
+          assert(result);
+          return {};
+        });
+
+        auto want = raft_log->slice(lo, hi, NO_LIMIT);
+        ASSERT_TRUE(want.has_value());
+        if (want.value() != got) {
+          ASSERT_TRUE(false);
+        }
+      }
+    }
+  }
+
+  // Test that the callback error is propagated to the caller.
+  auto has_occured_error = false;
+  auto iters = 0;
+  auto result = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(
+            raft_log->scan(offset + 1, half, 0, [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
+              iters++;
+              if (iters == 2) {
+                return new_error(logic_error::LOOP_BREAK);
+              }
+              return {};
+            }));
+        return {};
+      },
+      [&](const lepton::lepton_error &err) -> leaf::result<void> {
+        has_occured_error = true;
+        if (err == logic_error::LOOP_BREAK) {
+          return {};
+        }
+        panic(fmt::format("error scanning unapplied entries "));
+        return new_error(err);
+      });
+  ASSERT_EQ(iters, 2);
+  ASSERT_TRUE(result);
+  ASSERT_TRUE(has_occured_error);
+
+  // Test that we max out the limit, and not just always return a single entry.
+  // NB: this test works only because the requested range length is even.
+  has_occured_error = false;
+  result = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(raft_log->scan(offset + 1, offset + 11, entry_size * 2,
+                                        [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
+                                          assert(entries.size() == 2);
+                                          assert(lepton::pb::ent_size(entries) == entry_size * 2);
+                                          return {};
+                                        }));
+        return {};
+      },
+      [&](const lepton::lepton_error &err) -> leaf::result<void> {
+        has_occured_error = true;
+        if (err == logic_error::LOOP_BREAK) {
+          return {};
+        }
+        panic(fmt::format("error scanning unapplied entries "));
+        return new_error(err);
+      });
+  ASSERT_TRUE(result);
 }

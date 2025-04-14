@@ -12,10 +12,19 @@ static raftpb::hard_state EMPTY_STATE;
 namespace lepton {
 
 namespace pb {
+entry_encoding_size ent_size(const repeated_entry& entries) {
+  entry_encoding_size size = 0;
+  for (const auto& entry : entries) {
+    size += entry.ByteSizeLong();
+  }
+  return size;
+}
+
 entry_id pb_entry_id(const raftpb::entry* const entry_ptr) {
   assert(entry_ptr != nullptr);
   return {entry_ptr->term(), entry_ptr->index()};
 }
+
 bool is_empty_snap(const raftpb::snapshot& snap) {
   if (!snap.has_metadata()) {
     return false;

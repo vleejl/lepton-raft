@@ -328,17 +328,134 @@ TEST_F(unstable_test_suit, accept_in_progress) {
     bool wsnapshot_in_progress;
   };
   std::vector<test_case> tests{
-      // nothing in progress
-      {create_entries(5, {1, 1}), std::nullopt, 5, false, 5, false},
-      // partially in progress
-      {create_entries(5, {1, 1}), std::nullopt, 5, true, 5, true},
-      // everything in progress
-      {create_entries(5, {1, 1}), std::nullopt, 6, true, 6, true},
-      // snapshot not in progress
-      {create_entries(5, {1, 1}), create_snapshot(4, 1), 5, false, 5, false},
-      // snapshot in progress
-      {create_entries(5, {1, 1}), create_snapshot(4, 1), 6, true, 6, true},
+      {
+          {},
+          std::nullopt,
+          5,      // no entries
+          false,  // snapshot not already in progress
+          5,
+          false,
+      },
+      {
+          create_entries(5, {1}),
+          std::nullopt,
+          5,      // entries not in progress
+          false,  // snapshot not already in progress
+          6,
+          false,
+      },
+      {
+          create_entries(5, {1, 1}),
+          std::nullopt,
+          5,      // entries not in progress
+          false,  // snapshot not already in progress
+          7,
+          false,
+      },
+      {
+          create_entries(5, {1, 1}),
+          std::nullopt,
+          6,      //  in-progress to the second entry
+          false,  // snapshot not already in progress
+          7,
+          false,
+      },
+      {
+          create_entries(5, {1, 1}),
+          std::nullopt,
+          7,      // in-progress to the second entry
+          false,  // snapshot not already in progress
+          7,
+          false,
+      },
+      // with snapshot
+      {
+          {},
+          create_snapshot(4, 1),
+          5,      // no entries
+          false,  // snapshot not already in progress
+          5,
+          true,
+      },
+      {
+          create_entries(5, {1}),
+          create_snapshot(4, 1),
+          5,      // entries not in progress
+          false,  // snapshot not already in progress
+          6,
+          true,
+      },
+      {
+          create_entries(5, {1, 1}),
+          create_snapshot(4, 1),
+          5,      // entries not in progress
+          false,  // snapshot not already in progress
+          7,
+          true,
+      },
+      {
+          create_entries(5, {1, 1}),
+          create_snapshot(4, 1),
+          6,      // in-progress to the first entry
+          false,  // snapshot not already in progress
+          7,
+          true,
+      },
+      {
+          create_entries(5, {1, 1}),
+          create_snapshot(4, 1),
+          7,      // in-progress to the second entry
+          false,  // snapshot not already in progress
+          7,
+          true,
+      },
+      {
+          {},
+          create_snapshot(4, 1),
+          5,     // entries not in progress
+          true,  // snapshot already in progress
+          5,
+          true,
+      },
+      {
+          create_entries(5, {1}),
+          create_snapshot(4, 1),
+          5,     // entries not in progress
+          true,  // snapshot already in progress
+          6,
+          true,
+      },
+      {
+          create_entries(5, {1, 1}),
+          create_snapshot(4, 1),
+          5,     // entries not in progress
+          true,  // snapshot already in progress
+          7,
+          true,
+      },
+      {
+          create_entries(5, {1, 1}),
+          create_snapshot(4, 1),
+          6,     // in-progress to the first entry
+          true,  // snapshot not already in progress
+          7,
+          true,
+      },
+      {
+          create_entries(5, {1, 1}),
+          create_snapshot(4, 1),
+          7,     // in-progress to the second entry
+          true,  // snapshot not already in progress
+          7,
+          true,
+      },
   };
+  for (auto &iter : tests) {
+    unstable u{std::move(iter.entries), std::move(iter.snapshot), iter.offset_in_progress, iter.snapshot_in_progress};
+    u.accept_in_progress();
+    ASSERT_EQ(u.offset_in_progress(), iter.woffset_in_progress);
+    ASSERT_EQ(u.snapshot_in_progress(), iter.wsnapshot_in_progress);
+  }
 }
 
 TEST_F(unstable_test_suit, stable_snap_to) {

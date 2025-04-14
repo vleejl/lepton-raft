@@ -25,6 +25,17 @@ lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::
   return entries;
 }
 
+lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from, std::uint64_t term_to) {
+  lepton::pb::repeated_entry entries;
+  for (auto term = term_from; term < term_to; ++term) {
+    auto entry = entries.Add();
+    entry->set_index(index);
+    entry->set_term(term);
+    ++index;
+  }
+  return entries;
+}
+
 lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params) {
   lepton::pb::repeated_entry entries;
   for (const auto &[index, term] : entrie_params) {

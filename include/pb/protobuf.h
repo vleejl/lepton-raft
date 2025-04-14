@@ -8,6 +8,8 @@
 namespace lepton {
 namespace pb {
 
+entry_encoding_size ent_size(const repeated_entry& entries);
+
 entry_id pb_entry_id(const raftpb::entry* const entry_ptr);
 
 bool is_empty_snap(const raftpb::snapshot& snap);

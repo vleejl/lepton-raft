@@ -37,6 +37,8 @@ class raft_log {
 
   auto applied() const { return applied_; }
 
+  auto max_applying_ents_size() const { return max_applying_ents_size_; }
+
   void stable_to(const pb::entry_id& id) { unstable_.stable_to(id); }
 
   void stable_snap_to(std::uint64_t i) { unstable_.stable_snap_to(i); }
@@ -72,7 +74,7 @@ class raft_log {
   // If the callback returns an error, scan terminates and returns this error
   // immediately. This can be used to stop the scan early ("break" the loop).
   leaf::result<void> scan(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
-                          const std::function<leaf::result<void>(const pb::repeated_entry& entries)>& callback);
+                          std::function<leaf::result<void>(const pb::repeated_entry& entries)> callback) const;
 
   // findConflict finds the index of the conflict.
   // It returns the first pair of conflicting entries between the existing
@@ -109,9 +111,9 @@ class raft_log {
   leaf::result<pb::repeated_entry> next_committed_ents(bool allow_unstable);
 
   // l.firstIndex <= lo <= hi <= l.firstIndex + len(l.entries)
-  leaf::result<void> must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi);
+  leaf::result<void> must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const;
 
-  leaf::result<pb::repeated_entry> slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size);
+  leaf::result<pb::repeated_entry> slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const;
 
   // nextEnts returns all the available entries for execution.
   // If applied is smaller than the index of snapshot, it returns all committed
