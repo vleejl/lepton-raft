@@ -20,6 +20,7 @@
 #include "state.h"
 #include "state_trace.h"
 #include "status.h"
+#include "types.h"
 
 namespace lepton {
 leaf::result<raft> new_raft(const config& c) {
@@ -912,7 +913,7 @@ void raft::hup(campaign_type t) {
     return;
   }
 
-  if (promotable()) {
+  if (!promotable()) {
     SPDLOG_WARN("{} is unpromotable and can not campaign", id_);
     return;
   }
@@ -967,7 +968,57 @@ bool raft::has_unapplied_conf_change() const {
 }
 
 void raft::handle_append_entries(raftpb::message&& message) {
-  // TODO
+  // TODO(pav-kv): construct logSlice up the stack next to receiving the
+  // message, and validate it before taking any action (e.g. bumping term).
+  pb::log_slice log_slice{message.term(), {message.log_term(), message.index()}, std::move(*message.mutable_entries())};
+
+  raftpb::message resp_msg;
+  resp_msg.set_to(message.from());
+  resp_msg.set_type(raftpb::message_type::MSG_APP_RESP);
+  // 若 Leader 的前一条日志索引 a.prev.index 小于本地已提交的索引 r.raftLog.committed
+  if (log_slice.prev.index < raft_log_handle_.committed()) {
+    resp_msg.set_index(raft_log_handle_.committed());
+    send(std::move(resp_msg));
+    return;
+  }
+
+  // 尝试本地追加日志
+  if (auto m_last_index = raft_log_handle_.maybe_append(std::move(log_slice), raft_log_handle_.committed());
+      m_last_index) {  // 本地追加日志成功： 返回最新日志索引 mlastIndex，发送 MsgAppResp 确认。
+    resp_msg.set_index(m_last_index.value());
+    send(std::move(resp_msg));
+    return;
+  }
+
+  // 本地追加日志失败：则发送拒绝消息
+  SPDLOG_DEBUG("{} [logterm: {}, index: {}] rejected MsgApp [logterm: {}, index: {}] from {}", id_,
+               raft_log_handle_.zero_term_on_err_compacted(message.index()), message.index(), message.log_term(),
+               message.index(), message.from());
+
+  // Our log does not match the leader's at index m.Index. Return a hint to the
+  // leader - a guess on the maximal (index, term) at which the logs match. Do
+  // this by searching through the follower's log for the maximum (index, term)
+  // pair with a term <= the MsgApp's LogTerm and an index <= the MsgApp's
+  // Index. This can help skip all indexes in the follower's uncommitted tail
+  // with terms greater than the MsgApp's LogTerm.
+  //
+  // See the other caller for findConflictByTerm (in stepLeader) for a much more
+  // detailed explanation of this mechanism.
+
+  // NB: m.Index >= raftLog.committed by now (see the early return above), and
+  // raftLog.lastIndex() >= raftLog.committed by invariant, so min of the two is
+  // also >= raftLog.committed. Hence, the findConflictByTerm argument is within
+  // the valid interval, which then will return a valid (index, term) pair with
+  // a non-zero term (unless the log is empty). However, it is safe to send a zero
+  // LogTerm in this response in any case, so we don't verify it here.
+  auto result = raft_log_handle_.find_conflict_by_term(std::min(message.index(), raft_log_handle_.last_index()),
+                                                       message.log_term());
+  auto [hint_index, hint_term] = result;
+  resp_msg.set_index(message.index());
+  resp_msg.set_reject(true);
+  resp_msg.set_reject_hint(hint_index);
+  resp_msg.set_term(hint_term);
+  send(std::move(resp_msg));
 }
 
 void raft::handle_heartbeat(raftpb::message&& message) {
