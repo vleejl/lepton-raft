@@ -9,6 +9,7 @@
 #include "config.h"
 #include "error.h"
 #include "leaf.hpp"
+#include "log.h"
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "spdlog/spdlog.h"
@@ -27,337 +28,6 @@ raft_log::raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset
 std::string raft_log::string() {
   return fmt::format("committed={}, applied={}, applying={}, unstable.offset={}, len(unstable.Entries)={}", committed_,
                      applied_, applying_, unstable_.offset(), unstable_.entries_view().size());
-}
-
-std::uint64_t raft_log::first_index() const {
-  if (auto result = unstable_.maybe_first_index(); result.has_value()) {
-    return result.value();
-  }
-
-  if (auto index = storage_->first_index(); index.has_value()) {
-    return index.value();
-  }
-  panic("unreachable case");  // TODO(bdarnell)
-  return 0;
-}
-
-std::uint64_t raft_log::last_index() const {
-  if (auto result = unstable_.maybe_last_index(); result.has_value()) {
-    return result.value();
-  }
-
-  if (auto index = storage_->last_index(); index.has_value()) {
-    return index.value();
-  } else {
-    panic("unreachable case");  // TODO(bdarnell)
-    return 0;
-  }
-}
-
-void raft_log::commit_to(std::uint64_t tocommit) {
-  // never decrease commit
-  if (committed_ < tocommit) {
-    if (last_index() < tocommit) {
-      LEPTON_CRITICAL(
-          "tocommit({}) is out of range [lastIndex({})]. Was the raft log "
-          "corrupted, truncated, or lost?",
-          tocommit, last_index());
-    }
-    committed_ = tocommit;
-  }
-}
-
-void raft_log::applied_to(std::uint64_t i) {
-  if (i == 0) {
-    return;
-  }
-  if (committed_ < i || i < applied_) {
-    LEPTON_CRITICAL("applied({}) is out of range [prevApplied({}), committed({})]", i, applied_, committed_);
-  }
-  applied_ = i;
-}
-
-leaf::result<std::uint64_t> raft_log::term(std::uint64_t i) const {
-  // the valid term range is [index of dummy entry, last index]
-  auto first_idx = first_index();
-  assert(first_idx > 0);
-  auto dummy_index = first_idx - 1;
-  auto last_idx = last_index();
-  if (i < dummy_index || i > last_idx) {
-    // TODO: return an error instead?
-    return 0;
-  }
-
-  if (auto t = unstable_.maybe_term(i); t.has_value()) {
-    return t.value();
-  }
-  leaf::result<std::uint64_t> r = leaf::try_handle_some(
-      [&]() -> leaf::result<std::uint64_t> {
-        BOOST_LEAF_AUTO(v, storage_->term(i));
-        return v;
-      },
-      [](const lepton_error& e) -> leaf::result<std::uint64_t> {
-        if (e.err_code == storage_error::COMPACTED || e.err_code == storage_error::UNAVAILABLE) {
-          return new_error(e);
-        }
-        panic(e.message);
-        return new_error(e);
-      });
-  return r;
-}
-
-std::uint64_t raft_log::last_term() {
-  leaf::result<std::uint64_t> r = leaf::try_handle_some(
-      [&]() -> leaf::result<std::uint64_t> {
-        BOOST_LEAF_AUTO(v, term(last_index()));
-        return v;
-      },
-      [](const lepton_error& e) -> leaf::result<std::uint64_t> {
-        LEPTON_CRITICAL("unexpected error when getting the last term ({})", e.message);
-        return new_error(e);
-      });
-  assert(!r.has_error());
-  return r.value();
-}
-
-bool raft_log::match_term(const pb::entry_id& id) {
-  auto result = term(id.index);
-  if (result.has_error()) {
-    return false;
-  }
-  return result.value() == id.term;
-}
-
-bool raft_log::is_up_to_date(std::uint64_t lasti, std::uint64_t term) {
-  auto curr_last_term = last_term();
-  if (term > curr_last_term) {
-    return true;
-  }
-  if (term == curr_last_term && lasti >= last_index()) {
-    return true;
-  }
-  return false;
-}
-
-std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
-  leaf::result<std::uint64_t> r = leaf::try_handle_some(
-      [&]() -> leaf::result<std::uint64_t> {
-        BOOST_LEAF_AUTO(v, term(i));
-        return v;
-      },
-      [](const lepton_error& e) -> leaf::result<std::uint64_t> {
-        if (e.err_code == storage_error::COMPACTED) {
-          return 0;
-        }
-        if (e.err_code == storage_error::UNAVAILABLE) {
-          return 0;
-        }
-        panic(fmt::format("unexpected error {}", e.message));
-      });
-  assert(!r.has_error());
-  return r.value();
-}
-
-bool raft_log::maybe_commit(std::uint64_t max_index, std::uint64_t term) {
-  if (max_index > committed_ && zero_term_on_err_compacted(max_index) == term) {
-    commit_to(max_index);
-    return true;
-  }
-  return false;
-}
-
-void raft_log::restore(raftpb::snapshot&& snapshot) {
-  SPDLOG_INFO("log [%s] starts to restore snapshot [index: {}, term: {}]", string(), snapshot.metadata().index(),
-              snapshot.metadata().term());
-  committed_ = snapshot.metadata().index();
-  unstable_.restore(std::move(snapshot));
-}
-
-leaf::result<void> raft_log::scan(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
-                                  std::function<leaf::result<void>(const pb::repeated_entry& entries)> callback) const {
-  while (lo < hi) {
-    BOOST_LEAF_AUTO(v, slice(lo, hi, page_size));
-    if (v.empty()) {
-      return new_error(logic_error::EMPTY_ARRAY);
-    }
-    BOOST_LEAF_CHECK(callback(v));
-    lo += static_cast<std::uint64_t>(v.size());
-  }
-  return {};
-}
-
-std::uint64_t raft_log::find_conflict(absl::Span<const raftpb::entry* const> entries) {
-  for (const auto& entry : entries) {
-    if (!match_term(pb::pb_entry_id(entry))) {
-      if (entry->index() <= last_index()) {
-        SPDLOG_INFO(
-            "found conflict at index {} [existing term: {}, conflicting term: "
-            "{}]",
-            entry->index(), zero_term_on_err_compacted(entry->index()), entry->term());
-      }
-      return entry->index();
-    }
-  }
-  return 0;
-}
-
-std::tuple<std::uint64_t, std::uint64_t> raft_log::find_conflict_by_term(std::uint64_t index, std::uint64_t term) {
-  for (; index > 0; index--) {
-    auto our_term = this->term(index);
-    if (our_term.has_error()) {
-      return {index, 0};
-    }
-    if (our_term.value() <= term) {
-      return {index, our_term.value()};
-    }
-  }
-  return {0, 0};
-}
-
-absl::Span<const raftpb::entry* const> raft_log::unstable_entries() const {
-  if (unstable_.entries_view().empty()) {
-    return {};
-  }
-  return unstable_.entries_span();
-}
-
-leaf::result<pb::repeated_entry> raft_log::next_committed_ents(bool allow_unstable) {
-  if (applying_ents_paused_) {
-    return {};
-  }
-  if (has_next_or_in_progress_snapshot()) {
-    // See comment in hasNextCommittedEnts.
-    return {};
-  }
-  auto lo = applying_ + 1;
-  // auto hi = max_app
-}
-
-leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const {
-  if (lo > hi) {
-    LEPTON_CRITICAL("invalid slice {} > {}", lo, hi);
-  }
-  auto fi = first_index();
-  if (lo < fi) {
-    return new_error(storage_error::COMPACTED);
-  }
-
-  auto li = last_index();
-  auto length = li + 1 - fi;
-  if (hi > length + fi) {
-    LEPTON_CRITICAL("slice[{},{}] out of bounds [{},{}]", lo, hi, fi, li);
-  }
-  return {};
-}
-
-leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const {
-  BOOST_LEAF_CHECK(must_check_out_of_bounds(lo, hi));
-  if (lo == hi) {
-    return {};
-  }
-  const auto unstable_offset = unstable_.offset();
-  pb::repeated_entry ents;
-  if (lo < unstable_offset) {
-    auto storage_entries = leaf::try_handle_some(
-        [&]() -> leaf::result<pb::repeated_entry> {
-          BOOST_LEAF_AUTO(v, storage_->entries(lo, std::min(hi, unstable_offset), max_size););
-          return std::move(v);
-        },
-        [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
-          if (e.err_code.category() == storage_error_category()) {
-            if (e.err_code == storage_error::COMPACTED) {
-              return new_error(e);
-            }
-            if (e.err_code == storage_error::UNAVAILABLE) {
-              LEPTON_CRITICAL("entries:[{},{}] is unavaliable from storage", lo, std::min(hi, unstable_offset));
-            }
-          }
-          panic(e.message);
-          return new_error(e);
-        });
-    if (storage_entries.has_error()) {
-      return storage_entries;
-    }
-    // check if ents has reached the size limitation
-    if (auto size = storage_entries->size(); size < std::min(hi, unstable_offset) - lo) {
-      return storage_entries;
-    }
-    ents = std::move(storage_entries.value());
-  }
-  if (hi > unstable_offset) {
-    auto unstable = unstable_.entries_span(std::max(lo, unstable_offset), hi);
-    for (const auto& entry : unstable) {
-      ents.Add()->CopyFrom(*entry);
-    }
-  }
-  return pb::limit_entry_size(ents, max_size);
-}
-
-pb::repeated_entry raft_log::next_ents() {
-  auto off = std::max(applied_ + 1, first_index());
-  if (committed_ + 1 > off) {
-    auto entries = leaf::try_handle_some(
-        [&]() -> leaf::result<pb::repeated_entry> {
-          BOOST_LEAF_AUTO(v, slice(off, committed_ + 1, max_applying_ents_size_));
-          return v;
-        },
-        [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
-          panic(e.message);
-          return new_error(e);
-        });
-    assert(entries.has_value());
-    return entries.value();
-  }
-  return {};
-}
-
-bool raft_log::has_next_ents() const {
-  auto off = std::max(applied_ + 1, first_index());
-  return committed_ + 1 > off;
-}
-
-leaf::result<pb::repeated_entry> raft_log::entries(std::uint64_t i, std::uint64_t max_size) {
-  if (i > last_index()) {
-    return {};
-  }
-  return slice(i, last_index() + 1, max_size);
-}
-
-pb::repeated_entry raft_log::all_entries() {
-  auto ents = leaf::try_handle_some(
-      [&]() -> leaf::result<pb::repeated_entry> {
-        BOOST_LEAF_AUTO(v, entries(first_index(), NO_LIMIT));
-        return v;
-      },
-      [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
-        // try again if there was a racing compaction
-        if (e.err_code == storage_error::COMPACTED) {
-          return all_entries();
-        }
-        panic(e.message);
-      });
-  assert(ents.has_value());
-  return ents.value();
-}
-
-leaf::result<raftpb::snapshot> raft_log::snapshot() const {
-  if (unstable_.has_snapshot()) {
-    const auto& v = unstable_.snapshot_view();
-    return raftpb::snapshot{v};
-  }
-  return storage_->snapshot();
-}
-
-std::uint64_t raft_log::append(pb::repeated_entry&& entries) {
-  if (entries.empty()) {
-    return last_index();
-  }
-  assert(entries[0].index() > 0);
-  if (auto after = entries[0].index() - 1; after < committed_) {
-    LEPTON_CRITICAL("after({}) is out of range [committed({})]", after, committed_);
-  }
-  unstable_.truncate_and_append(std::move(entries));
-  return last_index();
 }
 
 leaf::result<std::uint64_t> raft_log::maybe_append(pb::log_slice&& log_slice, std::uint64_t committed) {
@@ -413,6 +83,381 @@ Raft 要求 Leader 确保 Follower 的日志最终与 Leader 一致，即使需�
     return lastnewi;
   }
   return new_error(logic_error::INVALID_PARAM, "log index and log term not match current term");
+}
+
+std::uint64_t raft_log::append(pb::repeated_entry&& entries) {
+  if (entries.empty()) {
+    return last_index();
+  }
+  assert(entries[0].index() > 0);
+  if (auto after = entries[0].index() - 1; after < committed_) {
+    LEPTON_CRITICAL("after({}) is out of range [committed({})]", after, committed_);
+  }
+  unstable_.truncate_and_append(std::move(entries));
+  return last_index();
+}
+
+std::uint64_t raft_log::find_conflict(absl::Span<const raftpb::entry* const> entries) {
+  for (const auto& entry : entries) {
+    if (!match_term(pb::pb_entry_id(entry))) {
+      if (entry->index() <= last_index()) {
+        SPDLOG_INFO(
+            "found conflict at index {} [existing term: {}, conflicting term: "
+            "{}]",
+            entry->index(), zero_term_on_err_compacted(entry->index()), entry->term());
+      }
+      return entry->index();
+    }
+  }
+  return 0;
+}
+
+std::tuple<std::uint64_t, std::uint64_t> raft_log::find_conflict_by_term(std::uint64_t index, std::uint64_t term) {
+  for (; index > 0; index--) {
+    auto our_term = this->term(index);
+    if (our_term.has_error()) {
+      return {index, 0};
+    }
+    if (our_term.value() <= term) {
+      return {index, our_term.value()};
+    }
+  }
+  return {0, 0};
+}
+
+leaf::result<pb::repeated_entry> raft_log::next_committed_ents(bool allow_unstable) {
+  if (applying_ents_paused_) {
+    return {};
+  }
+  if (has_next_or_in_progress_snapshot()) {
+    // See comment in hasNextCommittedEnts.
+    return {};
+  }
+  auto lo = applying_ + 1;
+  auto hi = max_appliable_index(allow_unstable);
+  if (lo >= hi) {
+    // Nothing to apply.
+    return {};
+  }
+  auto max_size = max_applying_ents_size_ - applying_ents_size_;
+  if (max_size <= 0) {
+    LEPTON_CRITICAL("applying entry size (%d-%d)=%d not positive", max_applying_ents_size_, applying_ents_size_,
+                    max_size);
+  }
+  auto entries = leaf::try_handle_some(
+      [&]() -> leaf::result<pb::repeated_entry> {
+        BOOST_LEAF_AUTO(v, slice(lo, hi, max_size));
+        return v;
+      },
+      [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
+        panic(e.message);
+        return new_error(e);
+      });
+  assert(entries.has_value());
+  return entries.value();
+}
+
+bool raft_log::has_next_committed_ents(bool allow_unstable) const {
+  if (applying_ents_paused_) {
+    // Entry application outstanding size limit reached.
+    return false;
+  }
+
+  if (has_next_or_in_progress_snapshot()) {
+    // If we have a snapshot to apply, don't also return any committed
+    // entries. Doing so raises questions about what should be applied
+    // first.
+    return false;
+  }
+  auto lo = applying_ + 1;
+  auto hi = max_appliable_index(allow_unstable) + 1;
+  return lo < hi;
+}
+
+std::uint64_t raft_log::max_appliable_index(bool allow_unstable) const {
+  auto hi = committed_;
+  if (!allow_unstable) {
+    hi = std::min(hi, unstable_.offset() - 1);
+  }
+  return hi;
+}
+
+leaf::result<raftpb::snapshot> raft_log::snapshot() const {
+  if (unstable_.has_snapshot()) {
+    const auto& v = unstable_.snapshot_view();
+    return raftpb::snapshot{v};
+  }
+  return storage_->snapshot();
+}
+
+std::uint64_t raft_log::first_index() const {
+  if (auto result = unstable_.maybe_first_index(); result.has_value()) {
+    return result.value();
+  }
+
+  if (auto index = storage_->first_index(); index.has_value()) {
+    return index.value();
+  }
+  panic("unreachable case");  // TODO(bdarnell)
+  return 0;
+}
+
+std::uint64_t raft_log::last_index() const {
+  if (auto result = unstable_.maybe_last_index(); result.has_value()) {
+    return result.value();
+  }
+
+  if (auto index = storage_->last_index(); index.has_value()) {
+    return index.value();
+  } else {
+    panic("unreachable case");  // TODO(bdarnell)
+    return 0;
+  }
+}
+
+void raft_log::commit_to(std::uint64_t tocommit) {
+  // never decrease commit
+  if (committed_ < tocommit) {
+    if (last_index() < tocommit) {
+      LEPTON_CRITICAL(
+          "tocommit({}) is out of range [lastIndex({})]. Was the raft log "
+          "corrupted, truncated, or lost?",
+          tocommit, last_index());
+    }
+    committed_ = tocommit;
+  }
+}
+
+void raft_log::applied_to(std::uint64_t i, pb::entry_encoding_size size) {
+  if (committed_ < i || i < applied_) {
+    LEPTON_CRITICAL("applied({}) is out of range [committed({}), applied({})]", i, committed_, applied_);
+  }
+  applied_ = i;
+  applying_ = std::max(applying_, i);
+  if (applying_ents_size_ > size) {
+    applying_ents_size_ -= size;
+  } else {
+    // Defense against underflow.
+    applying_ents_size_ = 0;
+  }
+  applying_ents_paused_ = applying_ents_size_ >= max_applying_ents_size_;
+}
+
+void raft_log::accept_applying(std::uint64_t i, pb::entry_encoding_size size, bool allow_unstable) {
+  if (committed_ < i || i < applied_) {
+    LEPTON_CRITICAL("applied({}) is out of range [prevApplying({}), committed({})]", i, applying_, committed_);
+  }
+  applying_ = i;
+  applying_ents_size_ += size;
+  // Determine whether to pause entry application until some progress is
+  // acknowledged. We pause in two cases:
+  // 1. the outstanding entry size equals or exceeds the maximum size.
+  // 2. the outstanding entry size does not equal or exceed the maximum size,
+  //    but we determine that the next entry in the log will push us over the
+  //    limit. We determine this by comparing the last entry returned from
+  //    raftLog.nextCommittedEnts to the maximum entry that the method was
+  //    allowed to return had there been no size limit. If these indexes are
+  //    not equal, then the returned entries slice must have been truncated to
+  //    adhere to the memory limit.
+  applying_ents_paused_ = applying_ents_size_ >= max_applying_ents_size_ || i < max_appliable_index(allow_unstable);
+}
+
+pb::entry_id raft_log::last_entry_id() const {
+  auto index = last_index();
+  leaf::result<std::uint64_t> r = leaf::try_handle_some(
+      [&]() -> leaf::result<std::uint64_t> {
+        BOOST_LEAF_AUTO(v, term(index));
+        return v;
+      },
+      [&](const lepton_error& e) -> leaf::result<std::uint64_t> {
+        LEPTON_CRITICAL("unexpected error when getting the last term at {}: ({})", index, e.message);
+        return new_error(e);
+      });
+  assert(!r.has_error());
+  return pb::entry_id{r.value(), index};
+}
+
+leaf::result<std::uint64_t> raft_log::term(std::uint64_t i) const {
+  // the valid term range is [index of dummy entry, last index]
+  auto first_idx = first_index();
+  assert(first_idx > 0);
+  auto dummy_index = first_idx - 1;
+  auto last_idx = last_index();
+  if (i < dummy_index || i > last_idx) {
+    // TODO: return an error instead?
+    return 0;
+  }
+
+  if (auto t = unstable_.maybe_term(i); t.has_value()) {
+    return t.value();
+  }
+  leaf::result<std::uint64_t> r = leaf::try_handle_some(
+      [&]() -> leaf::result<std::uint64_t> {
+        BOOST_LEAF_AUTO(v, storage_->term(i));
+        return v;
+      },
+      [](const lepton_error& e) -> leaf::result<std::uint64_t> {
+        if (e.err_code == storage_error::COMPACTED || e.err_code == storage_error::UNAVAILABLE) {
+          return new_error(e);
+        }
+        panic(e.message);
+        return new_error(e);
+      });
+  return r;
+}
+
+leaf::result<pb::repeated_entry> raft_log::entries(std::uint64_t i, std::uint64_t max_size) {
+  if (i > last_index()) {
+    return {};
+  }
+  return slice(i, last_index() + 1, max_size);
+}
+
+pb::repeated_entry raft_log::all_entries() {
+  auto ents = leaf::try_handle_some(
+      [&]() -> leaf::result<pb::repeated_entry> {
+        BOOST_LEAF_AUTO(v, entries(first_index(), NO_LIMIT));
+        return v;
+      },
+      [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
+        // try again if there was a racing compaction
+        if (e.err_code == storage_error::COMPACTED) {
+          return all_entries();
+        }
+        panic(e.message);
+      });
+  assert(ents.has_value());
+  return ents.value();
+}
+
+bool raft_log::is_up_to_date(const pb::entry_id& their) {
+  auto our = last_entry_id();
+  return their.term > our.term || (their.term == our.term && their.index >= our.index);
+}
+
+bool raft_log::match_term(const pb::entry_id& id) {
+  auto result = term(id.index);
+  if (result.has_error()) {
+    return false;
+  }
+  return result.value() == id.term;
+}
+
+bool raft_log::maybe_commit(const pb::entry_id& at) {
+  // NB: term should never be 0 on a commit because the leader campaigned at
+  // least at term 1. But if it is 0 for some reason, we don't consider this a
+  // term match.
+  if (at.term != 0 && at.index > committed_ && match_term(at)) {
+    commit_to(at.index);
+    return true;
+  }
+  return false;
+}
+
+void raft_log::restore(raftpb::snapshot&& snapshot) {
+  SPDLOG_INFO("log [%s] starts to restore snapshot [index: {}, term: {}]", string(), snapshot.metadata().index(),
+              snapshot.metadata().term());
+  committed_ = snapshot.metadata().index();
+  unstable_.restore(std::move(snapshot));
+}
+
+leaf::result<void> raft_log::scan(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
+                                  std::function<leaf::result<void>(const pb::repeated_entry& entries)> callback) const {
+  while (lo < hi) {
+    BOOST_LEAF_AUTO(v, slice(lo, hi, page_size));
+    if (v.empty()) {
+      return new_error(logic_error::EMPTY_ARRAY);
+    }
+    BOOST_LEAF_CHECK(callback(v));
+    lo += static_cast<std::uint64_t>(v.size());
+  }
+  return {};
+}
+
+leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const {
+  BOOST_LEAF_CHECK(must_check_out_of_bounds(lo, hi));
+  if (lo == hi) {
+    return {};
+  }
+  const auto unstable_offset = unstable_.offset();
+  pb::repeated_entry ents;
+  if (lo < unstable_offset) {
+    auto storage_entries = leaf::try_handle_some(
+        [&]() -> leaf::result<pb::repeated_entry> {
+          BOOST_LEAF_AUTO(v, storage_->entries(lo, std::min(hi, unstable_offset), max_size););
+          return std::move(v);
+        },
+        [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
+          if (e.err_code.category() == storage_error_category()) {
+            if (e.err_code == storage_error::COMPACTED) {
+              return new_error(e);
+            }
+            if (e.err_code == storage_error::UNAVAILABLE) {
+              LEPTON_CRITICAL("entries:[{},{}] is unavaliable from storage", lo, std::min(hi, unstable_offset));
+            }
+          }
+          panic(e.message);
+          return new_error(e);
+        });
+    if (storage_entries.has_error()) {
+      return storage_entries;
+    }
+    // check if ents has reached the size limitation
+    if (auto size = storage_entries->size(); size < std::min(hi, unstable_offset) - lo) {
+      return storage_entries;
+    }
+    ents = std::move(storage_entries.value());
+  }
+  if (hi > unstable_offset) {
+    auto unstable = unstable_.entries_span(std::max(lo, unstable_offset), hi);
+    for (const auto& entry : unstable) {
+      ents.Add()->CopyFrom(*entry);
+    }
+  }
+  return pb::limit_entry_size(ents, max_size);
+}
+
+leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const {
+  if (lo > hi) {
+    LEPTON_CRITICAL("invalid slice {} > {}", lo, hi);
+  }
+  auto fi = first_index();
+  if (lo < fi) {
+    return new_error(storage_error::COMPACTED);
+  }
+
+  auto li = last_index();
+  auto length = li + 1 - fi;
+  if (hi > length + fi) {
+    LEPTON_CRITICAL("slice[{},{}] out of bounds [{},{}]", lo, hi, fi, li);
+  }
+  return {};
+}
+
+std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
+  leaf::result<std::uint64_t> r = leaf::try_handle_some(
+      [&]() -> leaf::result<std::uint64_t> {
+        BOOST_LEAF_AUTO(v, term(i));
+        return v;
+      },
+      [](const lepton_error& e) -> leaf::result<std::uint64_t> {
+        if (e.err_code == storage_error::COMPACTED) {
+          return 0;
+        }
+        if (e.err_code == storage_error::UNAVAILABLE) {
+          return 0;
+        }
+        panic(fmt::format("unexpected error {}", e.message));
+      });
+  assert(!r.has_error());
+  return r.value();
+}
+
+absl::Span<const raftpb::entry* const> raft_log::unstable_entries() const {
+  if (unstable_.entries_view().empty()) {
+    return {};
+  }
+  return unstable_.entries_span();
 }
 
 leaf::result<raft_log> new_raft_log_with_size(pro::proxy_view<storage_builer> storage,

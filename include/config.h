@@ -6,6 +6,7 @@
 #include "error.h"
 #include "proxy.h"
 #include "storage.h"
+#include "types.h"
 namespace lepton {
 
 // None is a placeholder node ID used when there is no leader.
@@ -88,7 +89,7 @@ struct config {
   // during normal operation). On the other side, it might affect the
   // throughput during normal replication. Note: math.MaxUint64 for unlimited,
   // 0 for at most one entry per message.
-  std::uint64_t max_size_per_msg;
+  pb::entry_encoding_size max_size_per_msg;
 
   // MaxCommittedSizePerReady limits the size of the committed entries which
   // can be applied.
@@ -97,7 +98,7 @@ struct config {
   // uncommitted entries that may be appended to a leader's log. Once this
   // limit is exceeded, proposals will begin to return ErrProposalDropped
   // errors. Note: 0 for no limit.
-  std::uint64_t max_uncommitted_entries_size;
+  pb::entry_payload_size max_uncommitted_entries_size;
   // MaxInflightMsgs limits the max number of in-flight append messages during
   // optimistic replication phase. The application transportation layer usually
   // has its own sending buffer over TCP/UDP. Setting MaxInflightMsgs to avoid

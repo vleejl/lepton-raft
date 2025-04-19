@@ -6,8 +6,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <memory>
-#include <optional>
 #include <ostream>
 #include <system_error>
 #include <tuple>
@@ -160,7 +158,7 @@ TEST_F(raft_log_test_suit, is_up_to_date) {
       {raft_log->last_index() + 1, 3, true},
   };
   for (const auto &iter_test : tests) {
-    auto gup_to_date = raft_log->is_up_to_date(iter_test.last_index, iter_test.term);
+    auto gup_to_date = raft_log->is_up_to_date(lepton::pb::entry_id{iter_test.term, iter_test.last_index});
     ASSERT_EQ(iter_test.wup_to_date, gup_to_date);
   }
 }
@@ -419,9 +417,9 @@ TEST_F(raft_log_test_suit, compaction_side_effects) {
   }
   auto raft_log = new_raft_log(memory_storager_view);
   raft_log->append(create_entries(entrie_params));
-  auto commit_result = raft_log->maybe_commit(LAST_INDEX, LAST_TERM);
+  auto commit_result = raft_log->maybe_commit(lepton::pb::entry_id{.term = LAST_TERM, .index = LAST_INDEX});
   ASSERT_TRUE(commit_result);
-  raft_log->applied_to(raft_log->committed());
+  raft_log->applied_to(raft_log->committed(), 0);
 
   constexpr std::uint64_t COMPACT_INDEX = 500;
   mm_storage.compact(COMPACT_INDEX);
@@ -452,55 +450,63 @@ TEST_F(raft_log_test_suit, compaction_side_effects) {
   ASSERT_EQ(ents_result.value().size(), 1);
 }
 
-TEST_F(raft_log_test_suit, has_next_ents) {
-  struct test_case {
-    std::uint64_t applied;
-    bool has_next;
+TEST_F(raft_log_test_suit, has_next_committed_ents) {
+  struct TestCase {
+    uint64_t applied = 0;
+    uint64_t applying = 0;
+    bool allowUnstable = false;
+    bool paused = false;
+    bool snap = false;
+    bool whasNext = false;
   };
-  std::vector<test_case> tests = {
-      {0, true},
-      {3, true},
-      {4, true},
-      {5, false},
+
+  std::vector<TestCase> tests = {
+      // allowUnstable = true 的测试组
+      {.applied = 3, .applying = 3, .allowUnstable = true, .whasNext = true},
+      {.applied = 3, .applying = 4, .allowUnstable = true, .whasNext = true},
+      {.applied = 3, .applying = 5, .allowUnstable = true, .whasNext = false},
+      {.applied = 4, .applying = 4, .allowUnstable = true, .whasNext = true},
+      {.applied = 4, .applying = 5, .allowUnstable = true, .whasNext = false},
+      {.applied = 5, .applying = 5, .allowUnstable = true, .whasNext = false},
+
+      // allowUnstable = false 的测试组
+      {.applied = 3, .applying = 3, .allowUnstable = false, .whasNext = true},
+      {.applied = 3, .applying = 4, .allowUnstable = false, .whasNext = false},
+      {.applied = 3, .applying = 5, .allowUnstable = false, .whasNext = false},
+      {.applied = 4, .applying = 4, .allowUnstable = false, .whasNext = false},
+      {.applied = 4, .applying = 5, .allowUnstable = false, .whasNext = false},
+      {.applied = 5, .applying = 5, .allowUnstable = false, .whasNext = false},
+
+      // paused = true 的测试用例
+      {.applied = 3, .applying = 3, .allowUnstable = true, .paused = true, .whasNext = false},
+
+      // snap = true 的测试用例
+      {.applied = 3, .applying = 3, .allowUnstable = true, .snap = true, .whasNext = false},
   };
-  for (auto &iter_test : tests) {
+  int test_index = -1;
+  for (const auto &iter_test : tests) {
+    test_index++;
+    printf("current test case index:%d\n", test_index);
+    auto ents = create_entries(4, {1, 1, 1});
     lepton::memory_storage mm_storage;
-    mm_storage.apply_snapshot(create_snapshot(3, 1));
+    ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
+    ASSERT_TRUE(mm_storage.append(lepton::pb::extract_range_without_copy(ents, 0, 1)));
+
     pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
     auto raft_log = new_raft_log(memory_storager_view);
     ASSERT_TRUE(raft_log.has_value());
-    raft_log->append(create_entries({{4, 1}, {5, 1}, {6, 1}}));
-    raft_log->maybe_commit(5, 1);
-    raft_log->applied_to(iter_test.applied);
-
-    ASSERT_EQ(raft_log->has_next_ents(), iter_test.has_next);
-  }
-}
-
-TEST_F(raft_log_test_suit, next_ents) {
-  struct test_case {
-    std::uint64_t applied;
-    lepton::pb::repeated_entry wents;
-  };
-  std::vector<test_case> tests = {
-      {0, create_entries({{4, 1}, {5, 1}})},
-      {3, create_entries({{4, 1}, {5, 1}})},
-      {4, create_entries({{5, 1}})},
-      {5, create_entries({})},
-  };
-  for (auto &iter_test : tests) {
-    lepton::memory_storage mm_storage;
-    mm_storage.apply_snapshot(create_snapshot(3, 1));
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-    auto raft_log = new_raft_log(memory_storager_view);
-    ASSERT_TRUE(raft_log.has_value());
-    raft_log->append(create_entries({{4, 1}, {5, 1}, {6, 1}}));
-    raft_log->maybe_commit(5, 1);
-    raft_log->applied_to(iter_test.applied);
-
-    auto gents = raft_log->next_ents();
-    if (gents != iter_test.wents) {
-      GTEST_ASSERT_TRUE(false);
+    raft_log->append(create_entries(4, {1, 1, 1}));
+    raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
+    raft_log->maybe_commit(lepton::pb::entry_id{.term = 1, .index = 5});
+    raft_log->applied_to(iter_test.applied, 0);
+    raft_log->accept_applying(iter_test.applying, 0, iter_test.allowUnstable);
+    raft_log->set_applying_ents_paused(iter_test.paused);
+    if (iter_test.snap) {
+      auto snap = create_snapshot(4, 1);
+      raft_log->restore(std::move(snap));
+    }
+    if (iter_test.whasNext != raft_log->has_next_committed_ents(iter_test.allowUnstable)) {
+      ASSERT_EQ(iter_test.whasNext, raft_log->has_next_committed_ents(iter_test.allowUnstable));
     }
   }
 }
@@ -679,8 +685,8 @@ TEST_F(raft_log_test_suit, compactions) {
     mm_storage.append(create_entries(entrie_params));
     pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
     auto raft_log = new_raft_log(memory_storager_view);
-    raft_log->maybe_commit(iter_test.lastIndex, 0);
-    raft_log->applied_to(raft_log->committed());
+    raft_log->maybe_commit(lepton::pb::entry_id{.term = 0, .index = iter_test.lastIndex});
+    raft_log->applied_to(raft_log->committed(), 0);
 
     int j = -1;
     for (const auto &compact_index : iter_test.compact) {

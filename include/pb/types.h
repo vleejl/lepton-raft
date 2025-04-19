@@ -6,7 +6,14 @@
 
 namespace lepton {
 namespace pb {
+// entryEncodingSize represents the protocol buffer encoding size of one or more
+// entries.
 using entry_encoding_size = std::uint64_t;
+// entryPayloadSize represents the size of one or more entries' payloads.
+// Notably, it does not depend on its Index or Term. Entries with empty
+// payloads, like those proposed after a leadership change, are considered
+// to be zero size.
+using entry_payload_size = std::uint64_t;
 using snapshot_ptr = std::unique_ptr<raftpb::snapshot>;
 using entry_ptr = std::unique_ptr<raftpb::entry>;
 using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::entry>;

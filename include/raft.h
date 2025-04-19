@@ -65,6 +65,11 @@ class raft {
 
   void handle_snapshot(raftpb::message&& message);
 
+  // restore recovers the state machine from a snapshot. It restores the log and the
+  // configuration of state machine. If this method returns false, the snapshot was
+  // ignored, either because it was obsolete or because of an error.
+  bool restore(raftpb::snapshot&& snapshot);
+
   // maybeSendAppend sends an append RPC with new entries to the given peer,
   // if necessary. Returns true if a message was sent. The sendIfEmpty
   // argument controls whether messages with no entries will be sent

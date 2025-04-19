@@ -25,13 +25,14 @@
 namespace lepton {
 leaf::result<raft> new_raft(const config& c) {
   BOOST_LEAF_CHECK(c.validate());
-  BOOST_LEAF_AUTO(raftlog, new_raft_log_with_size(c.storage, c.max_uncommitted_entries_size));
+  BOOST_LEAF_AUTO(
+      raftlog, new_raft_log_with_size(c.storage, static_cast<pb::entry_encoding_size>(c.max_committed_size_per_ready)));
   BOOST_LEAF_AUTO(inital_states, c.storage->initial_state());
   auto& [hard_state, conf_state] = inital_states;
   raft r{c.id,
          std::move(raftlog),
-         c.max_size_per_msg,
-         c.max_uncommitted_entries_size,
+         static_cast<pb::entry_encoding_size>(c.max_size_per_msg),
+         static_cast<pb::entry_payload_size>(c.max_uncommitted_entries_size),
          c.max_inflight_msgs,
          c.election_tick,
          c.heartbeat_tick,
@@ -40,9 +41,12 @@ leaf::result<raft> new_raft(const config& c) {
          c.read_only_opt,
          c.disable_proposal_forwarding,
          c.disable_conf_change_validation};
+
+  trace_init_state(r);
+  auto last_id = r.raft_log_handle_.last_entry_id();
   BOOST_LEAF_AUTO(restore_result,
-                  confchange::restor(conf_state, confchange::changer{tracker::progress_tracker{c.max_inflight_msgs},
-                                                                     r.raft_log_handle_.last_index()}));
+                  confchange::restor(
+                      conf_state, confchange::changer{tracker::progress_tracker{c.max_inflight_msgs}, last_id.index}));
   auto [cfg, prs] = std::move(restore_result);
   pb::assert_conf_states_equivalent(conf_state, r.switch_to_config(std::move(cfg), std::move(prs)));
 
@@ -50,7 +54,7 @@ leaf::result<raft> new_raft(const config& c) {
     r.load_state(hard_state);
   }
   if (c.applied_index > 0) {
-    r.raft_log_handle_.applied_to(c.applied_index);
+    r.raft_log_handle_.applied_to(c.applied_index, 0 /* size */);
   }
   r.become_follower(r.term_, NONE);
 
@@ -58,11 +62,13 @@ leaf::result<raft> new_raft(const config& c) {
   for (const auto& n : r.trk_.vote_nodes()) {
     node_strs.push_back(fmt::format("{}", n));
   }
+
+  // TODO(pav-kv): it should be ok to simply print %+v for lastID.
   SPDLOG_INFO(
       "newRaft {} [peers: [{}], term: {}, commit: {}, applied: {}, lastindex: "
       "{}, lastterm: {}]",
       r.id_, absl::StrJoin(node_strs, ","), r.term_, r.raft_log_handle_.committed(), r.raft_log_handle_.applied(),
-      r.raft_log_handle_.last_index(), r.raft_log_handle_.last_term());
+      last_id.index, last_id.term);
   return r;
 }
 
@@ -1022,10 +1028,93 @@ void raft::handle_append_entries(raftpb::message&& message) {
 }
 
 void raft::handle_heartbeat(raftpb::message&& message) {
-  // TODO
+  raft_log_handle_.commit_to(message.commit());
+  raftpb::message resp_msg;
+  resp_msg.set_to(message.from());
+  resp_msg.set_type(raftpb::message_type::MSG_HEARTBEAT_RESP);
+  resp_msg.set_allocated_context(message.release_context());
+  send(std::move(resp_msg));
 }
 
 void raft::handle_snapshot(raftpb::message&& message) {
+  // MsgSnap messages should always carry a non-nil Snapshot, but err on the
+  // side of safety and treat a nil Snapshot as a zero-valued Snapshot.
+  raftpb::snapshot snapshot;
+  if (message.has_snapshot()) {
+    snapshot = std::move(*message.mutable_snapshot());
+  } else {
+    SPDLOG_WARN("{} [commit: {}] unreachable case", id_, raft_log_handle_.committed());
+  }
+  auto sindex = snapshot.metadata().index();
+  auto sterm = snapshot.metadata().term();
+
+  raftpb::message resp_msg;
+  resp_msg.set_to(message.from());
+  resp_msg.set_type(raftpb::message_type::MSG_APP_RESP);
+  if (restore(std::move(snapshot))) {
+    SPDLOG_INFO("{} [commit: {}] restored snapshot [index: {}, term: {}]", id_, raft_log_handle_.committed(), sindex,
+                sterm);
+    resp_msg.set_index(raft_log_handle_.last_index());
+  } else {
+    SPDLOG_INFO("{} [commit: {}] ignored snapshot [index: {}, term: {}]", id_, raft_log_handle_.committed(), sindex,
+                sterm);
+    resp_msg.set_index(raft_log_handle_.committed());
+  }
+  send(std::move(resp_msg));
+}
+
+// 在Raft协议中，要求应用快照的节点必须处于Follower状态
+bool raft::restore(raftpb::snapshot&& snapshot) {
+  if (snapshot.metadata().index() <= raft_log_handle_.committed()) {
+    return false;
+  }
+  // Raft协议的基本约束
+  // Raft协议中，只有Follower或Candidate可以被动接受来自Leader的快照。
+  // 当一个节点（即使是Leader）发现快照中的任期（Term）比自己的当前任期更高时，必须立即转为Follower。
+  // 这种状态转换是协议强制要求的，目的是保证系统的任期单调递增原则和Leader唯一性。
+  if (state_type_ != state_type::STATE_FOLLOWER) {
+    // This is defense-in-depth: if the leader somehow ended up applying a
+    // snapshot, it could move into a new term without moving into a
+    // follower state. This should never fire, but if it did, we'd have
+    // prevented damage by returning early, so log only a loud warning.
+    //
+    // At the time of writing, the instance is guaranteed to be in follower
+    // state when this method is called.
+    SPDLOG_WARN("{} attempted to restore snapshot as leader; should never happen", id_);
+    become_follower(term_ + 1, NONE);
+    return false;
+  }
+
+  // More defense-in-depth: throw away snapshot if recipient is not in the
+  // config. This shouldn't ever happen (at the time of writing) but lots of
+  // code here and there assumes that r.id is in the progress tracker.
+  auto found = false;
+  auto cs = snapshot.metadata().conf_state();
+  for (const auto& set : {cs.voters(), cs.learners(), cs.voters_outgoing()}) {
+    for (const auto& id : set) {
+      if (id == id_) {
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      break;
+    }
+  }
+  if (!found) {
+    SPDLOG_WARN("{} attempted to restore snapshot but it is not in the ConfState %v; should never happen", id_,
+                cs.DebugString());
+    return false;
+  }
+
+  // Now go ahead and actually restore.
+
+  pb::entry_id entry_id{snapshot.metadata().index(), snapshot.metadata().term()};
+  if (raft_log_handle_.match_term(entry_id)) {
+    // TODO(pav-kv): can print %+v of the id, but it will change the format.
+    raft_log_handle_.commit_to(snapshot.metadata().index());
+    return false;
+  }
   // TODO
 }
 
@@ -1085,7 +1174,7 @@ void raft::bcast_heartbeat_with_ctx(std::string&& ctx) {
 
 bool raft::maybe_commit() {
   auto mci = trk_.committed();
-  return raft_log_handle_.maybe_commit(mci, term_);
+  return raft_log_handle_.maybe_commit(pb::entry_id{.term = term_, .index = mci});
 }
 
 bool raft::append_entries(pb::repeated_entry&& entries) {
