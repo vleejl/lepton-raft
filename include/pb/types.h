@@ -17,6 +17,7 @@ using entry_payload_size = std::uint64_t;
 using snapshot_ptr = std::unique_ptr<raftpb::snapshot>;
 using entry_ptr = std::unique_ptr<raftpb::entry>;
 using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::entry>;
+using span_entry = absl::Span<const raftpb::entry* const>;
 using repeated_message = google::protobuf::RepeatedPtrField<raftpb::message>;
 
 // entryID uniquely identifies a raft log entry.

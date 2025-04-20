@@ -20,6 +20,14 @@ entry_encoding_size ent_size(const repeated_entry& entries) {
   return size;
 }
 
+entry_encoding_size ent_size(const pb::span_entry& entries) {
+  entry_encoding_size size = 0;
+  for (const auto& entry : entries) {
+    size += entry->ByteSizeLong();
+  }
+  return size;
+}
+
 entry_id pb_entry_id(const raftpb::entry* const entry_ptr) {
   assert(entry_ptr != nullptr);
   return {entry_ptr->term(), entry_ptr->index()};
@@ -62,7 +70,7 @@ repeated_entry extract_range_without_copy(repeated_entry& src, int start, int en
   return dst;
 }
 
-repeated_entry limit_entry_size(repeated_entry& entries, std::uint64_t max_size) {
+repeated_entry limit_entry_size(repeated_entry& entries, entry_encoding_size max_size) {
   if (entries.empty()) {
     return entries;
   }
@@ -72,10 +80,34 @@ repeated_entry limit_entry_size(repeated_entry& entries, std::uint64_t max_size)
     size += entries[i].ByteSizeLong();
     if (size > max_size) {
       break;
-      ;
     }
   }
   return extract_range_without_copy(entries, 0, i);
+}
+
+pb::span_entry limit_entry_size(pb::span_entry entries, entry_encoding_size max_size) {
+  if (entries.empty()) {
+    return entries;
+  }
+  std::size_t size = entries[0]->ByteSizeLong();
+  for (std::size_t limit = 1; limit < entries.size(); ++limit) {
+    size += entries[limit]->ByteSizeLong();
+    if (size > max_size) {
+      return entries.subspan(0, limit);
+    }
+  }
+  return entries;
+}
+
+repeated_entry extend(repeated_entry& dst, pb::span_entry vals) {
+  for (const auto& entry : vals) {
+    if (entry == nullptr) {
+      LEPTON_CRITICAL("entry is null");
+      return dst;
+    }
+    dst.Add()->CopyFrom(*entry);
+  }
+  return dst;
 }
 
 void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::conf_state& rhs) {

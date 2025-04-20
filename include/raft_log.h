@@ -38,7 +38,7 @@ class raft_log {
   // a different term.
   // [major point]: The index of the given entries MUST be continuously
   // increasing.
-  std::uint64_t find_conflict(absl::Span<const raftpb::entry* const> entries);
+  std::uint64_t find_conflict(pb::span_entry entries);
 
   // findConflictByTerm takes an (index, term) pair (indicating a conflicting
   // log
@@ -52,7 +52,7 @@ class raft_log {
 
   // nextUnstableEnts returns all entries that are available to be written to the
   // local stable log and are not already in-progress.
-  absl::Span<const raftpb::entry* const> next_unstable_ents() const { return unstable_.next_entries(); }
+  pb::span_entry next_unstable_ents() const { return unstable_.next_entries(); }
 
   // hasNextUnstableEnts returns if there are any entries that are available to be
   // written to the local stable log and are not already in-progress.
@@ -68,7 +68,7 @@ class raft_log {
   // appended them to the local raft log yet. If allowUnstable is true, committed
   // entries from the unstable log may be returned; otherwise, only entries known
   // to reside locally on stable storage will be returned.
-  leaf::result<pb::repeated_entry> next_committed_ents(bool allow_unstable);
+  pb::repeated_entry next_committed_ents(bool allow_unstable);
 
   // hasNextCommittedEnts returns if there is any available entries for execution.
   // This is a fast check without heavy raftLog.slice() in nextCommittedEnts().
@@ -165,7 +165,7 @@ class raft_log {
   leaf::result<void> scan(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
                           std::function<leaf::result<void>(const pb::repeated_entry& entries)> callback) const;
 
-  leaf::result<pb::repeated_entry> slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const;
+  leaf::result<pb::repeated_entry> slice(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size max_size) const;
 
   // l.firstIndex <= lo <= hi <= l.firstIndex + len(l.entries)
   leaf::result<void> must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const;
@@ -174,7 +174,7 @@ class raft_log {
 
   const unstable& unstable_view() const { return unstable_; }
 
-  absl::Span<const raftpb::entry* const> unstable_entries() const;
+  pb::span_entry unstable_entries() const;
 
  private:
   // storage contains all stable entries since the last snapshot.
@@ -190,7 +190,7 @@ class raft_log {
   // 是指当前集群中已经被大多数节点确认并且处于稳定状态的日志索引。
   // 用途：这是 Raft 日志的一个关键指标，指示了日志的提交进度。在 Raft
   // 中，日志必须得到大多数节点的确认才能提交（即成为 commited 日志）。
-  std::uint64_t committed_;
+  std::uint64_t committed_ = 0;
 
   // applying is the highest log position that the application has
   // been instructed to apply to its state machine. Some of these
@@ -198,7 +198,7 @@ class raft_log {
   // reached applied.
   // Use: The field is incremented when accepting a Ready struct.
   // Invariant: applied <= applying && applying <= committed
-  std::uint64_t applying_;
+  std::uint64_t applying_ = 0;
 
   // applied is the highest log position that the application has
   // successfully applied to its state machine.
@@ -209,14 +209,14 @@ class raft_log {
   // 是指已经被应用到状态机的日志条目的最高索引。该字段表示状态机已经处理并执行的日志条目。应用到状态机后，日志条目会被执行并影响系统的状态。
   // 用途：它和 committed 紧密相关，并且是 Raft 协议中的一个重要概念。
   // applied 永远小于等于 committed，确保只有被提交的日志才能被应用。
-  std::uint64_t applied_;
+  std::uint64_t applied_ = 0;
 
   // maxApplyingEntsSize limits the outstanding byte size of the messages
   // returned from calls to nextCommittedEnts that have not been acknowledged
   // by a call to appliedTo.
   // 获取日志条目时，返回的日志条目的总字节数的最大值。这是为了避免一次性返回太多日志，导致内存使用过高或性能问题。
   // 用途：限制每次从日志中取出的条目大小。这有助于控制系统的内存和带宽，防止一次请求中返回过多日志条目。
-  pb::entry_encoding_size max_applying_ents_size_;
+  pb::entry_encoding_size max_applying_ents_size_ = 0;
 
   // applyingEntsSize is the current outstanding byte size of the messages
   // returned from calls to nextCommittedEnts that have not been acknowledged

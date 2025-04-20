@@ -15,6 +15,7 @@
 #include "log.h"
 #include "protobuf.h"
 #include "spdlog/spdlog.h"
+#include "types.h"
 #include "utility_macros.h"
 namespace lepton {
 // unstable.entries[i] has raft log position i+unstable.offset.
@@ -25,7 +26,7 @@ namespace lepton {
 class unstable {
   NOT_COPYABLE(unstable)
   // u.offset <= lo <= hi <= u.offset+len(u.entries)
-  void must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) {
+  void must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const {
     if (lo > hi) {
       LEPTON_CRITICAL("invalid unstable.slice {} > {}", lo, hi);
       assert(false);
@@ -68,7 +69,7 @@ class unstable {
       LEPTON_CRITICAL("unstable.slice[{},{}) out of bound [{},{}]", lhs_idx, rhs_idx, offset_, upper);
     }
 
-    return absl::Span<const raftpb::entry* const>(entries_span().data() + lhs_idx - offset_, rhs_idx - lhs_idx);
+    return pb::span_entry(entries_span().data() + lhs_idx - offset_, rhs_idx - lhs_idx);
   }
 
   std::uint64_t offset() const { return offset_; }
@@ -130,7 +131,7 @@ class unstable {
 
   // nextEntries returns the unstable entries that are not already in the process
   // of being written to storage.
-  absl::Span<const raftpb::entry* const> next_entries() const {
+  pb::span_entry next_entries() const {
     auto in_progress = static_cast<std::ptrdiff_t>(offset_in_progress_ - offset_);
     if (entries_.size() == in_progress) {
       return {};
@@ -256,6 +257,27 @@ class unstable {
       // in-progress.
       offset_in_progress_ = std::min(offset_in_progress_, from_index);
     }
+  }
+
+  // slice returns the entries from the unstable log with indexes in the range
+  // [lo, hi). The entire range must be stored in the unstable log or the method
+  // will panic. The returned slice can be appended to, but the entries in it must
+  // not be changed because they are still shared with unstable.
+  //
+  // TODO(pavelkalinnikov): this, and similar []pb.Entry slices, may bubble up all
+  // the way to the application code through Ready struct. Protect other slices
+  // similarly, and document how the client can use them.
+  pb::repeated_entry slice(std::uint64_t lo, std::uint64_t hi) const {
+    must_check_out_of_bounds(lo, hi);
+    if (lo == hi) {
+      return {};
+    }
+    // NB: use the full slice expression to limit what the caller can do with the
+    // returned slice. For example, an append will reallocate and copy this slice
+    // instead of corrupting the neighbouring u.entries.
+    auto start = static_cast<std::ptrdiff_t>(lo - offset_);
+    auto end = static_cast<std::ptrdiff_t>(hi - offset_);
+    return pb::repeated_entry(entries_.begin() + start, entries_.begin() + end);
   }
 
  private:

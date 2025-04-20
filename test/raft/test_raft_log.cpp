@@ -19,6 +19,7 @@
 #include "protobuf.h"
 #include "raft_log.h"
 #include "raft_log_unstable.h"
+#include "spdlog/spdlog.h"
 #include "test_raft_protobuf.h"
 #include "types.h"
 #include "utility_macros_test.h"
@@ -507,6 +508,78 @@ TEST_F(raft_log_test_suit, has_next_committed_ents) {
     }
     if (iter_test.whasNext != raft_log->has_next_committed_ents(iter_test.allowUnstable)) {
       ASSERT_EQ(iter_test.whasNext, raft_log->has_next_committed_ents(iter_test.allowUnstable));
+    }
+  }
+}
+
+TEST_F(raft_log_test_suit, next_committed_ents) {
+  auto ents = create_entries(4, {1, 1, 1});
+  struct TestCase {
+    uint64_t applied;
+    uint64_t applying;
+    bool allowUnstable;
+    bool paused;
+    bool snap;
+    lepton::pb::repeated_entry wents;
+
+    // 构造函数：显式设置默认值
+    TestCase(uint64_t applied, uint64_t applying, bool allowUnstable, lepton::pb::repeated_entry wents,
+             bool paused = false, bool snap = false)
+        : applied(applied),
+          applying(applying),
+          allowUnstable(allowUnstable),
+          paused(paused),
+          snap(snap),
+          wents(std::move(wents)) {}
+  };
+
+  std::vector<TestCase> tests = {
+      // allowUnstable = true 的测试组
+      {3, 3, true, {ents.begin(), ents.begin() + 2}},
+      {3, 4, true, {ents.begin() + 1, ents.begin() + 2}},
+      {3, 5, true, {}},
+      {4, 4, true, {ents.begin() + 1, ents.begin() + 2}},
+      {4, 5, true, {}},
+      {5, 5, true, {}},
+
+      // allowUnstable = false 的测试组
+      {3, 3, false, {ents.begin(), ents.begin() + 1}},
+      {3, 4, false, {}},
+      {3, 5, false, {}},
+      {4, 4, false, {}},
+      {4, 5, false, {}},
+      {5, 5, false, {}},
+
+      // paused = true 的测试用例
+      {3, 3, true, {}, true, false},
+
+      // snap = true 的测试用例
+      {3, 3, true, {}, false, true},
+  };
+
+  int test_index = -1;
+  for (const auto &iter_test : tests) {
+    test_index++;
+    printf("current test case index:%d\n", test_index);
+    lepton::memory_storage mm_storage;
+    ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
+    ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
+
+    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
+    auto raft_log = new_raft_log(memory_storager_view);
+    ASSERT_TRUE(raft_log.has_value());
+    raft_log->append(create_entries(4, {1, 1, 1}));
+    raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
+    raft_log->maybe_commit(lepton::pb::entry_id{.term = 1, .index = 5});
+    raft_log->applied_to(iter_test.applied, 0);
+    raft_log->accept_applying(iter_test.applying, 0, iter_test.allowUnstable);
+    raft_log->set_applying_ents_paused(iter_test.paused);
+    if (iter_test.snap) {
+      auto snap = create_snapshot(4, 1);
+      raft_log->restore(std::move(snap));
+    }
+    if (iter_test.wents != raft_log->next_committed_ents(iter_test.allowUnstable)) {
+      ASSERT_TRUE(false);
     }
   }
 }
@@ -1011,7 +1084,10 @@ TEST_F(raft_log_test_suit, scan) {
       [&]() -> leaf::result<void> {
         BOOST_LEAF_CHECK(raft_log->scan(offset + 1, offset + 11, entry_size * 2,
                                         [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
-                                          assert(entries.size() == 2);
+                                          SPDLOG_INFO("entries size: {}", entries.size());
+                                          if (entries.size() != 2) {
+                                            assert(entries.size() == 2);
+                                          }
                                           assert(lepton::pb::ent_size(entries) == entry_size * 2);
                                           return {};
                                         }));

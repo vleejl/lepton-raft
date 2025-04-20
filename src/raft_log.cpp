@@ -3,6 +3,7 @@
 #include <fmt/core.h>
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <cassert>
 
 #include "absl/types/span.h"
@@ -97,7 +98,7 @@ std::uint64_t raft_log::append(pb::repeated_entry&& entries) {
   return last_index();
 }
 
-std::uint64_t raft_log::find_conflict(absl::Span<const raftpb::entry* const> entries) {
+std::uint64_t raft_log::find_conflict(pb::span_entry entries) {
   for (const auto& entry : entries) {
     if (!match_term(pb::pb_entry_id(entry))) {
       if (entry->index() <= last_index()) {
@@ -125,7 +126,7 @@ std::tuple<std::uint64_t, std::uint64_t> raft_log::find_conflict_by_term(std::ui
   return {0, 0};
 }
 
-leaf::result<pb::repeated_entry> raft_log::next_committed_ents(bool allow_unstable) {
+pb::repeated_entry raft_log::next_committed_ents(bool allow_unstable) {
   if (applying_ents_paused_) {
     return {};
   }
@@ -134,7 +135,7 @@ leaf::result<pb::repeated_entry> raft_log::next_committed_ents(bool allow_unstab
     return {};
   }
   auto lo = applying_ + 1;
-  auto hi = max_appliable_index(allow_unstable);
+  auto hi = max_appliable_index(allow_unstable) + 1;
   if (lo >= hi) {
     // Nothing to apply.
     return {};
@@ -374,47 +375,73 @@ leaf::result<void> raft_log::scan(std::uint64_t lo, std::uint64_t hi, pb::entry_
   return {};
 }
 
-leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const {
+leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t hi,
+                                                 pb::entry_encoding_size max_size) const {
   BOOST_LEAF_CHECK(must_check_out_of_bounds(lo, hi));
   if (lo == hi) {
     return {};
   }
   const auto unstable_offset = unstable_.offset();
+  if (lo >= unstable_offset) {
+    auto ents = unstable_.slice(lo, hi);
+    ents = pb::limit_entry_size(ents, max_size);
+    // NB: use the full slice expression to protect the unstable slice from
+    // appends to the returned ents slice.
+    return ents;
+  }
+
+  const auto cut = std::min(hi, unstable_offset);
   pb::repeated_entry ents;
-  if (lo < unstable_offset) {
-    auto storage_entries = leaf::try_handle_some(
-        [&]() -> leaf::result<pb::repeated_entry> {
-          BOOST_LEAF_AUTO(v, storage_->entries(lo, std::min(hi, unstable_offset), max_size););
-          return std::move(v);
-        },
-        [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
-          if (e.err_code.category() == storage_error_category()) {
-            if (e.err_code == storage_error::COMPACTED) {
-              return new_error(e);
-            }
-            if (e.err_code == storage_error::UNAVAILABLE) {
-              LEPTON_CRITICAL("entries:[{},{}] is unavaliable from storage", lo, std::min(hi, unstable_offset));
-            }
+
+  auto storage_entries = leaf::try_handle_some(
+      [&]() -> leaf::result<pb::repeated_entry> {
+        BOOST_LEAF_AUTO(v, storage_->entries(lo, cut, max_size););
+        return std::move(v);
+      },
+      [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
+        if (e.err_code.category() == storage_error_category()) {
+          if (e.err_code == storage_error::COMPACTED) {
+            return new_error(e);
           }
-          panic(e.message);
-          return new_error(e);
-        });
-    if (storage_entries.has_error()) {
-      return storage_entries;
-    }
-    // check if ents has reached the size limitation
-    if (auto size = storage_entries->size(); size < std::min(hi, unstable_offset) - lo) {
-      return storage_entries;
-    }
-    ents = std::move(storage_entries.value());
+          if (e.err_code == storage_error::UNAVAILABLE) {
+            LEPTON_CRITICAL("entries:[{},{}] is unavaliable from storage", lo, std::min(hi, unstable_offset));
+          }
+        }
+        // TODO(pavelkalinnikov): handle errors uniformly
+        panic(e.message);
+        return new_error(e);
+      });
+  if (storage_entries.has_error()) {
+    return storage_entries;
   }
-  if (hi > unstable_offset) {
-    auto unstable = unstable_.entries_span(std::max(lo, unstable_offset), hi);
-    for (const auto& entry : unstable) {
-      ents.Add()->CopyFrom(*entry);
-    }
+  if (hi <= unstable_offset) {
+    return storage_entries;
   }
-  return pb::limit_entry_size(ents, max_size);
+
+  // Fast path to check if ents has reached the size limitation. Either the
+  // returned slice is shorter than requested (which means the next entry would
+  // bring it over the limit), or a single entry reaches the limit.
+  if (auto size = static_cast<std::uint64_t>(storage_entries->size()); size < std::min(hi, unstable_offset) - lo) {
+    return storage_entries;
+  }
+
+  // Slow path computes the actual total size, so that unstable entries are cut
+  // optimally before being copied to ents slice.
+  auto size = pb::ent_size(storage_entries.value());
+  if (size >= max_size) {
+    return storage_entries;
+  }
+
+  auto unstable = unstable_.entries_span(std::max(lo, unstable_offset), hi);
+  unstable = pb::limit_entry_size(unstable, max_size - size);
+  // Total size of unstable may exceed maxSize-size only if len(unstable) == 1.
+  // If this happens, ignore this extra entry.
+  if ((unstable.size() == 1) && ((size + pb::ent_size(unstable)) > max_size)) {
+    return storage_entries;
+  }
+  // Otherwise, total size of unstable does not exceed maxSize-size, so total
+  // size of ents+unstable does not exceed maxSize. Simply concatenate them.
+  return pb::extend(storage_entries.value(), unstable);
 }
 
 leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const {
@@ -453,7 +480,7 @@ std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
   return r.value();
 }
 
-absl::Span<const raftpb::entry* const> raft_log::unstable_entries() const {
+pb::span_entry raft_log::unstable_entries() const {
   if (unstable_.entries_view().empty()) {
     return {};
   }
