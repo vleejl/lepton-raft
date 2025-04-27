@@ -39,7 +39,8 @@ class unstable {
   }
 
  public:
-  unstable(std::uint64_t offset) : offset_(offset) {}
+  unstable(std::uint64_t offset, std::uint64_t offset_in_progress)
+      : offset_(offset), offset_in_progress_(offset_in_progress) {}
   unstable(pb::repeated_entry&& entries, std::uint64_t offset) : entries_(std::move(entries)), offset_(offset) {}
   unstable(pb::repeated_entry&& entries, std::uint64_t offset, std::uint64_t offset_in_progress)
       : entries_(std::move(entries)), offset_(offset), offset_in_progress_(offset_in_progress) {}

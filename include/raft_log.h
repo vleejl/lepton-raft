@@ -16,8 +16,8 @@ class raft_log {
   NOT_COPYABLE(raft_log)
  public:
   raft_log(raft_log&& rhs) = default;
-  raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset, std::uint64_t committed,
-           std::uint64_t applying, std::uint64_t applied, std::uint64_t max_next_ents_size);
+  raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t first_index, std::uint64_t last_index,
+           std::uint64_t max_applying_ents_size);
 
   std::string string();
 
@@ -127,9 +127,13 @@ class raft_log {
   // lastEntryID returns the ID of the last entry in the log.
   pb::entry_id last_entry_id() const;
 
+  auto applying() const { return applying_; }
+
   auto applied() const { return applied_; }
 
   auto max_applying_ents_size() const { return max_applying_ents_size_; }
+
+  auto applying_ents_size() const { return applying_ents_size_; }
 
   leaf::result<std::uint64_t> term(std::uint64_t i) const;
 
@@ -174,7 +178,7 @@ class raft_log {
 
   const unstable& unstable_view() const { return unstable_; }
 
-  pb::span_entry unstable_entries() const;
+  const auto& applying_ents_paused() const { return applying_ents_paused_; }
 
  private:
   // storage contains all stable entries since the last snapshot.

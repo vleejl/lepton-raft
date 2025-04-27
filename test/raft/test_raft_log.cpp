@@ -395,30 +395,18 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
   }
 }
 
-// TestCompactionSideEffects ensures that all the log related functionality
-// works correctly after a compaction.
+// TestCompactionSideEffects ensures that all the log related functionality works correctly after
+// a compaction.
 TEST_F(raft_log_test_suit, compaction_side_effects) {
-  // Populate the log with 1000 entries; 750 in stable storage and 250 in
-  // unstable.
+  // Populate the log with 1000 entries; 750 in stable storage and 250 in unstable.
   constexpr std::uint64_t LAST_INDEX = 1000;
   constexpr std::uint64_t UNSTABLE_INDEX = 750;
-  auto LAST_TERM = LAST_INDEX;
-  // initial
-  std::vector<std::tuple<uint64_t, uint64_t>> entrie_params;
-  for (std::uint64_t i = 1; i <= UNSTABLE_INDEX; ++i) {
-    entrie_params.push_back({i, i});
-  }
   lepton::memory_storage mm_storage;
-  mm_storage.append(create_entries(entrie_params));
+  mm_storage.append(create_entries_with_term_range(1, 1, UNSTABLE_INDEX + 1));
   pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-
-  entrie_params.clear();
-  for (std::uint64_t i = UNSTABLE_INDEX + 1; i <= LAST_INDEX; ++i) {
-    entrie_params.push_back({i, i});
-  }
   auto raft_log = new_raft_log(memory_storager_view);
-  raft_log->append(create_entries(entrie_params));
-  auto commit_result = raft_log->maybe_commit(lepton::pb::entry_id{.term = LAST_TERM, .index = LAST_INDEX});
+  raft_log->append(create_entries_with_term_range(UNSTABLE_INDEX + 1, UNSTABLE_INDEX + 1, LAST_INDEX + 1));
+  auto commit_result = raft_log->maybe_commit(raft_log->last_entry_id());
   ASSERT_TRUE(commit_result);
   raft_log->applied_to(raft_log->committed(), 0);
 
@@ -435,10 +423,10 @@ TEST_F(raft_log_test_suit, compaction_side_effects) {
     ASSERT_TRUE(raft_log->match_term({i, i}));
   }
 
-  auto ents = raft_log->unstable_entries();
-  ASSERT_EQ(ents.size(), 250);
-  for (std::size_t i = 0; i < ents.size(); ++i) {
-    ASSERT_EQ(ents[i]->index(), UNSTABLE_INDEX + 1 + i);
+  auto unstable_ents = raft_log->next_unstable_ents();
+  ASSERT_EQ(unstable_ents.size(), 250);
+  for (std::size_t i = 0; i < unstable_ents.size(); ++i) {
+    ASSERT_EQ(unstable_ents[i]->index(), UNSTABLE_INDEX + 1 + i);
   }
 
   auto prev = raft_log->last_index();
@@ -452,7 +440,7 @@ TEST_F(raft_log_test_suit, compaction_side_effects) {
 }
 
 TEST_F(raft_log_test_suit, has_next_committed_ents) {
-  struct TestCase {
+  struct test_case {
     uint64_t applied = 0;
     uint64_t applying = 0;
     bool allowUnstable = false;
@@ -461,7 +449,7 @@ TEST_F(raft_log_test_suit, has_next_committed_ents) {
     bool whasNext = false;
   };
 
-  std::vector<TestCase> tests = {
+  std::vector<test_case> tests = {
       // allowUnstable = true 的测试组
       {.applied = 3, .applying = 3, .allowUnstable = true, .whasNext = true},
       {.applied = 3, .applying = 4, .allowUnstable = true, .whasNext = true},
@@ -514,7 +502,7 @@ TEST_F(raft_log_test_suit, has_next_committed_ents) {
 
 TEST_F(raft_log_test_suit, next_committed_ents) {
   auto ents = create_entries(4, {1, 1, 1});
-  struct TestCase {
+  struct test_case {
     uint64_t applied;
     uint64_t applying;
     bool allowUnstable;
@@ -523,8 +511,8 @@ TEST_F(raft_log_test_suit, next_committed_ents) {
     lepton::pb::repeated_entry wents;
 
     // 构造函数：显式设置默认值
-    TestCase(uint64_t applied, uint64_t applying, bool allowUnstable, lepton::pb::repeated_entry wents,
-             bool paused = false, bool snap = false)
+    test_case(uint64_t applied, uint64_t applying, bool allowUnstable, lepton::pb::repeated_entry wents,
+              bool paused = false, bool snap = false)
         : applied(applied),
           applying(applying),
           allowUnstable(allowUnstable),
@@ -533,7 +521,7 @@ TEST_F(raft_log_test_suit, next_committed_ents) {
           wents(std::move(wents)) {}
   };
 
-  std::vector<TestCase> tests = {
+  std::vector<test_case> tests = {
       // allowUnstable = true 的测试组
       {3, 3, true, {ents.begin(), ents.begin() + 2}},
       {3, 4, true, {ents.begin() + 1, ents.begin() + 2}},
@@ -584,9 +572,113 @@ TEST_F(raft_log_test_suit, next_committed_ents) {
   }
 }
 
-// TestUnstableEnts ensures unstableEntries returns the unstable part of the
+TEST_F(raft_log_test_suit, accept_applying) {
+  constexpr lepton::pb::entry_encoding_size MAX_SIZE = 100;
+  struct test_case {
+    uint64_t index = 0;
+    bool allowUnstable = false;
+    lepton::pb::entry_encoding_size size = 0;
+    bool wpaused = false;
+  };
+  auto ents = create_entries(4, {1, 1, 1});
+  std::vector<test_case> tests = {
+      // allowUnstable = true 组
+      {.index = 3, .allowUnstable = true, .size = MAX_SIZE - 1, .wpaused = true},
+      {.index = 3, .allowUnstable = true, .size = MAX_SIZE, .wpaused = true},
+      {.index = 3, .allowUnstable = true, .size = MAX_SIZE + 1, .wpaused = true},
+      {.index = 4, .allowUnstable = true, .size = MAX_SIZE - 1, .wpaused = true},
+      {.index = 4, .allowUnstable = true, .size = MAX_SIZE, .wpaused = true},
+      {.index = 4, .allowUnstable = true, .size = MAX_SIZE + 1, .wpaused = true},
+      {.index = 5, .allowUnstable = true, .size = MAX_SIZE - 1, .wpaused = false},
+      {.index = 5, .allowUnstable = true, .size = MAX_SIZE, .wpaused = true},
+      {.index = 5, .allowUnstable = true, .size = MAX_SIZE + 1, .wpaused = true},
+
+      // allowUnstable = false 组
+      {.index = 3, .allowUnstable = false, .size = MAX_SIZE - 1, .wpaused = true},
+      {.index = 3, .allowUnstable = false, .size = MAX_SIZE, .wpaused = true},
+      {.index = 3, .allowUnstable = false, .size = MAX_SIZE + 1, .wpaused = true},
+      {.index = 4, .allowUnstable = false, .size = MAX_SIZE - 1, .wpaused = false},
+      {.index = 4, .allowUnstable = false, .size = MAX_SIZE, .wpaused = true},
+      {.index = 4, .allowUnstable = false, .size = MAX_SIZE + 1, .wpaused = true},
+      {.index = 5, .allowUnstable = false, .size = MAX_SIZE - 1, .wpaused = false},
+      {.index = 5, .allowUnstable = false, .size = MAX_SIZE, .wpaused = true},
+      {.index = 5, .allowUnstable = false, .size = MAX_SIZE + 1, .wpaused = true},
+  };
+  for (const auto &iter_test : tests) {
+    lepton::memory_storage mm_storage;
+    ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
+    ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
+
+    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
+    auto raft_log = new_raft_log_with_size(memory_storager_view, MAX_SIZE);
+    ASSERT_TRUE(raft_log.has_value());
+
+    raft_log->append(create_entries(4, {1, 1, 1}));
+    raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
+    raft_log->maybe_commit(lepton::pb::entry_id{.term = 1, .index = 5});
+    raft_log->applied_to(3, 0);
+    raft_log->accept_applying(iter_test.index, iter_test.size, iter_test.allowUnstable);
+    if (raft_log->applying_ents_paused() != iter_test.wpaused) {
+      ASSERT_TRUE(false);
+    }
+  }
+}
+
+TEST_F(raft_log_test_suit, applied_to) {
+  constexpr lepton::pb::entry_encoding_size MAX_SIZE = 100;
+  constexpr lepton::pb::entry_encoding_size OVERSHOOT = 5;
+  auto ents = create_entries(4, {1, 1, 1});
+  struct test_case {
+    uint64_t index = 0;
+    lepton::pb::entry_encoding_size size = 0;
+    lepton::pb::entry_encoding_size wapplyingSize = 0;
+    bool wpaused = false;
+  };
+  std::vector<test_case> tests = {
+      // Apply some of in-progress entries
+      {.index = 4, .size = OVERSHOOT - 1, .wapplyingSize = MAX_SIZE + 1, .wpaused = true},
+      {.index = 4, .size = OVERSHOOT, .wapplyingSize = MAX_SIZE, .wpaused = true},
+      {.index = 4, .size = OVERSHOOT + 1, .wapplyingSize = MAX_SIZE - 1, .wpaused = false},
+
+      // Apply all of in-progress entries
+      {.index = 5, .size = OVERSHOOT - 1, .wapplyingSize = MAX_SIZE + 1, .wpaused = true},
+      {.index = 5, .size = OVERSHOOT, .wapplyingSize = MAX_SIZE, .wpaused = true},
+      {.index = 5, .size = OVERSHOOT + 1, .wapplyingSize = MAX_SIZE - 1, .wpaused = false},
+
+      // Apply all of outstanding bytes
+      {.index = 4, .size = MAX_SIZE + OVERSHOOT, .wapplyingSize = 0, .wpaused = false},
+
+      // Apply more than outstanding bytes
+      {.index = 4, .size = MAX_SIZE + OVERSHOOT + 1, .wapplyingSize = 0, .wpaused = false},
+  };
+  for (const auto &iter_test : tests) {
+    lepton::memory_storage mm_storage;
+    ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
+    ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
+
+    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
+    auto raft_log = new_raft_log_with_size(memory_storager_view, MAX_SIZE);
+    ASSERT_TRUE(raft_log.has_value());
+
+    raft_log->append(create_entries(4, {1, 1, 1}));
+    raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
+    raft_log->maybe_commit(lepton::pb::entry_id{.term = 1, .index = 5});
+    raft_log->applied_to(3, 0);
+    raft_log->accept_applying(5, MAX_SIZE + OVERSHOOT, false);
+
+    raft_log->applied_to(iter_test.index, iter_test.size);
+    ASSERT_EQ(iter_test.index, raft_log->applied());
+    ASSERT_EQ(static_cast<std::uint64_t>(5), raft_log->applying());
+    ASSERT_EQ(iter_test.wapplyingSize, raft_log->applying_ents_size());
+    if (raft_log->applying_ents_paused() != iter_test.wpaused) {
+      ASSERT_TRUE(false);
+    }
+  }
+}
+
+// TestNextUnstableEnts ensures unstableEntries returns the unstable part of the
 // entries correctly.
-TEST_F(raft_log_test_suit, unstable_ents) {
+TEST_F(raft_log_test_suit, next_unstable_ents) {
   auto previous_ents = create_entries({{1, 1}, {2, 2}});
   struct test_case {
     std::uint64_t unstable;
@@ -601,7 +693,7 @@ TEST_F(raft_log_test_suit, unstable_ents) {
   for (auto &iter_test : tests) {
     lepton::memory_storage mm_storage;
     lepton::pb::repeated_entry ents;
-    for (std::uint64_t i = 0; i < iter_test.unstable - 1; ++i) {
+    for (int i = 0; i < iter_test.unstable - 1; ++i) {
       ents.Add()->CopyFrom(previous_ents[i]);
     }
     mm_storage.append(std::move(ents));
@@ -614,7 +706,7 @@ TEST_F(raft_log_test_suit, unstable_ents) {
     }
     raft_log->append(std::move(ents));
 
-    auto unstable_ents = raft_log->unstable_entries();
+    auto unstable_ents = raft_log->next_unstable_ents();
     auto wents_span = absl::MakeSpan(iter_test.wents);
     if (unstable_ents != wents_span) {
       GTEST_ASSERT_TRUE(false);

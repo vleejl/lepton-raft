@@ -17,14 +17,14 @@
 #include "types.h"
 
 namespace lepton {
-raft_log::raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t offset, std::uint64_t committed,
-                   std::uint64_t applying, std::uint64_t applied, std::uint64_t max_next_ents_size)
+raft_log::raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t first_index, std::uint64_t last_index,
+                   std::uint64_t max_applying_ents_size)
     : storage_(storage),
-      unstable_(offset),
-      committed_(committed),
-      applying_(applying),
-      applied_(applied),
-      max_applying_ents_size_(max_next_ents_size) {}
+      unstable_(last_index + 1, last_index + 1),
+      committed_(first_index - 1),
+      applying_(first_index - 1),
+      applied_(first_index - 1),
+      max_applying_ents_size_(max_applying_ents_size) {}
 
 std::string raft_log::string() {
   return fmt::format("committed={}, applied={}, applying={}, unstable.offset={}, len(unstable.Entries)={}", committed_,
@@ -480,13 +480,6 @@ std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
   return r.value();
 }
 
-pb::span_entry raft_log::unstable_entries() const {
-  if (unstable_.entries_view().empty()) {
-    return {};
-  }
-  return unstable_.entries_span();
-}
-
 leaf::result<raft_log> new_raft_log_with_size(pro::proxy_view<storage_builer> storage,
                                               pb::entry_encoding_size max_applying_ents_size) {
   if (!storage.has_value()) {
@@ -495,6 +488,6 @@ leaf::result<raft_log> new_raft_log_with_size(pro::proxy_view<storage_builer> st
 
   BOOST_LEAF_AUTO(first_index, storage->first_index());
   BOOST_LEAF_AUTO(last_index, storage->last_index());
-  return raft_log{storage, last_index + 1, first_index - 1, first_index - 1, first_index - 1, max_applying_ents_size};
+  return raft_log{storage, first_index, last_index, max_applying_ents_size};
 }
 }  // namespace lepton
