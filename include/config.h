@@ -30,8 +30,8 @@ enum class read_only_option : int {
 struct config {
   config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy_view<storage_builer> storage,
          std::uint64_t applied_index, std::uint64_t max_size_per_msg, std::uint64_t max_committed_size_per_ready,
-         std::uint64_t max_uncommitted_entries_size, int max_inflight_msgs, bool check_quorum,
-         read_only_option read_only_opt, bool disable_proposal_forwarding)
+         std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes,
+         bool check_quorum, read_only_option read_only_opt, bool disable_proposal_forwarding)
       : id(id),
         election_tick(election_tick),
         heartbeat_tick(heartbeat_tick),
@@ -41,6 +41,7 @@ struct config {
         max_committed_size_per_ready(max_committed_size_per_ready),
         max_uncommitted_entries_size(max_uncommitted_entries_size),
         max_inflight_msgs(max_inflight_msgs),
+        max_inflight_bytes(max_inflight_bytes),
         check_quorum(check_quorum),
         read_only_opt(read_only_opt),
         disable_proposal_forwarding(disable_proposal_forwarding) {
@@ -50,6 +51,10 @@ struct config {
 
     if (this->max_committed_size_per_ready == 0) {
       this->max_committed_size_per_ready = this->max_size_per_msg;
+    }
+
+    if (this->max_inflight_bytes == 0) {
+      this->max_inflight_bytes = NO_LIMIT;
     }
   }
 
@@ -105,6 +110,16 @@ struct config {
   // overflowing that sending buffer. TODO (xiangli): feedback to application to
   // limit the proposal rate?
   std::size_t max_inflight_msgs;
+  // MaxInflightBytes limits the number of in-flight bytes in append messages.
+  // Complements MaxInflightMsgs. Ignored if zero.
+  //
+  // This effectively bounds the bandwidth-delay product. Note that especially
+  // in high-latency deployments setting this too low can lead to a dramatic
+  // reduction in throughput. For example, with a peer that has a round-trip
+  // latency of 100ms to the leader and this setting is set to 1 MB, there is a
+  // throughput limit of 10 MB/s for this group. With RTT of 400ms, this drops
+  // to 2.5 MB/s. See Little's law to understand the maths behind.
+  std::uint64_t max_inflight_bytes;
 
   // CheckQuorum specifies if the leader should check quorum activity. Leader
   // steps down when quorum is not active for an electionTimeout.

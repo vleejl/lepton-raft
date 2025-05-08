@@ -56,6 +56,8 @@ class progress {
 
   auto match() const { return match_; }
 
+  auto next() const { return next_; }
+
   auto is_learner() const { return is_learner_; }
 
   auto set_recent_active(bool active) { recent_active_ = active; }
@@ -67,6 +69,8 @@ class progress {
   auto state() const { return state_; }
 
   void set_pending_snapshot(std::uint64_t pending_snapshot) { pending_snapshot_ = pending_snapshot; }
+
+  const inflights& ref_inflights() const { return inflights_; }
 
   inflights& mutable_inflights() { return inflights_; }
 

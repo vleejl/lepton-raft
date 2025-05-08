@@ -28,6 +28,14 @@ entry_encoding_size ent_size(const pb::span_entry& entries) {
   return size;
 }
 
+entry_payload_size payloads_size(const repeated_entry& entries) {
+  entry_payload_size size = 0;
+  for (const auto& entry : entries) {
+    size += entry.data().size();
+  }
+  return size;
+}
+
 entry_id pb_entry_id(const raftpb::entry* const entry_ptr) {
   assert(entry_ptr != nullptr);
   return {entry_ptr->term(), entry_ptr->index()};

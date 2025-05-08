@@ -77,6 +77,10 @@ class raft {
   // are undesirable when we're sending multiple messages in a batch).
   bool maybe_send_append(std::uint64_t id, bool send_if_empty);
 
+  // maybeSendSnapshot fetches a snapshot from Storage, and sends it to the given
+  // node. Returns true iff the snapshot message has been emitted successfully.
+  bool maybe_send_snapshot(std::uint64_t to, tracker::progress& pr);
+
   // sendAppend sends an append RPC with new entries (if any) and the
   // current commit index to the given peer
   void send_append(std::uint64_t id);
@@ -139,14 +143,14 @@ class raft {
  public:
   //  字段初始化顺序和etcd-raft 一致
   raft(std::uint64_t id, raft_log&& raft_log_handle, std::uint64_t max_size_per_msg,
-       std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, int election_tick, int heartbeat_tick,
-       bool check_quorum, bool pre_vote, read_only_option read_only_opt, bool disable_proposal_forwarding,
-       bool disable_conf_change_validation)
+       std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes,
+       int election_tick, int heartbeat_tick, bool check_quorum, bool pre_vote, read_only_option read_only_opt,
+       bool disable_proposal_forwarding, bool disable_conf_change_validation)
       : id_(id),
         raft_log_handle_(std::move(raft_log_handle)),
         max_msg_size_(max_size_per_msg),
         max_uncommitted_size_(max_uncommitted_entries_size),
-        trk_(tracker::progress_tracker{max_inflight_msgs}),
+        trk_(tracker::progress_tracker{max_inflight_msgs, max_inflight_bytes}),
         is_learner_(false),
         lead_(NONE),
         disable_conf_change_validation_(disable_conf_change_validation),

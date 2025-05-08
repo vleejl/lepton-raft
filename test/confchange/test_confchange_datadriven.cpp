@@ -115,7 +115,7 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
   std::vector<std::string> test_files = get_test_files(project_dir / test_dir);
   for (const auto& test_file : test_files) {
     confchange::changer c{
-        tracker::progress_tracker{10},
+        tracker::progress_tracker{10, 0},
         0  // incremented in this test with each cmd
     };
     data_driven runner{test_file};

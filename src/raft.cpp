@@ -11,6 +11,7 @@
 #include "config.h"
 #include "error.h"
 #include "fmt/format.h"
+#include "progress.h"
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "raft_log.h"
@@ -20,6 +21,7 @@
 #include "state.h"
 #include "state_trace.h"
 #include "status.h"
+#include "tracker.h"
 #include "types.h"
 
 namespace lepton {
@@ -34,6 +36,7 @@ leaf::result<raft> new_raft(const config& c) {
          static_cast<pb::entry_encoding_size>(c.max_size_per_msg),
          static_cast<pb::entry_payload_size>(c.max_uncommitted_entries_size),
          c.max_inflight_msgs,
+         c.max_inflight_bytes,
          c.election_tick,
          c.heartbeat_tick,
          c.check_quorum,
@@ -44,11 +47,9 @@ leaf::result<raft> new_raft(const config& c) {
 
   trace_init_state(r);
   auto last_id = r.raft_log_handle_.last_entry_id();
-  BOOST_LEAF_AUTO(restore_result,
-                  confchange::restor(
-                      conf_state, confchange::changer{tracker::progress_tracker{c.max_inflight_msgs}, last_id.index}));
-  auto [cfg, prs] = std::move(restore_result);
-  pb::assert_conf_states_equivalent(conf_state, r.switch_to_config(std::move(cfg), std::move(prs)));
+  BOOST_LEAF_AUTO(restore_result, confchange::restor(conf_state, confchange::changer{r.trk_.clone(), last_id.index}));
+  auto [cfg, trk] = std::move(restore_result);
+  pb::assert_conf_states_equivalent(conf_state, r.switch_to_config(std::move(cfg), std::move(trk)));
 
   if (pb::is_empty_hard_state(hard_state)) {
     r.load_state(hard_state);
@@ -1064,6 +1065,9 @@ void raft::handle_snapshot(raftpb::message&& message) {
 }
 
 // 在Raft协议中，要求应用快照的节点必须处于Follower状态
+// restore recovers the state machine from a snapshot. It restores the log and the
+// configuration of state machine. If this method returns false, the snapshot was
+// ignored, either because it was obsolete or because of an error.
 bool raft::restore(raftpb::snapshot&& snapshot) {
   if (snapshot.metadata().index() <= raft_log_handle_.committed()) {
     return false;
@@ -1115,19 +1119,94 @@ bool raft::restore(raftpb::snapshot&& snapshot) {
     raft_log_handle_.commit_to(snapshot.metadata().index());
     return false;
   }
-  // TODO
+  raft_log_handle_.restore(std::move(snapshot));
+
+  // Reset the configuration and add the (potentially updated) peers in anew.
+  this->trk_ = tracker::progress_tracker(this->trk_.max_inflight(), this->trk_.max_inflight_bytes());
+  auto restore_result = leaf::try_handle_some(
+      [&]() -> confchange::changer::result {
+        BOOST_LEAF_AUTO(result,
+                        confchange::restor(cs, confchange::changer{this->trk_.clone(), raft_log_handle_.last_index()}));
+        return result;
+      },
+      [&](const lepton::lepton_error& err) -> confchange::changer::result {
+        panic(fmt::format("unable to restore config {}: {}", cs.DebugString(), err.message));
+        return new_error(err);
+      });
+  assert(!restore_result);
+  auto [cfg, trk] = std::move(*restore_result);
+  pb::assert_conf_states_equivalent(cs, this->switch_to_config(std::move(cfg), std::move(trk)));
+  auto last = raft_log_handle_.last_entry_id();
+  SPDLOG_INFO("{} [commit: {}, lastindex: {}, lastterm: {}] restored snapshot [index: {}, term: {}]", id_,
+              raft_log_handle_.committed(), last.index, last.term, entry_id.index, entry_id.term);
+  return true;
 }
 
-bool raft::maybe_send_append(std::uint64_t id, bool send_if_empty) {
-  auto pr_iter = trk_.progress_map_mutable_view().mutable_view().find(id);
+// maybeSendAppend sends an append RPC with new entries to the given peer,
+// if necessary. Returns true if a message was sent. The sendIfEmpty
+// argument controls whether messages with no entries will be sent
+// ("empty" messages are useful to convey updated Commit indexes, but
+// are undesirable when we're sending multiple messages in a batch).
+//
+// TODO(pav-kv): make invocation of maybeSendAppend stateless. The Progress
+// struct contains all the state necessary for deciding whether to send a
+// message.
+bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
+  auto pr_iter = trk_.progress_map_mutable_view().mutable_view().find(to);
   assert(pr_iter != trk_.progress_map_mutable_view().mutable_view().end());
   auto& pr = pr_iter->second;
   if (pr.is_paused()) {
     return false;
   }
 
+  auto prev_index = pr.next() - 1;
+  auto prev_term = raft_log_handle_.term(prev_index);
+  if (!prev_term) {
+    // The log probably got truncated at >= pr.Next, so we can't catch up the
+    // follower log anymore. Send a snapshot instead.
+    return maybe_send_snapshot(to, pr);
+  }
+
+  pb::repeated_entry ents;
+  bool has_error = false;
+  // In a throttled StateReplicate only send empty MsgApp, to ensure progress.
+  // Otherwise, if we had a full Inflights and all inflight messages were in
+  // fact dropped, replication to that follower would stall. Instead, an empty
+  // MsgApp will eventually reach the follower (heartbeats responses prompt the
+  // leader to send an append), allowing it to be acked or rejected, both of
+  // which will clear out Inflights.
+  if (pr.state() != tracker::state_type::STATE_REPLICATE || pr.ref_inflights().full()) {
+    auto ents_result = raft_log_handle_.entries(to, max_msg_size_);
+    if (ents_result) {
+      ents = std::move(*ents_result);
+    } else {
+      has_error = true;
+    }
+  }
+
+  if (ents.empty() && !send_if_empty) {
+    return false;
+  }
+
+  // TODO(pav-kv): move this check up to where err is returned.
+  if (has_error) {  // send a snapshot if we failed to get the entries
+    return maybe_send_snapshot(to, pr);
+  }
+
+  // Send the actual MsgApp otherwise, and update the progress accordingly.
   raftpb::message msg;
-  msg.set_to(id);
+  msg.set_to(to);
+  msg.set_type(raftpb::message_type::MSG_APP);
+  msg.set_index(prev_index);
+  msg.set_term(prev_term.value());
+  msg.mutable_entries()->Swap(&ents);
+  msg.set_commit(raft_log_handle_.committed());
+  pr.sent_entries(static_cast<std::uint64_t>(msg.entries_size()), pb::payloads_size(msg.entries()));
+  pr.sent_commit(msg.commit());
+  return true;
+}
+
+bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
   // TODO
 }
 

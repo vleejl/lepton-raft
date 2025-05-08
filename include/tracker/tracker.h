@@ -141,7 +141,6 @@ struct config {
 // known about the nodes and learners in it. In particular, it tracks the match
 // index for each peer which in turn allows reasoning about the committed index.
 class progress_tracker {
-  NOT_COPYABLE(progress_tracker)
   progress_tracker(config&& cfg, progress_map&& pgs_map, std::unordered_map<std::uint64_t, bool> votes,
                    std::size_t max_inflight, std::uint64_t max_inflight_bytes)
       : config_(std::move(cfg)),
@@ -151,8 +150,9 @@ class progress_tracker {
         max_inflight_bytes_(max_inflight_bytes) {}
 
  public:
-  explicit progress_tracker(std::size_t max_inflight) : config_(), max_inflight_(max_inflight) {}
-  progress_tracker(progress_tracker&&) = default;
+  progress_tracker(std::size_t max_inflight, std::uint64_t max_inflight_bytes)
+      : config_(), max_inflight_(max_inflight), max_inflight_bytes_(max_inflight_bytes) {}
+  MOVABLE_BUT_NOT_COPYABLE(progress_tracker)
 
   progress_tracker clone() {
     return progress_tracker{config_.clone(), progress_map_.clone(), votes_, max_inflight_, max_inflight_bytes_};
