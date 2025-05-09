@@ -259,7 +259,7 @@ class progress_tracker {
 
   // ResetVotes prepares for a new round of vote counting via recordVote.
   // 记录首次投票，而 忽略重复的投票操作。
-  void reste_votes() { votes_.clear(); }
+  void reset_votes() { votes_.clear(); }
 
   void record_vote(std::uint64_t id, bool v) { votes_.insert_or_assign(id, v); }
 

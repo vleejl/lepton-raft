@@ -2,10 +2,12 @@
 
 #include <cassert>
 #include <cstddef>
+#include <magic_enum.hpp>
 
 #include "conf_change.h"
 #include "conf_state.h"
 #include "error.h"
+#include "fmt/format.h"
 
 static raftpb::hard_state EMPTY_STATE;
 
@@ -144,6 +146,17 @@ raftpb::conf_change_v2 convert_conf_change_v2(raftpb::conf_change&& cc) {
   changes->set_node_id(cc.node_id());
   obj.set_allocated_context(cc.release_context());
   return obj;
+}
+
+raftpb::message_type vote_response_type(raftpb::message_type type) {
+  switch (type) {
+    case raftpb::message_type::MSG_VOTE:
+      return raftpb::message_type::MSG_VOTE_RESP;
+    case raftpb::message_type::MSG_PRE_VOTE:
+      return raftpb::message_type::MSG_PRE_VOTE_RESP;
+    default:
+      lepton::panic(fmt::format("not a vote message: {}", magic_enum::enum_name(type)));
+  }
 }
 
 }  // namespace pb

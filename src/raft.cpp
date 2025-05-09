@@ -11,6 +11,9 @@
 #include "config.h"
 #include "error.h"
 #include "fmt/format.h"
+#include "inflights.h"
+#include "leaf.hpp"
+#include "magic_enum.hpp"
 #include "progress.h"
 #include "protobuf.h"
 #include "raft.pb.h"
@@ -226,7 +229,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
 
       pb::repeated_entry entries;
       m.mutable_entries()->Swap(&entries);
-      if (!r.append_entries(std::move(entries))) {
+      if (!r.append_entry(std::move(entries))) {
         return new_error(logic_error::PROPOSAL_DROPPED);
       }
       r.bcast_append();
@@ -1142,15 +1145,6 @@ bool raft::restore(raftpb::snapshot&& snapshot) {
   return true;
 }
 
-// maybeSendAppend sends an append RPC with new entries to the given peer,
-// if necessary. Returns true if a message was sent. The sendIfEmpty
-// argument controls whether messages with no entries will be sent
-// ("empty" messages are useful to convey updated Commit indexes, but
-// are undesirable when we're sending multiple messages in a batch).
-//
-// TODO(pav-kv): make invocation of maybeSendAppend stateless. The Progress
-// struct contains all the state necessary for deciding whether to send a
-// message.
 bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   auto pr_iter = trk_.progress_map_mutable_view().mutable_view().find(to);
   assert(pr_iter != trk_.progress_map_mutable_view().mutable_view().end());
@@ -1207,7 +1201,49 @@ bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
 }
 
 bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
-  // TODO
+  if (!pr.recent_active()) {
+    return false;
+  }
+
+  auto snap_result = leaf::try_handle_some(
+      [&]() -> leaf::result<raftpb::snapshot> {
+        BOOST_LEAF_AUTO(result, raft_log_handle_.snapshot());
+        return result;
+      },
+      [&](const lepton::lepton_error& err) -> leaf::result<raftpb::snapshot> {
+        if (err == storage_error::SNAPSHOT_TEMPORARILY_UNAVAILABLE) {
+          SPDLOG_DEBUG("{} failed to send snapshot to %x because snapshot is temporarily unavailable", id_, to);
+          return new_error(err);
+        }
+        panic(err.message);
+        return new_error(err);
+      });
+  ;
+  // 预期这里只会出现 SNAPSHOT_TEMPORARILY_UNAVAILABLE
+  if (!snap_result) {
+    return false;
+  }
+  if (pb::is_empty_snap(snap_result.value())) {
+    panic("need non-empty snapshot");
+  }
+
+  auto sindex = snap_result->metadata().index();
+  auto sterm = snap_result->metadata().term();
+  auto first_index = raft_log_handle_.first_index();
+  auto committed = raft_log_handle_.committed();
+  SPDLOG_DEBUG("{} [firstindex: {}, commit: {}] sent snapshot[index: {}, term: {}] to {} [{}]", id_, first_index,
+               committed, sindex, sterm, to, pr);
+  pr.become_snapshot(sindex);
+  SPDLOG_DEBUG(("{} paused sending replication messages to {} [{}]", id_, to, pr));
+
+  raftpb::message msg;
+  msg.set_to(to);
+  msg.set_type(raftpb::message_type::MSG_SNAP);
+  msg.mutable_snapshot()->Swap(&*snap_result);
+  // existing_snap 现在已为空
+  assert(!snap_result->has_metadata());
+  send(std::move(msg));
+  return true;
 }
 
 void raft::send_append(std::uint64_t id) { maybe_send_append(id, true); }
@@ -1256,8 +1292,38 @@ bool raft::maybe_commit() {
   return raft_log_handle_.maybe_commit(pb::entry_id{.term = term_, .index = mci});
 }
 
-bool raft::append_entries(pb::repeated_entry&& entries) {
-  // TODO
+bool raft::append_entry(pb::repeated_entry&& entries) {
+  auto li = raft_log_handle_.last_index();
+  for (int i = 0; i < entries.size(); ++i) {
+    entries[i].set_term(term_);
+    entries[i].set_index(li + 1 + static_cast<std::uint64_t>(i));
+  }
+  // Track the size of this uncommitted proposal.
+  if (!increase_uncommitted_size(entries)) {
+    SPDLOG_WARN("{} appending new entries to log would exceed uncommitted entry size limit; dropping proposal", id_);
+    // Drop the proposal.
+    return false;
+  }
+
+  trace_replicate(*this, entries);
+
+  // use latest "last" index after truncate/append
+  li = raft_log_handle_.append(std::move(entries));
+  // The leader needs to self-ack the entries just appended once they have
+  // been durably persisted (since it doesn't send an MsgApp to itself). This
+  // response message will be added to msgsAfterAppend and delivered back to
+  // this node after these entries have been written to stable storage. When
+  // handled, this is roughly equivalent to:
+  //
+  //  r.trk.Progress[r.id].MaybeUpdate(e.Index)
+  //  if r.maybeCommit() {
+  //  	r.bcastAppend()
+  //  }
+  raftpb::message m;
+  m.set_to(id_);
+  m.set_type(raftpb::message_type::MSG_APP_RESP);
+  m.set_index(li);
+  return true;
 }
 
 void raft::tick_election() {
@@ -1271,8 +1337,78 @@ void raft::tick_election() {
   }
 }
 
+void raft::tick_heartbeat() {
+  heartbeat_elapsed_++;
+  election_elapsed_++;
+
+  if (election_elapsed_ >= election_timeout_) {
+    election_elapsed_ = 0;
+    if (check_quorum_) {
+      raftpb::message m;
+      m.set_from(id_);
+      m.set_type(raftpb::message_type::MSG_CHECK_QUORUM);
+      auto _ = leaf::try_handle_some(
+          [&]() -> leaf::result<void> {
+            BOOST_LEAF_CHECK(step(std::move(m)));
+            return {};
+          },
+          [&](const lepton::lepton_error& err) -> leaf::result<void> {
+            SPDLOG_DEBUG("{} failed to send check quorum message: {}", id_, err.message);
+            return {};
+          });
+    }
+    // If current leader cannot transfer leadership in electionTimeout, it becomes leader again.
+    // 若在 electionTimeout 内未完成转移，Leader 终止流程继续服务，避免阻塞。
+    if ((state_type_ == state_type::STATE_LEADER) && (leader_transferee_ != NONE)) {
+      SPDLOG_DEBUG("{} [term {}] leader transfer timeout, become leader again", id_, term_);
+      abort_leader_transfer();
+    }
+  }
+  if (state_type_ != state_type::STATE_LEADER) {
+    return;
+  }
+  if (heartbeat_elapsed_ >= heartbeat_timeout_) {
+    heartbeat_elapsed_ = 0;
+    raftpb::message m;
+    m.set_from(id_);
+    m.set_type(raftpb::message_type::MSG_BEAT);
+    auto _ = leaf::try_handle_some(
+        [&]() -> leaf::result<void> {
+          BOOST_LEAF_CHECK(step(std::move(m)));
+          return {};
+        },
+        [&](const lepton::lepton_error& err) -> leaf::result<void> {
+          SPDLOG_DEBUG("{} error occurred during checking sending heartbeat: {}", id_, err.message);
+          return {};
+        });
+  }
+}
+
 void raft::reset(std::uint64_t term) {
-  // TODO
+  if (term_ != term) {
+    term_ = term;
+    vote_id_ = NONE;
+  }
+  lead_ = NONE;
+  election_elapsed_ = 0;
+  heartbeat_elapsed_ = 0;
+  reset_randomized_election_timeout();
+
+  abort_leader_transfer();
+
+  trk_.reset_votes();
+
+  trk_.visit([&](std::uint64_t id, tracker::progress& pr) {
+    pr = tracker::progress{raft_log_handle_.last_index(),
+                           tracker::inflights{trk_.max_inflight(), trk_.max_inflight_bytes()}, pr.is_learner(), false};
+    if (id_ == id) {
+      pr.set_match(raft_log_handle_.last_index());
+    }
+  });
+
+  pending_conf_index_ = 0;
+  uncommitted_size_ = 0;
+  read_only_ = read_only{read_only_.read_only_opt()};
 }
 
 void raft::send_timmeout_now(std::uint64_t id) {
@@ -1357,7 +1493,51 @@ bool raft::promotable() {
 }
 
 void raft::campaign(campaign_type t) {
-  // TODO
+  if (!promotable()) {
+    // This path should not be hit (callers are supposed to check), but
+    // better safe than sorry.
+    SPDLOG_WARN("{} is unpromotable; campaign() should have been called", id_);
+  }
+  std::uint64_t term = 0;
+  raftpb::message_type vote_msg_type;
+  if (t == campaign_type::CAMPAIGN_PRE_ELECTION) {
+    become_pre_candidate();
+    vote_msg_type = raftpb::message_type::MSG_PRE_VOTE;
+    term = term_ + 1;
+  } else {
+    become_candidate();
+    vote_msg_type = raftpb::message_type::MSG_VOTE;
+    term = term_ + 1;
+  }
+  auto ids = trk_.vote_nodes();
+  for (const auto& id : ids) {
+    raftpb::message m;
+    m.set_to(id);
+    m.set_term(term);
+
+    if (id == id_) {
+      m.set_type(pb::vote_response_type(vote_msg_type));
+      // The candidate votes for itself and should account for this self
+      // vote once the vote has been durably persisted (since it doesn't
+      // send a MsgVote to itself). This response message will be added to
+      // msgsAfterAppend and delivered back to this node after the vote
+      // has been written to stable storage.
+      send(std::move(m));
+      continue;
+    }
+    auto last = raft_log_handle_.last_entry_id();
+    SPDLOG_INFO("{} [logterm: {}, index: {}] sent {} [logterm: {}, index: {}] to {}", id_, last.term, last.index,
+                magic_enum::enum_name(vote_msg_type), term, last.index, id);
+    std::string ctx;
+    if (t == campaign_type::CAMPAIGN_TRANSFER) {
+      ctx = magic_enum::enum_name(t);
+    }
+    m.set_type(vote_msg_type);
+    m.set_index(last.index);
+    m.set_log_term(last.term);
+    *m.mutable_context() = std::move(ctx);
+    send(std::move(m));
+  }
 }
 
 std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::uint64_t id, raftpb::message_type vt,
@@ -1371,8 +1551,78 @@ std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::ui
   return trk_.tally_votes();
 }
 
+void raft::become_candidate() {
+  // TODO(xiangli) remove the panic when the raft implementation is stable
+  if (state_type_ == state_type::STATE_LEADER) {
+    panic(fmt::format("{} [term {}] invalid transition [leader -> candidate]", id_, term_));
+  }
+  // Becoming a candidate changes our step functions and state, but
+  // doesn't change anything else. In particular it does not increase
+  // r.Term or change r.Vote.
+  step_func_ = step_candidate;
+  reset(term_ + 1);
+  tick_func_ = [this]() { tick_election(); };
+  vote_id_ = id_;
+  state_type_ = state_type::STATE_CANDIDATE;
+  SPDLOG_INFO("{} [term {}] became candidate", id_, term_);
+
+  trace_become_candidate(*this);
+}
+
+void raft::become_pre_candidate() {
+  // TODO(xiangli) remove the panic when the raft implementation is stable
+  if (state_type_ == state_type::STATE_LEADER) {
+    panic(fmt::format("{} [term {}] invalid transition [leader -> pre-candidate]", id_, term_));
+  }
+  // Becoming a pre-candidate changes our step functions and state,
+  // but doesn't change anything else. In particular it does not increase
+  // r.Term or change r.Vote.
+  step_func_ = step_candidate;
+  trk_.reset_votes();
+  tick_func_ = [this]() { tick_election(); };
+  lead_ = NONE;
+  state_type_ = state_type::STATE_PRE_CANDIDATE;
+  SPDLOG_INFO("{} [term {}] became pre-candidate", id_, term_);
+}
+
 void raft::become_leader() {
-  // TODO
+  // TODO(xiangli) remove the panic when the raft implementation is stable
+  if (state_type_ == state_type::STATE_FOLLOWER) {
+    panic(fmt::format("{} [term {}] invalid transition [follower -> leader]", id_, term_));
+  }
+  step_func_ = step_leader;
+  reset(term_);
+  tick_func_ = [this]() { tick_heartbeat(); };
+  lead_ = id_;
+  state_type_ = state_type::STATE_LEADER;
+  // Followers enter replicate mode when they've been successfully probed
+  // (perhaps after having received a snapshot as a result). The leader is
+  // trivially in this state. Note that r.reset() has initialized this
+  // progress with the last index already.
+  auto& pr = trk_.progress_map_mutable_view().mutable_view().at(id_);
+  pr.become_replicate();
+  // The leader always has RecentActive == true; MsgCheckQuorum makes sure to
+  // preserve this.
+  pr.set_recent_active(true);
+
+  // Conservatively set the pendingConfIndex to the last index in the
+  // log. There may or may not be a pending config change, but it's
+  // safe to delay any future proposals until we commit all our
+  // pending log entries, and scanning the entire tail of the log
+  // could be expensive.
+  pending_conf_index_ = raft_log_handle_.last_index();
+  trace_become_leader(*this);
+  pb::repeated_entry empty_ent;
+  assert(empty_ent.empty());
+  if (!append_entry(std::move(empty_ent))) {
+    // This won't happen because we just called reset() above.
+    panic("empty entry was dropped");
+  }
+  // The payloadSize of an empty entry is 0 (see TestPayloadSizeOfEmptyEntry),
+  // so the preceding log append does not count against the uncommitted log
+  // quota of the new leader. In other words, after the call to appendEntry,
+  // r.uncommittedSize is still 0.
+  SPDLOG_INFO("{} [term {}] became leader at term {}", id_, term_, term_);
 }
 
 void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
@@ -1384,7 +1634,13 @@ void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
 }
 
 leaf::result<void> raft::step(raftpb::message&& m) {
-  // TODO
+  // TODO(vleejl)
+}
+
+void raft::reset_randomized_election_timeout() {
+  static std::mt19937 rng(std::random_device{}());  // 静态生成器
+  std::uniform_int_distribution<int> dist(0, election_timeout_ - 1);
+  randomized_election_timeout_ = election_timeout_ + dist(rng);
 }
 
 bool raft::committed_entry_in_current_term() const {
@@ -1405,5 +1661,21 @@ raftpb::message raft::response_to_read_index_req(raftpb::message&& req, std::uin
   resp.set_index(read_index);
   req.mutable_entries()->Swap(resp.mutable_entries());
   return resp;
+}
+
+bool raft::increase_uncommitted_size(const pb::repeated_entry& entries) {
+  auto size = pb::payloads_size(entries);
+  if ((uncommitted_size_ > 0) && (size > 0) && (size + uncommitted_size_ > max_uncommitted_size_)) {
+    // If the uncommitted tail of the Raft log is empty, allow any size
+    // proposal. Otherwise, limit the size of the uncommitted tail of the
+    // log and drop any proposal that would push the size over the limit.
+    // Note the added requirement s>0 which is used to make sure that
+    // appending single empty entries to the log always succeeds, used both
+    // for replicating a new leader's initial empty entry, and for
+    // auto-leaving joint configurations.
+    return false;
+  }
+  uncommitted_size_ += size;
+  return true;
 }
 }  // namespace lepton

@@ -21,16 +21,14 @@ struct inflights_data {
   auto operator<=>(const inflights_data &) const = default;
 };
 class inflights {
-  NOT_COPYABLE(inflights)
   inflights(size_t size, std::deque<inflights_data> &&buffer) : capacity_(size), buffer_(buffer) {}
 
  public:
+  MOVABLE_BUT_NOT_COPYABLE(inflights)
   inflights(size_t size) : capacity_(size) {}
   // NewInflights sets up an Inflights that allows up to 'size' inflight
   // messages.
   inflights(size_t size, std::uint64_t max_bytes) : capacity_(size), max_bytes_(max_bytes) {}
-
-  inflights(inflights &&) = default;
 
   inflights clone() const {
     std::deque<inflights_data> buffer = buffer_;

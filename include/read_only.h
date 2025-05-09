@@ -44,10 +44,9 @@ struct read_index_status {
 };
 
 class read_only {
-  NOT_COPYABLE(read_only)
  public:
+  MOVABLE_BUT_NOT_COPYABLE(read_only)
   read_only(read_only_option read_only_opt) : option_(read_only_opt) {}
-  read_only(read_only&&) = default;
   auto read_only_opt() const { return option_; }
   // addRequest adds a read only request into readonly struct.
   // `index` is the commit index of the raft state machine when it received

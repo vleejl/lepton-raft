@@ -37,6 +37,9 @@ bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs);
 
 bool is_empty_hard_state(const raftpb::hard_state& hs);
 
+// voteResponseType maps vote and prevote message types to their corresponding responses.
+raftpb::message_type vote_response_type(raftpb::message_type type);
+
 }  // namespace pb
 
 }  // namespace lepton

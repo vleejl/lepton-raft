@@ -24,7 +24,6 @@ namespace tracker {
 // strewn around `*raft.raft`. Additionally, some fields are only used when in a
 // certain State. All of this isn't ideal.
 class progress {
-  NOT_COPYABLE(progress)
   progress(std::uint64_t match, std::uint64_t next, state_type state, std::uint64_t pending_snapshot,
            bool recent_active, bool probe_sent, inflights&& inflights, bool is_learner)
       : match_(match),
@@ -37,6 +36,7 @@ class progress {
         is_learner_(is_learner) {}
 
  public:
+  MOVABLE_BUT_NOT_COPYABLE(progress)
   progress(std::uint64_t next, inflights&& inflights, bool is_learner, bool recent_active)
       : match_(0),
         next_(next),
@@ -46,13 +46,14 @@ class progress {
         msg_app_flow_paused_(false),
         inflights_(std::move(inflights)),
         is_learner_(is_learner) {}
-  progress(progress&&) = default;
 
   progress clone() const {
     return progress{
         match_,     next_, state_, pending_snapshot_, recent_active_, msg_app_flow_paused_, inflights_.clone(),
         is_learner_};
   }
+
+  void set_match(std::uint64_t match) { match_ = match; }
 
   auto match() const { return match_; }
 
@@ -326,7 +327,7 @@ class progress {
   // converting to `StateProbe` or when receiving a rejection from a follower.
   //
   // In StateSnapshot, sentCommit == PendingSnapshot == Next-1.
-  std::uint64_t sent_commit_;
+  std::uint64_t sent_commit_ = 0;
 
   // State defines how the leader should interact with the follower.
   //

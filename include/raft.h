@@ -75,6 +75,10 @@ class raft {
   // argument controls whether messages with no entries will be sent
   // ("empty" messages are useful to convey updated Commit indexes, but
   // are undesirable when we're sending multiple messages in a batch).
+  //
+  // TODO(pav-kv): make invocation of maybeSendAppend stateless. The Progress
+  // struct contains all the state necessary for deciding whether to send a
+  // message.
   bool maybe_send_append(std::uint64_t id, bool send_if_empty);
 
   // maybeSendSnapshot fetches a snapshot from Storage, and sends it to the given
@@ -102,9 +106,12 @@ class raft {
   // r.bcastAppend).
   bool maybe_commit();
 
-  bool append_entries(pb::repeated_entry&& entries);
+  bool append_entry(pb::repeated_entry&& entries);
 
   void tick_election();
+
+  // tickHeartbeat is run by leaders to send a MsgBeat after r.heartbeatTimeout.
+  void tick_heartbeat();
 
   void reset(std::uint64_t term);
 
@@ -126,12 +133,13 @@ class raft {
   bool promotable();
 
   // campaign transitions the raft instance to candidate state.
-  // This must only be
-  // called after verifying that this is a legitimate transition.
+  // This must only be called after verifying that this is a legitimate transition.
   void campaign(campaign_type t);
 
   std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id, raftpb::message_type vt,
                                                                      bool vote);
+
+  void reset_randomized_election_timeout();
 
   // committedEntryInCurrentTerm return true if the peer has committed an entry in its term.
   bool committed_entry_in_current_term() const;
@@ -139,6 +147,16 @@ class raft {
   // responseToReadIndexReq constructs a response for `req`. If `req` comes from the peer
   // itself, a blank value will be returned.
   raftpb::message response_to_read_index_req(raftpb::message&& req, std::uint64_t read_index);
+
+  // increaseUncommittedSize computes the size of the proposed entries and
+  // determines whether they would push leader over its maxUncommittedSize limit.
+  // If the new entries would exceed the limit, the method returns false. If not,
+  // the increase in uncommitted entry size is recorded and the method returns
+  // true.
+  //
+  // Empty payloads are never refused. This is used both for appending an empty
+  // entry at a new leader's term, as well as leaving a joint configuration.
+  bool increase_uncommitted_size(const pb::repeated_entry& entries);
 
  public:
   //  字段初始化顺序和etcd-raft 一致
@@ -162,6 +180,10 @@ class raft {
         disable_proposal_forwarding_(disable_proposal_forwarding) {}
   raft(raft&&) = default;
 
+  void become_candidate();
+
+  void become_pre_candidate();
+
   void become_leader();
 
   void become_follower(std::uint64_t term, std::uint64_t lead);
@@ -170,7 +192,7 @@ class raft {
 
  private:
   // 对应config 配置里的 id，表示唯一一个raft 节点
-  std::uint64_t id_ = NONE;
+  const std::uint64_t id_ = NONE;
 
   // 当前节点所处的任期号。Raft 协议通过任期号来避免旧日志覆盖新日志。当 term
   // 发生变化时，Raft 会重新选举领导者。
@@ -190,9 +212,9 @@ class raft {
 
   // 节点可以发送的最大消息大小。用于限制 Raft
   // 节点发送的消息的大小，避免单个消息过大导致性能下降或网络问题。
-  std::uint64_t max_msg_size_ = 0;
+  const std::uint64_t max_msg_size_ = 0;
   // 表示尚未提交的日志条目的最大大小。这个字段有助于控制日志条目的大小，防止在日志还没有被提交的情况下占用过多的内存。
-  std::uint64_t max_uncommitted_size_ = 0;
+  const std::uint64_t max_uncommitted_size_ = 0;
 
   // 跟踪所有 Raft 节点的进度。ProgressTracker
   // 是一个用于跟踪节点在复制日志过程中的进度（如已复制的日志条目）。它通常会跟踪每个节点的日志索引、已提交的日志索引等。
@@ -267,7 +289,7 @@ class raft {
 
   // 心跳超时的值。领导者节点定期发送心跳，防止其他节点启动选举。heartbeatTimeout
   // 控制心跳的超时设置。
-  int heartbeat_timeout_ = 0;
+  const int heartbeat_timeout_ = 0;
   // 选举超时的值。每个 Raft
   // 节点都会设置一个选举超时值，当超过此时间后，节点如果没有收到来自领导者的消息，会开始启动新的选举过程。
   const int election_timeout_ = 0;
