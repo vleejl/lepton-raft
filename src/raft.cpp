@@ -181,7 +181,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
               SPDLOG_CRITICAL("entry hex:{} conf change parse from string failed ", e.data());
               assert(false);
             }
-            cc.emplace(pb::convert_conf_change_v2(std::move(ccc)));
+            cc.emplace(pb::conf_change_as_v2(std::move(ccc)));
             break;
           }
           case raftpb::ENTRY_CONF_CHANGE_V2: {
@@ -1287,6 +1287,53 @@ void raft::bcast_heartbeat_with_ctx(std::string&& ctx) {
   });
 }
 
+void raft::applied_to(std::uint64_t index, pb::entry_encoding_size size) {
+  auto old_applied = raft_log_handle_.applied();
+  auto new_applied = std::max(index, old_applied);
+  raft_log_handle_.applied_to(new_applied, size);
+  if (trk_.config_view().auto_leave && new_applied >= pending_conf_index_ && state_type_ == state_type::STATE_LEADER) {
+    // If the current (and most recent, at least for this leader's term)
+    // configuration should be auto-left, initiate that now. We use a
+    // nil Data which unmarshals into an empty ConfChangeV2 and has the
+    // benefit that appendEntry can never refuse it based on its size
+    // (which registers as zero).
+    auto m = leaf::try_handle_some(
+        [&]() -> leaf::result<raftpb::message> {
+          pb::conf_change_var empty_cc = std::monostate{};
+          BOOST_LEAF_AUTO(v, pb::conf_change_to_message(empty_cc));
+          return v;
+        },
+        [&](const lepton::lepton_error& err) -> leaf::result<raftpb::message> {
+          SPDLOG_DEBUG("{} failed to leave configuration change: {}", id_, err.message);
+          return {};
+        });
+    assert(!m);
+    // NB: this proposal can't be dropped due to size, but can be
+    // dropped if a leadership transfer is in progress. We'll keep
+    // checking this condition on each applied entry, so either the
+    // leadership transfer will succeed and the new leader will leave
+    // the joint configuration, or the leadership transfer will fail,
+    // and we will propose the config change on the next advance.
+    auto _ = leaf::try_handle_some(
+        [&]() -> leaf::result<void> {
+          BOOST_LEAF_CHECK(step(std::move(m.value())));
+          SPDLOG_INFO("initiating automatic transition out of joint configuration {}", trk_.config_view().string());
+          return {};
+        },
+        [&](const lepton::lepton_error& err) -> leaf::result<void> {
+          SPDLOG_DEBUG("not initiating automatic transition out of joint configuration {}: {}",
+                       trk_.config_view().string(), err.message);
+          return {};
+        });
+  }
+}
+
+void raft::applied_snap(const raftpb::snapshot& snapshot) {
+  auto index = snapshot.metadata().index();
+  raft_log_handle_.stable_snap_to(index);
+  applied_to(index, 0);
+}
+
 bool raft::maybe_commit() {
   auto mci = trk_.committed();
   return raft_log_handle_.maybe_commit(pb::entry_id{.term = term_, .index = mci});
@@ -1634,7 +1681,225 @@ void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
 }
 
 leaf::result<void> raft::step(raftpb::message&& m) {
-  // TODO(vleejl)
+  trace_receive_message(*this, m);
+
+  // Handle the message term, which may result in our stepping down to a follower.
+  if (m.term() == 0) {
+    // local message
+    SPDLOG_TRACE("{} [term {}] received local message: {}", id_, term_, m.DebugString());
+  } else if (m.term() > term_) {
+    if ((m.type() == raftpb::message_type::MSG_VOTE) || (m.type() == raftpb::message_type::MSG_PRE_VOTE)) {
+      auto force = m.context() == magic_enum::enum_name(campaign_type::CAMPAIGN_TRANSFER);
+      // 当前节点是否在租约期内（即 Leader 有效期内）
+      auto inLease = check_quorum_ && (lead_ != NONE) && (election_elapsed_ < election_timeout_);
+      // 若在租约期内且非强制转移，忽略投票请求，防止无效选举
+      if (!force && inLease) {
+        // If a server receives a RequestVote request within the minimum election timeout
+        // of hearing from a current leader, it does not update its term or grant its vote
+        auto last = raft_log_handle_.last_entry_id();
+        // TODO(pav-kv): it should be ok to simply print the %+v of the lastEntryID.
+        SPDLOG_INFO(
+            "{} [logterm: {}, index: {}, vote: {}] ignored {} from {} [term: {}, index: {}] at term {}: lease is not "
+            "expired (remaining ticks: {})",
+            id_, last.term, last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.term(), m.index(), term_,
+            election_timeout_ - election_elapsed_);
+        return {};
+      }
+    }
+    if (m.type() == raftpb::message_type::MSG_PRE_VOTE) {
+      // Never change our term in response to a PreVote
+      SPDLOG_TRACE("{} [term {}] ignored PreVote from {} [term: {}, index: {}]", id_, term_, m.from(), m.term(),
+                   m.index());
+    } else if (m.type() == raftpb::message_type::MSG_PRE_VOTE_RESP && !m.reject()) {
+      // We send pre-vote requests with a term in our future. If the
+      // pre-vote is granted, we will increment our term when we get a
+      // quorum. If it is not, the term comes from the node that
+      // rejected our vote so we should become a follower at the new
+      // term.
+      SPDLOG_TRACE("{} [term {}] received PreVoteResp from {} [term: {}, index: {}]", id_, term_, m.from(), m.term(),
+                   m.index());
+    } else {
+      SPDLOG_INFO("{} [term {}] received {} from {} [term: {}, index: {}]", id_, term_, magic_enum::enum_name(m.type()),
+                  m.from(), m.term(), m.index());
+      if (m.type() == raftpb::message_type::MSG_VOTE || m.type() == raftpb::message_type::MSG_HEARTBEAT ||
+          m.type() == raftpb::message_type::MSG_SNAP) {
+        // MsgApp/MsgHeartbeat/MsgSnap：来自合法 Leader 的消息，直接更新 Leader。
+        become_follower(m.term(), m.from());
+      } else {
+        // 其他消息（如 MsgVote）：转为 Follower，但 Leader 未知（设为 None）。
+        become_follower(m.term(), NONE);
+      }
+    }
+  } else if (m.term() < term_) {
+    if ((check_quorum_ || pre_vote_) &&
+        (m.type() == raftpb::message_type::MSG_HEARTBEAT || m.type() == raftpb::message_type::MSG_APP)) {
+      // We have received messages from a leader at a lower term. It is possible
+      // that these messages were simply delayed in the network, but this could
+      // also mean that this node has advanced its term number during a network
+      // partition, and it is now unable to either win an election or to rejoin
+      // the majority on the old term. If checkQuorum is false, this will be
+      // handled by incrementing term numbers in response to MsgVote with a
+      // higher term, but if checkQuorum is true we may not advance the term on
+      // MsgVote and must generate other messages to advance the term. The net
+      // result of these two features is to minimize the disruption caused by
+      // nodes that have been removed from the cluster's configuration: a
+      // removed node will send MsgVotes (or MsgPreVotes) which will be ignored,
+      // but it will not receive MsgApp or MsgHeartbeat, so it will not create
+      // disruptive term increases, by notifying leader of this node's activeness.
+      // The above comments also true for Pre-Vote
+      //
+      // When follower gets isolated, it soon starts an election ending
+      // up with a higher term than leader, although it won't receive enough
+      // votes to win the election. When it regains connectivity, this response
+      // with "pb.MsgAppResp" of higher term would force leader to step down.
+      // However, this disruption is inevitable to free this stuck node with
+      // fresh election. This can be prevented with Pre-Vote phase.
+
+      // 通知旧 Leader 当前节点已处于更高 Term，迫使其下台。
+      // 当节点因网络分区提升 Term 后，旧 Leader 可能仍在发送心跳或日志请求。通过返回 MsgAppResp（携带当前节点的更高
+      // Term），旧 Leader 会发现自己 Term 过低，触发 Step 函数中的 becomeFollower 逻辑，从而下台并更新 Term。
+      raftpb::message resp;
+      resp.set_to(m.from());
+      resp.set_type(raftpb::message_type::MSG_APP_RESP);
+      send(std::move(resp));
+    } else if (m.type() == raftpb::message_type::MSG_PRE_VOTE) {
+      // Before Pre-Vote enable, there may have candidate with higher term,
+      // but less log. After update to Pre-Vote, the cluster may deadlock if
+      // we drop messages with a lower term.
+      // 若 Candidate 在低 Term 发起预投票，而当前节点已处于更高 Term，直接返回拒绝响应。Candidate 收到后会发现 Term
+      // 落后，停止预投票流程，避免干扰集群。
+      auto last = raft_log_handle_.last_entry_id();
+      SPDLOG_INFO("{} [logterm: {}, index: {}, vote: {}] rejected {} from {} [logterm: {}, index: {}] at term %d", id_,
+                  last.term, last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.term(), m.index());
+      raftpb::message resp;
+      resp.set_to(m.from());
+      resp.set_from(term_);
+      resp.set_type(raftpb::message_type::MSG_PRE_VOTE_RESP);
+      resp.set_reject(true);
+      send(std::move(resp));
+    } else if (m.type() == raftpb::message_type::MSG_STORAGE_APPEND_RESP) {
+      if (m.index() != 0) {
+        // 忽略日志追加结果，因为低 Term 的日志可能已被更高 Term 的日志覆盖。记录警告日志。
+        // Don't consider the appended log entries to be stable because
+        // they may have been overwritten in the unstable log during a
+        // later term. See the comment in newStorageAppendResp for more
+        // about this race.
+        SPDLOG_INFO("{} [term: {}] ignored entry appends from a {} message with lower term [term: {}]", id_, term_,
+                    magic_enum::enum_name(m.type()), m.term());
+      }
+      if (m.has_snapshot()) {
+        // Even if the snapshot applied under a different term, its
+        // application is still valid. Snapshots carry committed
+        // (term-independent) state.
+        applied_snap(m.snapshot());
+      }
+    } else {
+      // ignore other cases
+      SPDLOG_INFO("{} [term {}] ignored a {} message with lower term from {} [term: {}]", id_, term_,
+                  magic_enum::enum_name(m.type()), m.from(), m.term());
+    }
+    return {};
+  }
+
+  switch (m.type()) {
+    case raftpb::message_type::MSG_HUP: {
+      if (pre_vote_) {
+        hup(campaign_type::CAMPAIGN_PRE_ELECTION);
+      } else {
+        hup(campaign_type::CAMPAIGN_ELECTION);
+      }
+      break;
+    }
+    case raftpb::message_type::MSG_STORAGE_APPEND_RESP: {
+      if (m.index() != 0) {
+        raft_log_handle_.stable_to({m.term(), m.index()});
+      }
+      if (m.has_snapshot()) {
+        applied_snap(m.snapshot());
+      }
+    }
+    case raftpb::message_type::MSG_STORAGE_APPLY_RESP: {
+      if (m.entries_size() > 0) {
+        auto index = m.entries().at(m.entries_size() - 1).index();
+        applied_to(index, pb::ent_size(m.entries()));
+        reduce_uncommitted_size(pb::payloads_size(m.entries()));
+      }
+      break;
+    }
+    case raftpb::message_type::MSG_VOTE:
+    case raftpb::message_type::MSG_PRE_VOTE: {
+      // We can vote if this is a repeat of a vote we've already cast...
+      auto can_vote =
+          vote_id_ == m.from() ||  // // 已投给该候选者
+                                   // ...we haven't voted and we don't think there's a leader yet in this term...
+          (vote_id_ == NONE && lead_ == NONE) ||  // 未投票且无 Leader
+          // ...or this is a PreVote for a future term...
+          // 消息类型是预投票且请求的消息的 Term 更高
+          (m.type() == raftpb::message_type::MSG_PRE_VOTE && m.term() > term_);
+      // ...and we believe the candidate is up to date.
+      auto last = raft_log_handle_.last_entry_id();
+      auto cand_last_id = pb::entry_id{.term = m.log_term(), .index = m.index()};
+      if (can_vote && raft_log_handle_.is_up_to_date(cand_last_id)) {
+        // Note: it turns out that that learners must be allowed to cast votes.
+        // This seems counter- intuitive but is necessary in the situation in which
+        // a learner has been promoted (i.e. is now a voter) but has not learned
+        // about this yet.
+        // For example, consider a group in which id=1 is a learner and id=2 and
+        // id=3 are voters. A configuration change promoting 1 can be committed on
+        // the quorum `{2,3}` without the config change being appended to the
+        // learner's log. If the leader (say 2) fails, there are de facto two
+        // voters remaining. Only 3 can win an election (due to its log containing
+        // all committed entries), but to do so it will need 1 to vote. But 1
+        // considers itself a learner and will continue to do so until 3 has
+        // stepped up as leader, replicates the conf change to 1, and 1 applies it.
+        // Ultimately, by receiving a request to vote, the learner realizes that
+        // the candidate believes it to be a voter, and that it should act
+        // accordingly. The candidate's config may be stale, too; but in that case
+        // it won't win the election, at least in the absence of the bug discussed
+        // in:
+        // https://github.com/etcd-io/etcd/issues/7625#issuecomment-488798263.
+        SPDLOG_INFO("{} [logterm: %d, index: %d, vote: %x] cast %s for %x [logterm: %d, index: %d] at term %d", id_,
+                    last.term, last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.log_term(), m.index(),
+                    term_);
+        // When responding to Msg{Pre,}Vote messages we include the term
+        // from the message, not the local term. To see why, consider the
+        // case where a single node was previously partitioned away and
+        // it's local term is now out of date. If we include the local term
+        // (recall that for pre-votes we don't update the local term), the
+        // (pre-)campaigning node on the other end will proceed to ignore
+        // the message (it ignores all out of date messages).
+        // The term in the original message and current local term are the
+        // same in the case of regular votes, but different for pre-votes.
+        raftpb::message resp;
+        resp.set_to(m.from());
+        resp.set_term(m.term());
+        resp.set_type(pb::vote_response_type(m.type()));
+        send(std::move(resp));
+        if (m.type() == raftpb::message_type::MSG_VOTE) {
+          // Only record real votes.
+          election_elapsed_ = 0;
+          vote_id_ = m.from();
+        }
+      } else {
+        SPDLOG_INFO("{} [logterm: {}, index: {}, vote: {}] rejected {} from {} [logterm: {}, index: {}] at term {}",
+                    id_, last.term, last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.log_term(),
+                    m.index(), term_);
+        raftpb::message resp;
+        resp.set_to(m.from());
+        resp.set_term(term_);
+        resp.set_type(pb::vote_response_type(m.type()));
+        send(std::move(resp));
+      }
+      break;
+    }
+    default: {
+      auto result = step_func_(*this, std::move(m));
+      if (!result) {
+        return result;
+      }
+    }
+  }
+  return {};
 }
 
 void raft::reset_randomized_election_timeout() {
@@ -1677,5 +1942,16 @@ bool raft::increase_uncommitted_size(const pb::repeated_entry& entries) {
   }
   uncommitted_size_ += size;
   return true;
+}
+
+void raft::reduce_uncommitted_size(pb::entry_encoding_size size) {
+  if (uncommitted_size_ > size) {
+    uncommitted_size_ -= size;
+  } else {
+    // uncommittedSize may underestimate the size of the uncommitted Raft
+    // log tail but will never overestimate it. Saturate at 0 instead of
+    // allowing overflow.
+    uncommitted_size_ = 0;
+  }
 }
 }  // namespace lepton

@@ -12,4 +12,6 @@ void trace_become_candidate(raft& r) {}
 
 void trace_become_leader(raft& r) {}
 
+void trace_receive_message(raft& r, const raftpb::message& m) {}
+
 }  // namespace lepton

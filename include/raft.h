@@ -1,6 +1,5 @@
 #ifndef _LEPTON_RAFT_H_
 #define _LEPTON_RAFT_H_
-#include <raft.pb.h>
 
 #include <cstdint>
 #include <tuple>
@@ -15,13 +14,14 @@
 #include "read_only.h"
 #include "status.h"
 #include "tracker.h"
+#include "types.h"
 #include "utility_macros.h"
 namespace lepton {
 
 enum class campaign_type {
   CAMPAIGN_PRE_ELECTION,
   CAMPAIGN_ELECTION,
-  CAMPAIGN_TRANSFER,
+  CAMPAIGN_TRANSFER,  // 强制领导者转移
 };
 
 class raft;
@@ -101,6 +101,10 @@ class raft {
 
   void bcast_heartbeat_with_ctx(std::string&& ctx);
 
+  void applied_to(std::uint64_t index, pb::entry_encoding_size size);
+
+  void applied_snap(const raftpb::snapshot& snapshot);
+
   // maybeCommit attempts to advance the commit index. Returns true if
   // the commit index changed (in which case the caller should call
   // r.bcastAppend).
@@ -157,6 +161,10 @@ class raft {
   // Empty payloads are never refused. This is used both for appending an empty
   // entry at a new leader's term, as well as leaving a joint configuration.
   bool increase_uncommitted_size(const pb::repeated_entry& entries);
+
+  // reduceUncommittedSize accounts for the newly committed entries by decreasing
+  // the uncommitted entry size limit.
+  void reduce_uncommitted_size(pb::entry_encoding_size size);
 
  public:
   //  字段初始化顺序和etcd-raft 一致
@@ -281,11 +289,11 @@ class raft {
   // 在 Raft 协议中，checkQuorum
   // 用于控制是否需要检查选举是否达成法定人数的支持。如果 checkQuorum 为
   // true，则只有在满足法定人数时选举才算有效。
-  bool check_quorum_ = false;
+  const bool check_quorum_ = false;
   // 是否启用预选举。在 Raft
   // 协议的扩展中，为了优化选举过程，增加了预选举机制。在预选举中，节点会在正式投票前先进行一次投票尝试，preVote
   // 表示是否启用这个机制。
-  bool pre_vote_ = false;
+  const bool pre_vote_ = false;
 
   // 心跳超时的值。领导者节点定期发送心跳，防止其他节点启动选举。heartbeatTimeout
   // 控制心跳的超时设置。
@@ -304,7 +312,7 @@ class raft {
 
   // 是否禁用提案转发。如果设置为
   // true，节点将不会将提案（例如日志条目）转发给其他节点。该字段用于某些特殊场景下的控制。
-  bool disable_proposal_forwarding_ = false;
+  const bool disable_proposal_forwarding_ = false;
 
   // 一个函数指针，表示定时器事件的处理函数。tick
   // 可能被用来控制心跳、选举超时等周期性事件。

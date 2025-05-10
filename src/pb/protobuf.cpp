@@ -139,15 +139,6 @@ bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
 
 bool is_empty_hard_state(const raftpb::hard_state& hs) { return hs == EMPTY_STATE; }
 
-raftpb::conf_change_v2 convert_conf_change_v2(raftpb::conf_change&& cc) {
-  raftpb::conf_change_v2 obj;
-  auto changes = obj.add_changes();
-  changes->set_type(cc.type());
-  changes->set_node_id(cc.node_id());
-  obj.set_allocated_context(cc.release_context());
-  return obj;
-}
-
 raftpb::message_type vote_response_type(raftpb::message_type type) {
   switch (type) {
     case raftpb::message_type::MSG_VOTE:
