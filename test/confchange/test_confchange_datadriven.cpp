@@ -11,13 +11,16 @@
 #include <utility>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "confchange.h"
 #include "data_driven.h"
 #include "error.h"
 #include "fmt/format.h"
 #include "leaf.hpp"
 #include "progress.h"
+#include "protobuf.h"
 #include "tracker.h"
+#include "types.h"
 #include "utility_data_test.h"
 using namespace lepton;
 
@@ -35,7 +38,7 @@ static leaf::result<std::string> process_single_test_case(
     const std::string& cmd, const std::string& input, const std::map<std::string, std::vector<std::string>>& args_map,
     confchange::changer& c) {
   defer func([&c]() { c.increase_last_index(); });
-  std::vector<raftpb::conf_change_single> ccs;
+  lepton::pb::repeated_conf_change ccs;
   std::vector<std::string> toks = absl::StrSplit(input, ' ', absl::SkipEmpty());
 
   for (const auto& tok : toks) {
@@ -65,13 +68,13 @@ static leaf::result<std::string> process_single_test_case(
       assert(_result.has_value());
     }
     cc.set_node_id(_result.value());
-    ccs.push_back(cc);
+    ccs.Add(std::move(cc));
   }
 
   tracker::config cfg;
   tracker::progress_map prs;
   if (cmd == "simple") {
-    BOOST_LEAF_AUTO(v, c.simple(ccs));
+    BOOST_LEAF_AUTO(v, c.simple(absl::MakeSpan(ccs)));
     auto& [cfg, prs] = v;
     c.update_tracker_config(std::move(cfg));
     c.update_tracker_progress(std::move(prs));

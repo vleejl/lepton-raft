@@ -11,7 +11,7 @@
 #include "error.h"
 #include "proxy.h"
 #include "read_only.h"
-#include "status.h"
+#include "state.h"
 #include "utility_macros.h"
 // Node represents a node in a raft cluster.
 namespace lepton {

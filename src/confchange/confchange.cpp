@@ -205,29 +205,29 @@ void changer::remove(std::uint64_t id, tracker::config &cfg, tracker::progress_m
   }
 }
 
-leaf::result<void> changer::apply(const absl::Span<const raftpb::conf_change_single> &ccs, tracker::config &cfg,
+leaf::result<void> changer::apply(absl::Span<const raftpb::conf_change_single *const> ccs, tracker::config &cfg,
                                   tracker::progress_map &prs) const {
   for (const auto &cc : ccs) {
-    if (!cc.has_node_id()) {
+    if (!cc->has_node_id()) {
       continue;
     }
-    if (cc.node_id() == 0) {
+    if (cc->node_id() == 0) {
       // etcd replaces the NodeID with zero if it decides (downstream of
       // raft) to not apply a change, so we have to have explicit code
       // here to ignore these.
       continue;
     }
-    switch (cc.type()) {
+    switch (cc->type()) {
       case raftpb::conf_change_type::CONF_CHANGE_ADD_NODE: {
-        make_voters(cc.node_id(), cfg, prs);
+        make_voters(cc->node_id(), cfg, prs);
         break;
       }
       case raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE: {
-        make_learners(cc.node_id(), cfg, prs);
+        make_learners(cc->node_id(), cfg, prs);
         break;
       }
       case raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE: {
-        remove(cc.node_id(), cfg, prs);
+        remove(cc->node_id(), cfg, prs);
         break;
       }
       case raftpb::conf_change_type::CONF_CHANGE_UPDATE_NODE: {
@@ -235,7 +235,7 @@ leaf::result<void> changer::apply(const absl::Span<const raftpb::conf_change_sin
       }
       default:
         return new_error(logic_error::CONFIG_INVALID,
-                         fmt::format("unexpected conf type {}", magic_enum::enum_name(cc.type())));
+                         fmt::format("unexpected conf type {}", magic_enum::enum_name(cc->type())));
     }
   }
   if (cfg.voters.primary_config_view().empty()) {
@@ -244,7 +244,7 @@ leaf::result<void> changer::apply(const absl::Span<const raftpb::conf_change_sin
   return {};
 }
 
-changer::result changer::enter_joint(bool auto_leave, const absl::Span<const raftpb::conf_change_single> &ccs) const {
+changer::result changer::enter_joint(bool auto_leave, absl::Span<const raftpb::conf_change_single *const> ccs) const {
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (cfg.joint()) {
@@ -312,7 +312,7 @@ auto symdiff(const std::set<std::uint64_t> &set1, const std::set<std::uint64_t> 
   return intersection_count;
 }
 
-changer::result changer::simple(absl::Span<const raftpb::conf_change_single> ccs) const {
+changer::result changer::simple(absl::Span<const raftpb::conf_change_single *const> ccs) const {
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (cfg.joint()) {

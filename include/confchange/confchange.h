@@ -67,7 +67,7 @@ class changer {
   // always made to the incoming majority config Voters[0]. Voters[1] is either
   // empty or preserves the outgoing majority configuration while in a joint
   // state.
-  leaf::result<void> apply(const absl::Span<const raftpb::conf_change_single> &ccs, tracker::config &cfg,
+  leaf::result<void> apply(absl::Span<const raftpb::conf_change_single *const> ccs, tracker::config &cfg,
                            tracker::progress_map &prs) const;
 
  public:
@@ -100,7 +100,7 @@ class changer {
   // (Section 4.3) corresponds to `C_{new,old}`.
   //
   // [1]: https://github.com/ongardie/dissertation/blob/master/online-trim.pdf
-  result enter_joint(bool auto_leave, const absl::Span<const raftpb::conf_change_single> &ccs) const;
+  result enter_joint(bool auto_leave, absl::Span<const raftpb::conf_change_single *const> ccs) const;
 
   // LeaveJoint transitions out of a joint configuration. It is an error to call
   // this method if the configuration is not joint, i.e. if the outgoing
@@ -123,7 +123,7 @@ class changer {
   // will return an error if that is not the case, if the resulting quorum is
   // zero, or if the configuration is in a joint state (i.e. if there is an
   // outgoing configuration).
-  result simple(absl::Span<const raftpb::conf_change_single> ccs) const;
+  result simple(absl::Span<const raftpb::conf_change_single *const> ccs) const;
 
  private:
   tracker::progress_tracker tracker_;

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "absl/strings/str_join.h"
+#include "absl/types/span.h"
 #include "conf_change.h"
 #include "confchange.h"
 #include "config.h"
@@ -23,7 +24,6 @@
 #include "spdlog/spdlog.h"
 #include "state.h"
 #include "state_trace.h"
-#include "status.h"
 #include "tracker.h"
 #include "types.h"
 
@@ -860,17 +860,13 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
   return {};
 }
 
-void raft::load_state(const raftpb::hard_state& state) {
-  if (state.commit() < raft_log_handle_.committed() || state.commit() > raft_log_handle_.last_index()) {
-    LEPTON_CRITICAL("{} state.commit {} is out of range [{}, {}]", id_, state.commit(), raft_log_handle_.committed(),
-                    raft_log_handle_.last_index());
-  }
-  raft_log_handle_.commit_to(state.commit());
-  term_ = state.term();
-  vote_id_ = state.vote();
+raftpb::hard_state raft::get_hard_state() const {
+  raftpb::hard_state hs;
+  hs.set_term(term_);
+  hs.set_vote(vote_id_);
+  hs.set_commit(raft_log_handle_.committed());
+  return hs;
 }
-
-bool raft::past_election_timeout() { return election_elapsed_ >= election_timeout_; }
 
 void raft::send(raftpb::message&& message) {
   if (message.from() != NONE) {
@@ -913,237 +909,7 @@ void raft::send(raftpb::message&& message) {
   msgs_.Add(std::move(message));
 }
 
-// hup 函数用于让当前 Raft 节点发起一次领导者选举（Campaign），但仅在以下条件满足时触发：
-// 节点当前不是领导者。
-// 节点有资格参与选举（可提升为候选者）。
-// 没有未应用的集群配置变更。
-void raft::hup(campaign_type t) {
-  if (state_type_ == state_type::STATE_LEADER) {
-    SPDLOG_DEBUG("{} [term {}] ignoring MsgHup because already leader", id_, term_);
-    return;
-  }
-
-  if (!promotable()) {
-    SPDLOG_WARN("{} is unpromotable and can not campaign", id_);
-    return;
-  }
-  if (has_unapplied_conf_change()) {
-    SPDLOG_WARN("{} cannot campaign at term {} since there are still pending configuration changes to apply", id_,
-                term_);
-    return;
-  }
-  SPDLOG_INFO("{} [term {}] starting a new election at term {}", id_, term_, term_);
-  campaign(t);
-}
-
-bool raft::has_unapplied_conf_change() const {
-  if (raft_log_handle_.applied() >= raft_log_handle_.committed()) {  // in fact applied == committed
-    return false;
-  }
-  auto found = false;
-  // Scan all unapplied committed entries to find a config change. Paginate the
-  // scan, to avoid a potentially unlimited memory spike.
-  auto lo = raft_log_handle_.applied() + 1;
-  auto hi = raft_log_handle_.committed();
-  // Reuse the maxApplyingEntsSize limit because it is used for similar purposes
-  // (limiting the read of unapplied committed entries) when raft sends entries
-  // via the Ready struct for application.
-  // TODO(pavelkalinnikov): find a way to budget memory/bandwidth for this scan
-  // outside the raft package.
-  auto page_size = raft_log_handle_.max_applying_ents_size();
-  auto result = leaf::try_handle_some(
-      [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(
-            raft_log_handle_.scan(lo, hi, page_size, [&](const pb::repeated_entry& entries) -> leaf::result<void> {
-              for (auto& iter : entries) {
-                if (iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE ||
-                    iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE_V2) {
-                  found = true;
-                  return new_error(logic_error::LOOP_BREAK);
-                }
-              }
-              return {};
-            }));
-        return {};
-      },
-      [&](const lepton::lepton_error& err) -> leaf::result<void> {
-        if (err == logic_error::LOOP_BREAK) {
-          return {};
-        }
-        panic(fmt::format("error scanning unapplied entries [{}, {}): {}", lo, hi, err.message));
-        return new_error(err);
-      });
-  assert(!result);
-  return found;
-}
-
-void raft::handle_append_entries(raftpb::message&& message) {
-  // TODO(pav-kv): construct logSlice up the stack next to receiving the
-  // message, and validate it before taking any action (e.g. bumping term).
-  pb::log_slice log_slice{message.term(), {message.log_term(), message.index()}, std::move(*message.mutable_entries())};
-
-  raftpb::message resp_msg;
-  resp_msg.set_to(message.from());
-  resp_msg.set_type(raftpb::message_type::MSG_APP_RESP);
-  // 若 Leader 的前一条日志索引 a.prev.index 小于本地已提交的索引 r.raftLog.committed
-  if (log_slice.prev.index < raft_log_handle_.committed()) {
-    resp_msg.set_index(raft_log_handle_.committed());
-    send(std::move(resp_msg));
-    return;
-  }
-
-  // 尝试本地追加日志
-  if (auto m_last_index = raft_log_handle_.maybe_append(std::move(log_slice), raft_log_handle_.committed());
-      m_last_index) {  // 本地追加日志成功： 返回最新日志索引 mlastIndex，发送 MsgAppResp 确认。
-    resp_msg.set_index(m_last_index.value());
-    send(std::move(resp_msg));
-    return;
-  }
-
-  // 本地追加日志失败：则发送拒绝消息
-  SPDLOG_DEBUG("{} [logterm: {}, index: {}] rejected MsgApp [logterm: {}, index: {}] from {}", id_,
-               raft_log_handle_.zero_term_on_err_compacted(message.index()), message.index(), message.log_term(),
-               message.index(), message.from());
-
-  // Our log does not match the leader's at index m.Index. Return a hint to the
-  // leader - a guess on the maximal (index, term) at which the logs match. Do
-  // this by searching through the follower's log for the maximum (index, term)
-  // pair with a term <= the MsgApp's LogTerm and an index <= the MsgApp's
-  // Index. This can help skip all indexes in the follower's uncommitted tail
-  // with terms greater than the MsgApp's LogTerm.
-  //
-  // See the other caller for findConflictByTerm (in stepLeader) for a much more
-  // detailed explanation of this mechanism.
-
-  // NB: m.Index >= raftLog.committed by now (see the early return above), and
-  // raftLog.lastIndex() >= raftLog.committed by invariant, so min of the two is
-  // also >= raftLog.committed. Hence, the findConflictByTerm argument is within
-  // the valid interval, which then will return a valid (index, term) pair with
-  // a non-zero term (unless the log is empty). However, it is safe to send a zero
-  // LogTerm in this response in any case, so we don't verify it here.
-  auto result = raft_log_handle_.find_conflict_by_term(std::min(message.index(), raft_log_handle_.last_index()),
-                                                       message.log_term());
-  auto [hint_index, hint_term] = result;
-  resp_msg.set_index(message.index());
-  resp_msg.set_reject(true);
-  resp_msg.set_reject_hint(hint_index);
-  resp_msg.set_term(hint_term);
-  send(std::move(resp_msg));
-}
-
-void raft::handle_heartbeat(raftpb::message&& message) {
-  raft_log_handle_.commit_to(message.commit());
-  raftpb::message resp_msg;
-  resp_msg.set_to(message.from());
-  resp_msg.set_type(raftpb::message_type::MSG_HEARTBEAT_RESP);
-  resp_msg.set_allocated_context(message.release_context());
-  send(std::move(resp_msg));
-}
-
-void raft::handle_snapshot(raftpb::message&& message) {
-  // MsgSnap messages should always carry a non-nil Snapshot, but err on the
-  // side of safety and treat a nil Snapshot as a zero-valued Snapshot.
-  raftpb::snapshot snapshot;
-  if (message.has_snapshot()) {
-    snapshot = std::move(*message.mutable_snapshot());
-  } else {
-    SPDLOG_WARN("{} [commit: {}] unreachable case", id_, raft_log_handle_.committed());
-  }
-  auto sindex = snapshot.metadata().index();
-  auto sterm = snapshot.metadata().term();
-
-  raftpb::message resp_msg;
-  resp_msg.set_to(message.from());
-  resp_msg.set_type(raftpb::message_type::MSG_APP_RESP);
-  if (restore(std::move(snapshot))) {
-    SPDLOG_INFO("{} [commit: {}] restored snapshot [index: {}, term: {}]", id_, raft_log_handle_.committed(), sindex,
-                sterm);
-    resp_msg.set_index(raft_log_handle_.last_index());
-  } else {
-    SPDLOG_INFO("{} [commit: {}] ignored snapshot [index: {}, term: {}]", id_, raft_log_handle_.committed(), sindex,
-                sterm);
-    resp_msg.set_index(raft_log_handle_.committed());
-  }
-  send(std::move(resp_msg));
-}
-
-// 在Raft协议中，要求应用快照的节点必须处于Follower状态
-// restore recovers the state machine from a snapshot. It restores the log and the
-// configuration of state machine. If this method returns false, the snapshot was
-// ignored, either because it was obsolete or because of an error.
-bool raft::restore(raftpb::snapshot&& snapshot) {
-  if (snapshot.metadata().index() <= raft_log_handle_.committed()) {
-    return false;
-  }
-  // Raft协议的基本约束
-  // Raft协议中，只有Follower或Candidate可以被动接受来自Leader的快照。
-  // 当一个节点（即使是Leader）发现快照中的任期（Term）比自己的当前任期更高时，必须立即转为Follower。
-  // 这种状态转换是协议强制要求的，目的是保证系统的任期单调递增原则和Leader唯一性。
-  if (state_type_ != state_type::STATE_FOLLOWER) {
-    // This is defense-in-depth: if the leader somehow ended up applying a
-    // snapshot, it could move into a new term without moving into a
-    // follower state. This should never fire, but if it did, we'd have
-    // prevented damage by returning early, so log only a loud warning.
-    //
-    // At the time of writing, the instance is guaranteed to be in follower
-    // state when this method is called.
-    SPDLOG_WARN("{} attempted to restore snapshot as leader; should never happen", id_);
-    become_follower(term_ + 1, NONE);
-    return false;
-  }
-
-  // More defense-in-depth: throw away snapshot if recipient is not in the
-  // config. This shouldn't ever happen (at the time of writing) but lots of
-  // code here and there assumes that r.id is in the progress tracker.
-  auto found = false;
-  auto cs = snapshot.metadata().conf_state();
-  for (const auto& set : {cs.voters(), cs.learners(), cs.voters_outgoing()}) {
-    for (const auto& id : set) {
-      if (id == id_) {
-        found = true;
-        break;
-      }
-    }
-    if (found) {
-      break;
-    }
-  }
-  if (!found) {
-    SPDLOG_WARN("{} attempted to restore snapshot but it is not in the ConfState %v; should never happen", id_,
-                cs.DebugString());
-    return false;
-  }
-
-  // Now go ahead and actually restore.
-
-  pb::entry_id entry_id{snapshot.metadata().index(), snapshot.metadata().term()};
-  if (raft_log_handle_.match_term(entry_id)) {
-    // TODO(pav-kv): can print %+v of the id, but it will change the format.
-    raft_log_handle_.commit_to(snapshot.metadata().index());
-    return false;
-  }
-  raft_log_handle_.restore(std::move(snapshot));
-
-  // Reset the configuration and add the (potentially updated) peers in anew.
-  this->trk_ = tracker::progress_tracker(this->trk_.max_inflight(), this->trk_.max_inflight_bytes());
-  auto restore_result = leaf::try_handle_some(
-      [&]() -> confchange::changer::result {
-        BOOST_LEAF_AUTO(result,
-                        confchange::restor(cs, confchange::changer{this->trk_.clone(), raft_log_handle_.last_index()}));
-        return result;
-      },
-      [&](const lepton::lepton_error& err) -> confchange::changer::result {
-        panic(fmt::format("unable to restore config {}: {}", cs.DebugString(), err.message));
-        return new_error(err);
-      });
-  assert(!restore_result);
-  auto [cfg, trk] = std::move(*restore_result);
-  pb::assert_conf_states_equivalent(cs, this->switch_to_config(std::move(cfg), std::move(trk)));
-  auto last = raft_log_handle_.last_entry_id();
-  SPDLOG_INFO("{} [commit: {}, lastindex: {}, lastterm: {}] restored snapshot [index: {}, term: {}]", id_,
-              raft_log_handle_.committed(), last.index, last.term, entry_id.index, entry_id.term);
-  return true;
-}
+void raft::send_append(std::uint64_t id) { maybe_send_append(id, true); }
 
 bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   auto pr_iter = trk_.progress_map_mutable_view().mutable_view().find(to);
@@ -1246,8 +1012,6 @@ bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
   return true;
 }
 
-void raft::send_append(std::uint64_t id) { maybe_send_append(id, true); }
-
 void raft::send_heartbeat(std::uint64_t id, std::string&& ctx) {
   auto pr_iter = trk_.progress_map_mutable_view().mutable_view().find(id);
   // Attach the commit as min(to.matched, r.committed).
@@ -1337,6 +1101,33 @@ void raft::applied_snap(const raftpb::snapshot& snapshot) {
 bool raft::maybe_commit() {
   auto mci = trk_.committed();
   return raft_log_handle_.maybe_commit(pb::entry_id{.term = term_, .index = mci});
+}
+
+void raft::reset(std::uint64_t term) {
+  if (term_ != term) {
+    term_ = term;
+    vote_id_ = NONE;
+  }
+  lead_ = NONE;
+  election_elapsed_ = 0;
+  heartbeat_elapsed_ = 0;
+  reset_randomized_election_timeout();
+
+  abort_leader_transfer();
+
+  trk_.reset_votes();
+
+  trk_.visit([&](std::uint64_t id, tracker::progress& pr) {
+    pr = tracker::progress{raft_log_handle_.last_index(),
+                           tracker::inflights{trk_.max_inflight(), trk_.max_inflight_bytes()}, pr.is_learner(), false};
+    if (id_ == id) {
+      pr.set_match(raft_log_handle_.last_index());
+    }
+  });
+
+  pending_conf_index_ = 0;
+  uncommitted_size_ = 0;
+  read_only_ = read_only{read_only_.read_only_opt()};
 }
 
 bool raft::append_entry(pb::repeated_entry&& entries) {
@@ -1431,171 +1222,12 @@ void raft::tick_heartbeat() {
   }
 }
 
-void raft::reset(std::uint64_t term) {
-  if (term_ != term) {
-    term_ = term;
-    vote_id_ = NONE;
-  }
-  lead_ = NONE;
-  election_elapsed_ = 0;
-  heartbeat_elapsed_ = 0;
-  reset_randomized_election_timeout();
-
-  abort_leader_transfer();
-
-  trk_.reset_votes();
-
-  trk_.visit([&](std::uint64_t id, tracker::progress& pr) {
-    pr = tracker::progress{raft_log_handle_.last_index(),
-                           tracker::inflights{trk_.max_inflight(), trk_.max_inflight_bytes()}, pr.is_learner(), false};
-    if (id_ == id) {
-      pr.set_match(raft_log_handle_.last_index());
-    }
-  });
-
-  pending_conf_index_ = 0;
-  uncommitted_size_ = 0;
-  read_only_ = read_only{read_only_.read_only_opt()};
-}
-
-void raft::send_timmeout_now(std::uint64_t id) {
-  raftpb::message m;
-  m.set_to(id);
-  m.set_type(raftpb::message_type::MSG_TIMEOUT_NOW);
-  send(std::move(m));
-}
-
-void raft::abort_leader_transfer() { leader_transferee_ = NONE; }
-
-raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map) {
-  trk_.update_config(std::move(cfg));
-  trk_.update_progress(std::move(pgs_map));
-
-  SPDLOG_INFO("{} switched to configuration {}", id_, trk_.config_view().string());
-  auto cs = trk_.conf_state();
-  auto& progress_map = trk_.progress_map_view().view();
-  auto iter_pr = progress_map.find(id_);
-  auto exist = iter_pr != progress_map.end();
-
-  // Update whether the node itself is a learner, resetting to false when the
-  // node is removed.
-  if (exist && iter_pr->second.is_learner()) {
-    is_learner_ = true;
-  }
-
-  // etcd-raft 的设计遵循
-  // ​事件驱动模型，状态变更通常由外部消息或定时器触发，而非在配置变更函数中立即执行。例如：
-  // 1. ​配置变更后的首次心跳：Leader
-  // 发送心跳时会携带新配置，但其他节点可能已不再响应（因 Leader
-  // 不在配置中）。
-  // 2. ​后续消息处理：在 raft.Step
-  // 方法中，若检测到自身角色与配置冲突，会调用
-
-  // raft.becomeFollower 切换状态 当新配置移除了当前 Leader 节点或将其降级为
-  // Learner 时，函数通过以下逻辑触发降级：
-  if ((!exist || is_learner_) && state_type_ == state_type::STATE_LEADER) {
-    // This node is leader and was removed or demoted. We prevent demotions
-    // at the time writing but hypothetically we handle them the same way as
-    // removing the leader: stepping down into the next Term.
-    //
-    // TODO(tbg): step down (for sanity) and ask follower with largest Match
-    // to TimeoutNow (to avoid interruption). This might still drop some
-    // proposals but it's better than nothing.
-    //
-    // TODO(tbg): test this branch. It is untested at the time of writing.
-    return cs;
-  }
-
-  // The remaining steps only make sense if this node is the leader and there
-  // are other nodes.
-  if (state_type_ != state_type::STATE_LEADER || cs.voters_size() == 0) {
-    return cs;
-  }
-
-  if (maybe_commit()) {
-    // If the configuration change means that more entries are committed now,
-    // broadcast/append to everyone in the updated config.
-    bcast_append();
-  } else {
-    // Otherwise, still probe the newly added replicas; there's no reason to
-    // let them wait out a heartbeat interval (or the next incoming
-    // proposal).
-    trk_.visit([&](std::uint64_t id, tracker::progress& p) { maybe_send_append(id, false /* sendIfEmpty */); });
-  }
-
-  // 若正在进行的 Leadership 转移目标（leadTransferee）被移除，则取消转移
-  // If the the leadTransferee was removed or demoted, abort the leadership
-  // transfer.
-  if (auto exist = trk_.config_view().voters.id_set().contains(leader_transferee_); !exist && leader_transferee_ != 0) {
-    abort_leader_transfer();
-  }
-  return cs;
-}
-
-bool raft::promotable() {
-  auto pr_iter = trk_.progress_map_view().view().find(id_);
-  assert(pr_iter != trk_.progress_map_view().view().end());
-  auto& pr = pr_iter->second;
-  return !pr.is_learner() && !raft_log_handle_.has_next_or_in_progress_snapshot();
-}
-
-void raft::campaign(campaign_type t) {
-  if (!promotable()) {
-    // This path should not be hit (callers are supposed to check), but
-    // better safe than sorry.
-    SPDLOG_WARN("{} is unpromotable; campaign() should have been called", id_);
-  }
-  std::uint64_t term = 0;
-  raftpb::message_type vote_msg_type;
-  if (t == campaign_type::CAMPAIGN_PRE_ELECTION) {
-    become_pre_candidate();
-    vote_msg_type = raftpb::message_type::MSG_PRE_VOTE;
-    term = term_ + 1;
-  } else {
-    become_candidate();
-    vote_msg_type = raftpb::message_type::MSG_VOTE;
-    term = term_ + 1;
-  }
-  auto ids = trk_.vote_nodes();
-  for (const auto& id : ids) {
-    raftpb::message m;
-    m.set_to(id);
-    m.set_term(term);
-
-    if (id == id_) {
-      m.set_type(pb::vote_response_type(vote_msg_type));
-      // The candidate votes for itself and should account for this self
-      // vote once the vote has been durably persisted (since it doesn't
-      // send a MsgVote to itself). This response message will be added to
-      // msgsAfterAppend and delivered back to this node after the vote
-      // has been written to stable storage.
-      send(std::move(m));
-      continue;
-    }
-    auto last = raft_log_handle_.last_entry_id();
-    SPDLOG_INFO("{} [logterm: {}, index: {}] sent {} [logterm: {}, index: {}] to {}", id_, last.term, last.index,
-                magic_enum::enum_name(vote_msg_type), term, last.index, id);
-    std::string ctx;
-    if (t == campaign_type::CAMPAIGN_TRANSFER) {
-      ctx = magic_enum::enum_name(t);
-    }
-    m.set_type(vote_msg_type);
-    m.set_index(last.index);
-    m.set_log_term(last.term);
-    *m.mutable_context() = std::move(ctx);
-    send(std::move(m));
-  }
-}
-
-std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::uint64_t id, raftpb::message_type vt,
-                                                                         bool vote) {
-  if (vote) {
-    SPDLOG_INFO("{} received {} from {} at term {}", id_, magic_enum::enum_name(vt), id, term_);
-  } else {
-    SPDLOG_INFO("{} received {} rejiction from {} at term {}", id_, magic_enum::enum_name(vt), id, term_);
-  }
-  trk_.record_vote(id, vote);
-  return trk_.tally_votes();
+void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
+  step_func_ = step_follower;
+  reset(term);
+  tick_func_ = [this]() { tick_election(); };
+  lead_ = lead;
+  state_type_ = state_type::STATE_FOLLOWER;
 }
 
 void raft::become_candidate() {
@@ -1672,12 +1304,127 @@ void raft::become_leader() {
   SPDLOG_INFO("{} [term {}] became leader at term {}", id_, term_, term_);
 }
 
-void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
-  step_func_ = step_follower;
-  reset(term);
-  tick_func_ = [this]() { tick_election(); };
-  lead_ = lead;
-  state_type_ = state_type::STATE_FOLLOWER;
+// hup 函数用于让当前 Raft 节点发起一次领导者选举（Campaign），但仅在以下条件满足时触发：
+// 节点当前不是领导者。
+// 节点有资格参与选举（可提升为候选者）。
+// 没有未应用的集群配置变更。
+void raft::hup(campaign_type t) {
+  if (state_type_ == state_type::STATE_LEADER) {
+    SPDLOG_DEBUG("{} [term {}] ignoring MsgHup because already leader", id_, term_);
+    return;
+  }
+
+  if (!promotable()) {
+    SPDLOG_WARN("{} is unpromotable and can not campaign", id_);
+    return;
+  }
+  if (has_unapplied_conf_change()) {
+    SPDLOG_WARN("{} cannot campaign at term {} since there are still pending configuration changes to apply", id_,
+                term_);
+    return;
+  }
+  SPDLOG_INFO("{} [term {}] starting a new election at term {}", id_, term_, term_);
+  campaign(t);
+}
+
+bool raft::has_unapplied_conf_change() const {
+  if (raft_log_handle_.applied() >= raft_log_handle_.committed()) {  // in fact applied == committed
+    return false;
+  }
+  auto found = false;
+  // Scan all unapplied committed entries to find a config change. Paginate the
+  // scan, to avoid a potentially unlimited memory spike.
+  auto lo = raft_log_handle_.applied() + 1;
+  auto hi = raft_log_handle_.committed();
+  // Reuse the maxApplyingEntsSize limit because it is used for similar purposes
+  // (limiting the read of unapplied committed entries) when raft sends entries
+  // via the Ready struct for application.
+  // TODO(pavelkalinnikov): find a way to budget memory/bandwidth for this scan
+  // outside the raft package.
+  auto page_size = raft_log_handle_.max_applying_ents_size();
+  auto result = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(
+            raft_log_handle_.scan(lo, hi, page_size, [&](const pb::repeated_entry& entries) -> leaf::result<void> {
+              for (auto& iter : entries) {
+                if (iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE ||
+                    iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE_V2) {
+                  found = true;
+                  return new_error(logic_error::LOOP_BREAK);
+                }
+              }
+              return {};
+            }));
+        return {};
+      },
+      [&](const lepton::lepton_error& err) -> leaf::result<void> {
+        if (err == logic_error::LOOP_BREAK) {
+          return {};
+        }
+        panic(fmt::format("error scanning unapplied entries [{}, {}): {}", lo, hi, err.message));
+        return new_error(err);
+      });
+  assert(!result);
+  return found;
+}
+
+void raft::campaign(campaign_type t) {
+  if (!promotable()) {
+    // This path should not be hit (callers are supposed to check), but
+    // better safe than sorry.
+    SPDLOG_WARN("{} is unpromotable; campaign() should have been called", id_);
+  }
+  std::uint64_t term = 0;
+  raftpb::message_type vote_msg_type;
+  if (t == campaign_type::CAMPAIGN_PRE_ELECTION) {
+    become_pre_candidate();
+    vote_msg_type = raftpb::message_type::MSG_PRE_VOTE;
+    term = term_ + 1;
+  } else {
+    become_candidate();
+    vote_msg_type = raftpb::message_type::MSG_VOTE;
+    term = term_ + 1;
+  }
+  auto ids = trk_.vote_nodes();
+  for (const auto& id : ids) {
+    raftpb::message m;
+    m.set_to(id);
+    m.set_term(term);
+
+    if (id == id_) {
+      m.set_type(pb::vote_response_type(vote_msg_type));
+      // The candidate votes for itself and should account for this self
+      // vote once the vote has been durably persisted (since it doesn't
+      // send a MsgVote to itself). This response message will be added to
+      // msgsAfterAppend and delivered back to this node after the vote
+      // has been written to stable storage.
+      send(std::move(m));
+      continue;
+    }
+    auto last = raft_log_handle_.last_entry_id();
+    SPDLOG_INFO("{} [logterm: {}, index: {}] sent {} [logterm: {}, index: {}] to {}", id_, last.term, last.index,
+                magic_enum::enum_name(vote_msg_type), term, last.index, id);
+    std::string ctx;
+    if (t == campaign_type::CAMPAIGN_TRANSFER) {
+      ctx = magic_enum::enum_name(t);
+    }
+    m.set_type(vote_msg_type);
+    m.set_index(last.index);
+    m.set_log_term(last.term);
+    *m.mutable_context() = std::move(ctx);
+    send(std::move(m));
+  }
+}
+
+std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::uint64_t id, raftpb::message_type vt,
+                                                                         bool vote) {
+  if (vote) {
+    SPDLOG_INFO("{} received {} from {} at term {}", id_, magic_enum::enum_name(vt), id, term_);
+  } else {
+    SPDLOG_INFO("{} received {} rejiction from {} at term {}", id_, magic_enum::enum_name(vt), id, term_);
+  }
+  trk_.record_vote(id, vote);
+  return trk_.tally_votes();
 }
 
 leaf::result<void> raft::step(raftpb::message&& m) {
@@ -1902,11 +1649,298 @@ leaf::result<void> raft::step(raftpb::message&& m) {
   return {};
 }
 
+void raft::handle_append_entries(raftpb::message&& message) {
+  // TODO(pav-kv): construct logSlice up the stack next to receiving the
+  // message, and validate it before taking any action (e.g. bumping term).
+  pb::log_slice log_slice{message.term(), {message.log_term(), message.index()}, std::move(*message.mutable_entries())};
+
+  raftpb::message resp_msg;
+  resp_msg.set_to(message.from());
+  resp_msg.set_type(raftpb::message_type::MSG_APP_RESP);
+  // 若 Leader 的前一条日志索引 a.prev.index 小于本地已提交的索引 r.raftLog.committed
+  if (log_slice.prev.index < raft_log_handle_.committed()) {
+    resp_msg.set_index(raft_log_handle_.committed());
+    send(std::move(resp_msg));
+    return;
+  }
+
+  // 尝试本地追加日志
+  if (auto m_last_index = raft_log_handle_.maybe_append(std::move(log_slice), raft_log_handle_.committed());
+      m_last_index) {  // 本地追加日志成功： 返回最新日志索引 mlastIndex，发送 MsgAppResp 确认。
+    resp_msg.set_index(m_last_index.value());
+    send(std::move(resp_msg));
+    return;
+  }
+
+  // 本地追加日志失败：则发送拒绝消息
+  SPDLOG_DEBUG("{} [logterm: {}, index: {}] rejected MsgApp [logterm: {}, index: {}] from {}", id_,
+               raft_log_handle_.zero_term_on_err_compacted(message.index()), message.index(), message.log_term(),
+               message.index(), message.from());
+
+  // Our log does not match the leader's at index m.Index. Return a hint to the
+  // leader - a guess on the maximal (index, term) at which the logs match. Do
+  // this by searching through the follower's log for the maximum (index, term)
+  // pair with a term <= the MsgApp's LogTerm and an index <= the MsgApp's
+  // Index. This can help skip all indexes in the follower's uncommitted tail
+  // with terms greater than the MsgApp's LogTerm.
+  //
+  // See the other caller for findConflictByTerm (in stepLeader) for a much more
+  // detailed explanation of this mechanism.
+
+  // NB: m.Index >= raftLog.committed by now (see the early return above), and
+  // raftLog.lastIndex() >= raftLog.committed by invariant, so min of the two is
+  // also >= raftLog.committed. Hence, the findConflictByTerm argument is within
+  // the valid interval, which then will return a valid (index, term) pair with
+  // a non-zero term (unless the log is empty). However, it is safe to send a zero
+  // LogTerm in this response in any case, so we don't verify it here.
+  auto result = raft_log_handle_.find_conflict_by_term(std::min(message.index(), raft_log_handle_.last_index()),
+                                                       message.log_term());
+  auto [hint_index, hint_term] = result;
+  resp_msg.set_index(message.index());
+  resp_msg.set_reject(true);
+  resp_msg.set_reject_hint(hint_index);
+  resp_msg.set_term(hint_term);
+  send(std::move(resp_msg));
+}
+
+void raft::handle_heartbeat(raftpb::message&& message) {
+  raft_log_handle_.commit_to(message.commit());
+  raftpb::message resp_msg;
+  resp_msg.set_to(message.from());
+  resp_msg.set_type(raftpb::message_type::MSG_HEARTBEAT_RESP);
+  resp_msg.set_allocated_context(message.release_context());
+  send(std::move(resp_msg));
+}
+
+void raft::handle_snapshot(raftpb::message&& message) {
+  // MsgSnap messages should always carry a non-nil Snapshot, but err on the
+  // side of safety and treat a nil Snapshot as a zero-valued Snapshot.
+  raftpb::snapshot snapshot;
+  if (message.has_snapshot()) {
+    snapshot = std::move(*message.mutable_snapshot());
+  } else {
+    SPDLOG_WARN("{} [commit: {}] unreachable case", id_, raft_log_handle_.committed());
+  }
+  auto sindex = snapshot.metadata().index();
+  auto sterm = snapshot.metadata().term();
+
+  raftpb::message resp_msg;
+  resp_msg.set_to(message.from());
+  resp_msg.set_type(raftpb::message_type::MSG_APP_RESP);
+  if (restore(std::move(snapshot))) {
+    SPDLOG_INFO("{} [commit: {}] restored snapshot [index: {}, term: {}]", id_, raft_log_handle_.committed(), sindex,
+                sterm);
+    resp_msg.set_index(raft_log_handle_.last_index());
+  } else {
+    SPDLOG_INFO("{} [commit: {}] ignored snapshot [index: {}, term: {}]", id_, raft_log_handle_.committed(), sindex,
+                sterm);
+    resp_msg.set_index(raft_log_handle_.committed());
+  }
+  send(std::move(resp_msg));
+}
+
+// 在Raft协议中，要求应用快照的节点必须处于Follower状态
+// restore recovers the state machine from a snapshot. It restores the log and the
+// configuration of state machine. If this method returns false, the snapshot was
+// ignored, either because it was obsolete or because of an error.
+bool raft::restore(raftpb::snapshot&& snapshot) {
+  if (snapshot.metadata().index() <= raft_log_handle_.committed()) {
+    return false;
+  }
+  // Raft协议的基本约束
+  // Raft协议中，只有Follower或Candidate可以被动接受来自Leader的快照。
+  // 当一个节点（即使是Leader）发现快照中的任期（Term）比自己的当前任期更高时，必须立即转为Follower。
+  // 这种状态转换是协议强制要求的，目的是保证系统的任期单调递增原则和Leader唯一性。
+  if (state_type_ != state_type::STATE_FOLLOWER) {
+    // This is defense-in-depth: if the leader somehow ended up applying a
+    // snapshot, it could move into a new term without moving into a
+    // follower state. This should never fire, but if it did, we'd have
+    // prevented damage by returning early, so log only a loud warning.
+    //
+    // At the time of writing, the instance is guaranteed to be in follower
+    // state when this method is called.
+    SPDLOG_WARN("{} attempted to restore snapshot as leader; should never happen", id_);
+    become_follower(term_ + 1, NONE);
+    return false;
+  }
+
+  // More defense-in-depth: throw away snapshot if recipient is not in the
+  // config. This shouldn't ever happen (at the time of writing) but lots of
+  // code here and there assumes that r.id is in the progress tracker.
+  auto found = false;
+  auto cs = snapshot.metadata().conf_state();
+  for (const auto& set : {cs.voters(), cs.learners(), cs.voters_outgoing()}) {
+    for (const auto& id : set) {
+      if (id == id_) {
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      break;
+    }
+  }
+  if (!found) {
+    SPDLOG_WARN("{} attempted to restore snapshot but it is not in the ConfState %v; should never happen", id_,
+                cs.DebugString());
+    return false;
+  }
+
+  // Now go ahead and actually restore.
+
+  pb::entry_id entry_id{snapshot.metadata().index(), snapshot.metadata().term()};
+  if (raft_log_handle_.match_term(entry_id)) {
+    // TODO(pav-kv): can print %+v of the id, but it will change the format.
+    raft_log_handle_.commit_to(snapshot.metadata().index());
+    return false;
+  }
+  raft_log_handle_.restore(std::move(snapshot));
+
+  // Reset the configuration and add the (potentially updated) peers in anew.
+  this->trk_ = tracker::progress_tracker(this->trk_.max_inflight(), this->trk_.max_inflight_bytes());
+  auto restore_result = leaf::try_handle_some(
+      [&]() -> confchange::changer::result {
+        BOOST_LEAF_AUTO(result,
+                        confchange::restor(cs, confchange::changer{this->trk_.clone(), raft_log_handle_.last_index()}));
+        return result;
+      },
+      [&](const lepton::lepton_error& err) -> confchange::changer::result {
+        panic(fmt::format("unable to restore config {}: {}", cs.DebugString(), err.message));
+        return new_error(err);
+      });
+  assert(!restore_result);
+  auto [cfg, trk] = std::move(*restore_result);
+  pb::assert_conf_states_equivalent(cs, this->switch_to_config(std::move(cfg), std::move(trk)));
+  auto last = raft_log_handle_.last_entry_id();
+  SPDLOG_INFO("{} [commit: {}, lastindex: {}, lastterm: {}] restored snapshot [index: {}, term: {}]", id_,
+              raft_log_handle_.committed(), last.index, last.term, entry_id.index, entry_id.term);
+  return true;
+}
+
+bool raft::promotable() {
+  auto pr_iter = trk_.progress_map_view().view().find(id_);
+  assert(pr_iter != trk_.progress_map_view().view().end());
+  auto& pr = pr_iter->second;
+  return !pr.is_learner() && !raft_log_handle_.has_next_or_in_progress_snapshot();
+}
+
+raftpb::conf_state raft::apply_conf_change(raftpb::conf_change_v2&& cc) {
+  auto change_func = [&]() -> confchange::changer::result {
+    confchange::changer changer{trk_.clone(), raft_log_handle_.last_index()};
+    if (pb::leave_joint(cc)) {
+      return changer.leave_joint();
+    } else if (auto [auto_leave, ok] = pb::enter_joint(cc); ok) {
+      return changer.enter_joint(auto_leave, absl::MakeSpan(cc.changes()));
+    }
+    return changer.simple(absl::MakeSpan(cc.changes()));
+  };
+  auto change_result = leaf::try_handle_some(
+      [&]() -> confchange::changer::result {
+        BOOST_LEAF_AUTO(result, change_func());
+        return result;
+      },
+      [&](const lepton::lepton_error& err) -> confchange::changer::result {
+        // TODO(tbg): return the error to the caller.
+        panic(err.message);
+        return new_error(err);
+      });
+  ;
+  assert(!change_result);
+  auto& [cfg, trk] = change_result.value();
+  return switch_to_config(std::move(cfg), std::move(trk));
+}
+
+raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map) {
+  trk_.update_config(std::move(cfg));
+  trk_.update_progress(std::move(pgs_map));
+
+  SPDLOG_INFO("{} switched to configuration {}", id_, trk_.config_view().string());
+  auto cs = trk_.conf_state();
+  auto& progress_map = trk_.progress_map_view().view();
+  auto iter_pr = progress_map.find(id_);
+  auto exist = iter_pr != progress_map.end();
+
+  // Update whether the node itself is a learner, resetting to false when the
+  // node is removed.
+  if (exist && iter_pr->second.is_learner()) {
+    is_learner_ = true;
+  }
+
+  // etcd-raft 的设计遵循
+  // ​事件驱动模型，状态变更通常由外部消息或定时器触发，而非在配置变更函数中立即执行。例如：
+  // 1. ​配置变更后的首次心跳：Leader
+  // 发送心跳时会携带新配置，但其他节点可能已不再响应（因 Leader
+  // 不在配置中）。
+  // 2. ​后续消息处理：在 raft.Step
+  // 方法中，若检测到自身角色与配置冲突，会调用
+
+  // raft.becomeFollower 切换状态 当新配置移除了当前 Leader 节点或将其降级为
+  // Learner 时，函数通过以下逻辑触发降级：
+  if ((!exist || is_learner_) && state_type_ == state_type::STATE_LEADER) {
+    // This node is leader and was removed or demoted. We prevent demotions
+    // at the time writing but hypothetically we handle them the same way as
+    // removing the leader: stepping down into the next Term.
+    //
+    // TODO(tbg): step down (for sanity) and ask follower with largest Match
+    // to TimeoutNow (to avoid interruption). This might still drop some
+    // proposals but it's better than nothing.
+    //
+    // TODO(tbg): test this branch. It is untested at the time of writing.
+    return cs;
+  }
+
+  // The remaining steps only make sense if this node is the leader and there
+  // are other nodes.
+  if (state_type_ != state_type::STATE_LEADER || cs.voters_size() == 0) {
+    return cs;
+  }
+
+  if (maybe_commit()) {
+    // If the configuration change means that more entries are committed now,
+    // broadcast/append to everyone in the updated config.
+    bcast_append();
+  } else {
+    // Otherwise, still probe the newly added replicas; there's no reason to
+    // let them wait out a heartbeat interval (or the next incoming
+    // proposal).
+    trk_.visit([&](std::uint64_t id, tracker::progress& p) { maybe_send_append(id, false /* sendIfEmpty */); });
+  }
+
+  // 若正在进行的 Leadership 转移目标（leadTransferee）被移除，则取消转移
+  // If the the leadTransferee was removed or demoted, abort the leadership
+  // transfer.
+  if (auto exist = trk_.config_view().voters.id_set().contains(leader_transferee_); !exist && leader_transferee_ != 0) {
+    abort_leader_transfer();
+  }
+  return cs;
+}
+
+void raft::load_state(const raftpb::hard_state& state) {
+  if (state.commit() < raft_log_handle_.committed() || state.commit() > raft_log_handle_.last_index()) {
+    LEPTON_CRITICAL("{} state.commit {} is out of range [{}, {}]", id_, state.commit(), raft_log_handle_.committed(),
+                    raft_log_handle_.last_index());
+  }
+  raft_log_handle_.commit_to(state.commit());
+  term_ = state.term();
+  vote_id_ = state.vote();
+}
+
+bool raft::past_election_timeout() { return election_elapsed_ >= election_timeout_; }
+
 void raft::reset_randomized_election_timeout() {
   static std::mt19937 rng(std::random_device{}());  // 静态生成器
   std::uniform_int_distribution<int> dist(0, election_timeout_ - 1);
   randomized_election_timeout_ = election_timeout_ + dist(rng);
 }
+
+void raft::send_timmeout_now(std::uint64_t id) {
+  raftpb::message m;
+  m.set_to(id);
+  m.set_type(raftpb::message_type::MSG_TIMEOUT_NOW);
+  send(std::move(m));
+}
+
+void raft::abort_leader_transfer() { leader_transferee_ = NONE; }
 
 bool raft::committed_entry_in_current_term() const {
   // NB: r.Term is never 0 on a leader, so if zeroTermOnOutOfBounds returns 0,

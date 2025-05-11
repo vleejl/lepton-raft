@@ -1,8 +1,13 @@
 #include "conf_change.h"
 
-#include "leaf.hpp"
-#include "raft.pb.h"
+#include <google/protobuf/util/message_differencer.h>
 
+#include "error.h"
+#include "fmt/format.h"
+#include "leaf.hpp"
+#include "magic_enum.hpp"
+#include "raft.pb.h"
+using google::protobuf::util::MessageDifferencer;
 namespace lepton {
 
 namespace pb {
@@ -68,6 +73,45 @@ std::tuple<raftpb::conf_change, bool> conf_change_as_v1(raftpb::conf_change_v2&&
 }
 
 raftpb::conf_change_v2 conf_change_as_v2(raftpb::conf_change_v2&& cc) { return cc; }
+
+// first return: 若为 true，表示进入联合共识后自动退出联合状态。
+// second return: 若为 true，表示该配置变更必须使用联合共识
+std::tuple<bool, bool> enter_joint(raftpb::conf_change_v2 c) {
+  // NB: in theory, more config changes could qualify for the "simple"
+  // protocol but it depends on the config on top of which the changes apply.
+  // For example, adding two learners is not OK if both nodes are part of the
+  // base config (i.e. two voters are turned into learners in the process of
+  // applying the conf change). In practice, these distinctions should not
+  // matter, so we keep it simple and use Joint Consensus liberally.
+  if (c.transition() != raftpb::conf_change_transition::CONF_CHANGE_TRANSITION_AUTO || c.changes_size() > 1) {
+    // Use Joint Consensus.
+    bool auto_leave = false;
+    switch (c.transition()) {
+      case raftpb::conf_change_transition::CONF_CHANGE_TRANSITION_AUTO: {
+        auto_leave = true;
+        break;
+      }
+      case raftpb::conf_change_transition::CONF_CHANGE_TRANSITION_JOINT_IMPLICIT: {
+        auto_leave = true;
+        break;
+      }
+      case raftpb::conf_change_transition::CONF_CHANGE_TRANSITION_JOINT_EXPLICIT: {
+        // use auto_leave default value: false
+        break;
+      }
+      default:
+        panic(fmt::format("unknown transition: %+v", magic_enum::enum_name(c.transition())));
+        break;
+    }
+    return {auto_leave, true};
+  }
+  return {false, false};
+}
+
+bool leave_joint(raftpb::conf_change_v2 c) {
+  c.clear_context();
+  return MessageDifferencer::Equals(c, raftpb::conf_change_v2{});
+}
 }  // namespace pb
 
 }  // namespace lepton

@@ -19,6 +19,7 @@ using entry_ptr = std::unique_ptr<raftpb::entry>;
 using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::entry>;
 using span_entry = absl::Span<const raftpb::entry* const>;
 using repeated_message = google::protobuf::RepeatedPtrField<raftpb::message>;
+using repeated_conf_change = google::protobuf::RepeatedPtrField<raftpb::conf_change_single>;
 
 // entryID uniquely identifies a raft log entry.
 //

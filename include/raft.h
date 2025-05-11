@@ -12,7 +12,7 @@
 #include "quorum.h"
 #include "raft_log.h"
 #include "read_only.h"
-#include "status.h"
+#include "state.h"
 #include "tracker.h"
 #include "types.h"
 #include "utility_macros.h"
@@ -47,28 +47,19 @@ class raft {
   friend leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_follower(raft& r, raftpb::message&& m);
 
-  void load_state(const raftpb::hard_state& state);
+  bool has_leader() const { return lead_ != NONE; }
 
-  bool past_election_timeout();
+  soft_state get_soft_state() const { return soft_state{lead_, state_type_}; }
+
+  raftpb::hard_state get_hard_state() const;
 
   // send schedules persisting state to a stable storage and AFTER that
   // sending the message (as part of next Ready message processing).
   void send(raftpb::message&& message);
 
-  void hup(campaign_type t);
-
-  bool has_unapplied_conf_change() const;
-
-  void handle_append_entries(raftpb::message&& message);
-
-  void handle_heartbeat(raftpb::message&& message);
-
-  void handle_snapshot(raftpb::message&& message);
-
-  // restore recovers the state machine from a snapshot. It restores the log and the
-  // configuration of state machine. If this method returns false, the snapshot was
-  // ignored, either because it was obsolete or because of an error.
-  bool restore(raftpb::snapshot&& snapshot);
+  // sendAppend sends an append RPC with new entries (if any) and the
+  // current commit index to the given peer
+  void send_append(std::uint64_t id);
 
   // maybeSendAppend sends an append RPC with new entries to the given peer,
   // if necessary. Returns true if a message was sent. The sendIfEmpty
@@ -84,10 +75,6 @@ class raft {
   // maybeSendSnapshot fetches a snapshot from Storage, and sends it to the given
   // node. Returns true iff the snapshot message has been emitted successfully.
   bool maybe_send_snapshot(std::uint64_t to, tracker::progress& pr);
-
-  // sendAppend sends an append RPC with new entries (if any) and the
-  // current commit index to the given peer
-  void send_append(std::uint64_t id);
 
   // sendHeartbeat sends a heartbeat RPC to the given peer.
   void send_heartbeat(std::uint64_t id, std::string&& ctx);
@@ -110,6 +97,8 @@ class raft {
   // r.bcastAppend).
   bool maybe_commit();
 
+  void reset(std::uint64_t term);
+
   bool append_entry(pb::repeated_entry&& entries);
 
   void tick_election();
@@ -117,11 +106,44 @@ class raft {
   // tickHeartbeat is run by leaders to send a MsgBeat after r.heartbeatTimeout.
   void tick_heartbeat();
 
-  void reset(std::uint64_t term);
+  void become_follower(std::uint64_t term, std::uint64_t lead);
 
-  void send_timmeout_now(std::uint64_t id);
+  void become_candidate();
 
-  void abort_leader_transfer();
+  void become_pre_candidate();
+
+  void become_leader();
+
+  void hup(campaign_type t);
+
+  bool has_unapplied_conf_change() const;
+
+  // campaign transitions the raft instance to candidate state.
+  // This must only be called after verifying that this is a legitimate transition.
+  void campaign(campaign_type t);
+
+  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id, raftpb::message_type vt,
+                                                                     bool vote);
+
+  //  function step is public function
+  // leaf::result<void> step(raftpb::message&& m);
+
+  void handle_append_entries(raftpb::message&& message);
+
+  void handle_heartbeat(raftpb::message&& message);
+
+  void handle_snapshot(raftpb::message&& message);
+
+  // restore recovers the state machine from a snapshot. It restores the log and the
+  // configuration of state machine. If this method returns false, the snapshot was
+  // ignored, either because it was obsolete or because of an error.
+  bool restore(raftpb::snapshot&& snapshot);
+
+  // promotable indicates whether state machine can be promoted to leader,
+  // which is true when its own id is in progress list.
+  bool promotable();
+
+  raftpb::conf_state apply_conf_change(raftpb::conf_change_v2&& cc);
 
   // switchToConfig reconfigures this node to use the provided configuration. It
   // updates the in-memory state and, when necessary, carries out additional
@@ -132,18 +154,18 @@ class raft {
   // ConfChange.
   raftpb::conf_state switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map);
 
-  // promotable indicates whether state machine can be promoted to leader,
-  // which is true when its own id is in progress list.
-  bool promotable();
+  void load_state(const raftpb::hard_state& state);
 
-  // campaign transitions the raft instance to candidate state.
-  // This must only be called after verifying that this is a legitimate transition.
-  void campaign(campaign_type t);
-
-  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id, raftpb::message_type vt,
-                                                                     bool vote);
+  // pastElectionTimeout returns true if r.electionElapsed is greater
+  // than or equal to the randomized election timeout in
+  // [electiontimeout, 2 * electiontimeout - 1].
+  bool past_election_timeout();
 
   void reset_randomized_election_timeout();
+
+  void send_timmeout_now(std::uint64_t id);
+
+  void abort_leader_transfer();
 
   // committedEntryInCurrentTerm return true if the peer has committed an entry in its term.
   bool committed_entry_in_current_term() const;
@@ -187,14 +209,6 @@ class raft {
         election_timeout_(election_tick),
         disable_proposal_forwarding_(disable_proposal_forwarding) {}
   raft(raft&&) = default;
-
-  void become_candidate();
-
-  void become_pre_candidate();
-
-  void become_leader();
-
-  void become_follower(std::uint64_t term, std::uint64_t lead);
 
   leaf::result<void> step(raftpb::message&& m);
 
