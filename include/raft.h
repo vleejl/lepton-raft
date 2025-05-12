@@ -38,7 +38,12 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
 leaf::result<void> step_follower(raft& r, raftpb::message&& m);
 
 class raft {
+// 为了方便单元测试 修改私有成员函数作用域
+#ifdef LEPTON_TEST
+ public:
+#else
  private:
+#endif
   NOT_COPYABLE(raft)
   friend leaf::result<raft> new_raft(const config&);
   friend void release_pending_read_index_message(raft& r);
@@ -188,12 +193,21 @@ class raft {
   // the uncommitted entry size limit.
   void reduce_uncommitted_size(pb::entry_encoding_size size);
 
+#ifdef LEPTON_TEST
+  lepton::pb::repeated_message read_messages();
+
+  void advance_messages_after_append();
+
+  lepton::pb::repeated_message take_messages_after_append();
+
+  leaf::result<void> step_or_send(pb::repeated_message&& m);
+#endif
  public:
   //  字段初始化顺序和etcd-raft 一致
   raft(std::uint64_t id, raft_log&& raft_log_handle, std::uint64_t max_size_per_msg,
        std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes,
        int election_tick, int heartbeat_tick, bool check_quorum, bool pre_vote, read_only_option read_only_opt,
-       bool disable_proposal_forwarding, bool disable_conf_change_validation)
+       bool disable_proposal_forwarding, bool disable_conf_change_validation, bool step_down_on_removal)
       : id_(id),
         raft_log_handle_(std::move(raft_log_handle)),
         max_msg_size_(max_size_per_msg),
@@ -207,12 +221,18 @@ class raft {
         pre_vote_(pre_vote),
         heartbeat_timeout_(heartbeat_tick),
         election_timeout_(election_tick),
-        disable_proposal_forwarding_(disable_proposal_forwarding) {}
+        disable_proposal_forwarding_(disable_proposal_forwarding),
+        step_down_on_removal_(step_down_on_removal) {}
   raft(raft&&) = default;
 
   leaf::result<void> step(raftpb::message&& m);
 
+// 为了方便单元测试 修改私有成员函数作用域
+#ifdef LEPTON_TEST
+ public:
+#else
  private:
+#endif
   // 对应config 配置里的 id，表示唯一一个raft 节点
   const std::uint64_t id_ = NONE;
 
@@ -250,7 +270,23 @@ class raft {
 
   // 存储当前节点待发送的消息列表。Raft
   // 协议中的节点之间会交换消息（例如投票请求、心跳等）。该字段用于存储待发送的消息。
+  // msgs contains the list of messages that should be sent out immediately to
+  // other nodes.
+  //
+  // Messages in this list must target other nodes.
   pb::repeated_message msgs_;
+
+  // msgsAfterAppend contains the list of messages that should be sent after
+  // the accumulated unstable state (e.g. term, vote, []entry, and snapshot)
+  // has been persisted to durable storage. This includes waiting for any
+  // unstable state that is already in the process of being persisted (i.e.
+  // has already been handed out in a prior Ready struct) to complete.
+  //
+  // Messages in this list may target other nodes or may target this node.
+  //
+  // Messages in this list have the type MsgAppResp, MsgVoteResp, or
+  // MsgPreVoteResp. See the comment in raft.send for details.
+  pb::repeated_message msgs_after_append_;
 
   // the leader id
   std::uint64_t lead_ = 0;
@@ -327,6 +363,7 @@ class raft {
   // 是否禁用提案转发。如果设置为
   // true，节点将不会将提案（例如日志条目）转发给其他节点。该字段用于某些特殊场景下的控制。
   const bool disable_proposal_forwarding_ = false;
+  const bool step_down_on_removal_ = false;
 
   // 一个函数指针，表示定时器事件的处理函数。tick
   // 可能被用来控制心跳、选举超时等周期性事件。

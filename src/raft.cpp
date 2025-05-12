@@ -46,9 +46,11 @@ leaf::result<raft> new_raft(const config& c) {
          c.pre_vote,
          c.read_only_opt,
          c.disable_proposal_forwarding,
-         c.disable_conf_change_validation};
+         c.disable_conf_change_validation,
+         c.step_down_on_removal};
 
   trace_init_state(r);
+
   auto last_id = r.raft_log_handle_.last_entry_id();
   BOOST_LEAF_AUTO(restore_result, confchange::restor(conf_state, confchange::changer{r.trk_.clone(), last_id.index}));
   auto [cfg, trk] = std::move(restore_result);
@@ -151,7 +153,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
       // 是客户端提交的提案消息（如数据写入或配置变更请求）
       // Raft 要求提案必须携带日志条目，否则触发 panic（协议级错误）
       if (m.entries().empty()) {
-        SPDLOG_CRITICAL("{} stepped empty MsgProp", r.id_);
+        LEPTON_CRITICAL("{} stepped empty MsgProp", r.id_);
         assert(false);
       }
       // 若当前节点已被移出集群配置（不在 Progress 中），拒绝提案。
@@ -178,7 +180,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
           case raftpb::ENTRY_CONF_CHANGE: {
             raftpb::conf_change ccc;
             if (!ccc.ParseFromString(e.data())) {
-              SPDLOG_CRITICAL("entry hex:{} conf change parse from string failed ", e.data());
+              LEPTON_CRITICAL("entry hex:{} conf change parse from string failed ", e.data());
               assert(false);
             }
             cc.emplace(pb::conf_change_as_v2(std::move(ccc)));
@@ -187,7 +189,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
           case raftpb::ENTRY_CONF_CHANGE_V2: {
             raftpb::conf_change_v2 ccc;
             if (!ccc.ParseFromString(e.data())) {
-              SPDLOG_CRITICAL("entry hex:{} conf change v2 parse from string failed ", e.data());
+              LEPTON_CRITICAL("entry hex:{} conf change v2 parse from string failed ", e.data());
               assert(false);
             }
             cc.emplace(std::move(ccc));
@@ -869,7 +871,7 @@ raftpb::hard_state raft::get_hard_state() const {
 }
 
 void raft::send(raftpb::message&& message) {
-  if (message.from() != NONE) {
+  if (message.from() == NONE) {
     message.set_from(id_);
   }
 
@@ -906,7 +908,62 @@ void raft::send(raftpb::message&& message) {
       message.set_term(term_);
     }
   }
-  msgs_.Add(std::move(message));
+  if (msg_type == raftpb::message_type::MSG_APP_RESP || msg_type == raftpb::message_type::MSG_VOTE_RESP ||
+      msg_type == raftpb::message_type::MSG_PRE_VOTE_RESP) {
+    // If async storage writes are enabled, messages added to the msgs slice
+    // are allowed to be sent out before unstable state (e.g. log entry
+    // writes and election votes) have been durably synced to the local
+    // disk.
+    //
+    // For most message types, this is not an issue. However, response
+    // messages that relate to "voting" on either leader election or log
+    // appends require durability before they can be sent. It would be
+    // incorrect to publish a vote in an election before that vote has been
+    // synced to stable storage locally. Similarly, it would be incorrect to
+    // acknowledge a log append to the leader before that entry has been
+    // synced to stable storage locally.
+    //
+    // Per the Raft thesis, section 3.8 Persisted state and server restarts:
+    //
+    // > Raft servers must persist enough information to stable storage to
+    // > survive server restarts safely. In particular, each server persists
+    // > its current term and vote; this is necessary to prevent the server
+    // > from voting twice in the same term or replacing log entries from a
+    // > newer leader with those from a deposed leader. Each server also
+    // > persists new log entries before they are counted towards the entries’
+    // > commitment; this prevents committed entries from being lost or
+    // > “uncommitted” when servers restart
+    //
+    // To enforce this durability requirement, these response messages are
+    // queued to be sent out as soon as the current collection of unstable
+    // state (the state that the response message was predicated upon) has
+    // been durably persisted. This unstable state may have already been
+    // passed to a Ready struct whose persistence is in progress or may be
+    // waiting for the next Ready struct to begin being written to Storage.
+    // These messages must wait for all of this state to be durable before
+    // being published.
+    //
+    // Rejected responses (m.Reject == true) present an interesting case
+    // where the durability requirement is less unambiguous. A rejection may
+    // be predicated upon unstable state. For instance, a node may reject a
+    // vote for one peer because it has already begun syncing its vote for
+    // another peer. Or it may reject a vote from one peer because it has
+    // unstable log entries that indicate that the peer is behind on its
+    // log. In these cases, it is likely safe to send out the rejection
+    // response immediately without compromising safety in the presence of a
+    // server restart. However, because these rejections are rare and
+    // because the safety of such behavior has not been formally verified,
+    // we err on the side of safety and omit a `&& !m.Reject` condition
+    // above.
+    trace_receive_message(*this, message);
+    msgs_after_append_.Add(std::move(message));
+  } else {
+    if (message.to() == id_) {
+      LEPTON_CRITICAL("message should not be self-addressed when sending %s", magic_enum::enum_name(msg_type));
+    }
+    trace_receive_message(*this, message);
+    msgs_.Add(std::move(message));
+  }
 }
 
 void raft::send_append(std::uint64_t id) { maybe_send_append(id, true); }
@@ -1851,6 +1908,8 @@ raftpb::conf_state raft::apply_conf_change(raftpb::conf_change_v2&& cc) {
 }
 
 raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map) {
+  trace_conf_change_event(cfg, *this);
+
   trk_.update_config(std::move(cfg));
   trk_.update_progress(std::move(pgs_map));
 
@@ -1877,15 +1936,17 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progre
   // raft.becomeFollower 切换状态 当新配置移除了当前 Leader 节点或将其降级为
   // Learner 时，函数通过以下逻辑触发降级：
   if ((!exist || is_learner_) && state_type_ == state_type::STATE_LEADER) {
-    // This node is leader and was removed or demoted. We prevent demotions
-    // at the time writing but hypothetically we handle them the same way as
-    // removing the leader: stepping down into the next Term.
+    // This node is leader and was removed or demoted, step down if requested.
     //
-    // TODO(tbg): step down (for sanity) and ask follower with largest Match
-    // to TimeoutNow (to avoid interruption). This might still drop some
-    // proposals but it's better than nothing.
+    // We prevent demotions at the time writing but hypothetically we handle
+    // them the same way as removing the leader.
     //
-    // TODO(tbg): test this branch. It is untested at the time of writing.
+    // TODO(tbg): ask follower with largest Match to TimeoutNow (to avoid
+    // interruption). This might still drop some proposals but it's better than
+    // nothing.
+    if (step_down_on_removal_) {
+      become_follower(term_, NONE);
+    }
     return cs;
   }
 
@@ -1988,4 +2049,43 @@ void raft::reduce_uncommitted_size(pb::entry_encoding_size size) {
     uncommitted_size_ = 0;
   }
 }
+
+#ifdef LEPTON_TEST
+lepton::pb::repeated_message raft::read_messages() {
+  advance_messages_after_append();
+  auto msgs = std::move(msgs_);
+  msgs_.Clear();
+  return msgs;
+}
+
+void raft::advance_messages_after_append() {
+  while (true) {
+    auto msgs = take_messages_after_append();
+    if (msgs.empty()) {
+      break;
+    }
+    step_or_send(std::move(msgs));
+  }
+}
+
+lepton::pb::repeated_message raft::take_messages_after_append() {
+  auto msgs = std::move(msgs_after_append_);
+  msgs_after_append_.Clear();
+  return msgs;
+}
+
+leaf::result<void> raft::step_or_send(pb::repeated_message&& m) {
+  for (auto& msg : m) {
+    if (msg.to() == id_) {
+      auto result = step(std::move(msg));
+      if (result) {
+        return result;
+      }
+    } else {
+      msgs_.Add(std::move(msg));
+    }
+  }
+  return {};
+}
+#endif
 }  // namespace lepton
