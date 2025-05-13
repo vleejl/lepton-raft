@@ -28,7 +28,7 @@
 #include "types.h"
 
 namespace lepton {
-leaf::result<raft> new_raft(const config& c) {
+leaf::result<raft> new_raft(config&& c) {
   BOOST_LEAF_CHECK(c.validate());
   BOOST_LEAF_AUTO(
       raftlog, new_raft_log_with_size(c.storage, static_cast<pb::entry_encoding_size>(c.max_committed_size_per_ready)));

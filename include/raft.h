@@ -28,7 +28,7 @@ class raft;
 
 using tick_func = std::function<void()>;
 using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
-leaf::result<raft> new_raft(const config&);
+leaf::result<raft> new_raft(config&&);
 void release_pending_read_index_message(raft& r);
 void send_msg_read_index_response(raft& r, raftpb::message&& m);
 leaf::result<void> step_leader(raft& r, raftpb::message&& m);
@@ -45,7 +45,7 @@ class raft {
  private:
 #endif
   NOT_COPYABLE(raft)
-  friend leaf::result<raft> new_raft(const config&);
+  friend leaf::result<raft> new_raft(config&&);
   friend void release_pending_read_index_message(raft& r);
   friend void send_msg_read_index_response(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_leader(raft& r, raftpb::message&& m);

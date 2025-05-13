@@ -20,6 +20,7 @@ class memory_storage {
   memory_storage();
 #ifdef LEPTON_TEST
   memory_storage(const pb::repeated_entry& ents) : ents_(ents) {}
+  raftpb::snapshot& snapshot_ref() { return snapshot_; }
 #endif
   leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> initial_state() const;
 
