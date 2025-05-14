@@ -6,7 +6,7 @@
 #include <cstdint>
 
 #include "error.h"
-#include "protobuf.h"
+#include "types.h"
 namespace lepton {
 
 // InitialState returns the saved HardState and ConfState information.

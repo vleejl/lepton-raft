@@ -959,7 +959,7 @@ void raft::send(raftpb::message&& message) {
     msgs_after_append_.Add(std::move(message));
   } else {
     if (message.to() == id_) {
-      LEPTON_CRITICAL("message should not be self-addressed when sending %s", magic_enum::enum_name(msg_type));
+      LEPTON_CRITICAL("message should not be self-addressed when sending {}", magic_enum::enum_name(msg_type));
     }
     trace_receive_message(*this, message);
     msgs_.Add(std::move(message));
@@ -1038,7 +1038,7 @@ bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
           SPDLOG_DEBUG("{} failed to send snapshot to %x because snapshot is temporarily unavailable", id_, to);
           return new_error(err);
         }
-        panic(err.message);
+        LEPTON_CRITICAL(err.message);
         return new_error(err);
       });
   ;
@@ -1047,7 +1047,7 @@ bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
     return false;
   }
   if (pb::is_empty_snap(snap_result.value())) {
-    panic("need non-empty snapshot");
+    LEPTON_CRITICAL("need non-empty snapshot");
   }
 
   auto sindex = snap_result->metadata().index();
@@ -1290,7 +1290,7 @@ void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
 void raft::become_candidate() {
   // TODO(xiangli) remove the panic when the raft implementation is stable
   if (state_type_ == state_type::STATE_LEADER) {
-    panic(fmt::format("{} [term {}] invalid transition [leader -> candidate]", id_, term_));
+    LEPTON_CRITICAL("{} [term {}] invalid transition [leader -> candidate]", id_, term_);
   }
   // Becoming a candidate changes our step functions and state, but
   // doesn't change anything else. In particular it does not increase
@@ -1308,7 +1308,7 @@ void raft::become_candidate() {
 void raft::become_pre_candidate() {
   // TODO(xiangli) remove the panic when the raft implementation is stable
   if (state_type_ == state_type::STATE_LEADER) {
-    panic(fmt::format("{} [term {}] invalid transition [leader -> pre-candidate]", id_, term_));
+    LEPTON_CRITICAL("{} [term {}] invalid transition [leader -> pre-candidate]", id_, term_);
   }
   // Becoming a pre-candidate changes our step functions and state,
   // but doesn't change anything else. In particular it does not increase
@@ -1324,7 +1324,7 @@ void raft::become_pre_candidate() {
 void raft::become_leader() {
   // TODO(xiangli) remove the panic when the raft implementation is stable
   if (state_type_ == state_type::STATE_FOLLOWER) {
-    panic(fmt::format("{} [term {}] invalid transition [follower -> leader]", id_, term_));
+    LEPTON_CRITICAL("{} [term {}] invalid transition [follower -> leader]", id_, term_);
   }
   step_func_ = step_leader;
   reset(term_);
@@ -1352,7 +1352,7 @@ void raft::become_leader() {
   assert(empty_ent.empty());
   if (!append_entry(std::move(empty_ent))) {
     // This won't happen because we just called reset() above.
-    panic("empty entry was dropped");
+    LEPTON_CRITICAL("empty entry was dropped");
   }
   // The payloadSize of an empty entry is 0 (see TestPayloadSizeOfEmptyEntry),
   // so the preceding log append does not count against the uncommitted log
@@ -1418,7 +1418,7 @@ bool raft::has_unapplied_conf_change() const {
         if (err == logic_error::LOOP_BREAK) {
           return {};
         }
-        panic(fmt::format("error scanning unapplied entries [{}, {}): {}", lo, hi, err.message));
+        LEPTON_CRITICAL("error scanning unapplied entries [{}, {}): {}", lo, hi, err.message);
         return new_error(err);
       });
   assert(!result);
@@ -1862,7 +1862,7 @@ bool raft::restore(raftpb::snapshot&& snapshot) {
         return result;
       },
       [&](const lepton::lepton_error& err) -> confchange::changer::result {
-        panic(fmt::format("unable to restore config {}: {}", cs.DebugString(), err.message));
+        LEPTON_CRITICAL("unable to restore config {}: {}", cs.DebugString(), err.message);
         return new_error(err);
       });
   assert(!restore_result);
@@ -1898,7 +1898,7 @@ raftpb::conf_state raft::apply_conf_change(raftpb::conf_change_v2&& cc) {
       },
       [&](const lepton::lepton_error& err) -> confchange::changer::result {
         // TODO(tbg): return the error to the caller.
-        panic(err.message);
+        LEPTON_CRITICAL(err.message);
         return new_error(err);
       });
   ;

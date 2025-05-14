@@ -1,7 +1,7 @@
 #ifndef _LEPTON_TEST_RAFT_PROTOBUF_H_
 #define _LEPTON_TEST_RAFT_PROTOBUF_H_
-#include "protobuf.h"
 #include "raft.pb.h"
+#include "types.h"
 
 lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
 lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms);

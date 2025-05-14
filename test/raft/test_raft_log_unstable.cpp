@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "absl/types/span.h"
-#include "protobuf.h"
 #include "raft_log_unstable.h"
 #include "test_raft_protobuf.h"
 #include "types.h"

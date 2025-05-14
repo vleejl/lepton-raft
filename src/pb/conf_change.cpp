@@ -100,7 +100,7 @@ std::tuple<bool, bool> enter_joint(raftpb::conf_change_v2 c) {
         break;
       }
       default:
-        panic(fmt::format("unknown transition: %+v", magic_enum::enum_name(c.transition())));
+        LEPTON_CRITICAL("unknown transition: %+v", magic_enum::enum_name(c.transition()));
         break;
     }
     return {auto_leave, true};

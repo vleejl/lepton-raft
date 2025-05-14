@@ -8,7 +8,6 @@
 #include "config.h"
 #include "error.h"
 #include "progress.h"
-#include "protobuf.h"
 #include "quorum.h"
 #include "raft_log.h"
 #include "read_only.h"

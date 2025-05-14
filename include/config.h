@@ -57,9 +57,10 @@ struct config {
       this->max_inflight_bytes = NO_LIMIT;
     }
   }
-  config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy_view<storage_builer> storage)
-      : config(id, election_tick, heartbeat_tick, storage, 0, 0, 0, 0, 0, 0, false, read_only_option::READ_ONLY_SAFE,
-               false) {}
+  config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy_view<storage_builer> storage,
+         std::uint64_t max_size_per_msg, std::size_t max_inflight_msgs)
+      : config(id, election_tick, heartbeat_tick, storage, 0, max_size_per_msg, 0, 0, max_inflight_msgs, 0, false,
+               read_only_option::READ_ONLY_SAFE, false) {}
 
   // ID is the identity of the local raft. ID cannot be 0.
   // Raft 节点的唯一标识符。每个 Raft

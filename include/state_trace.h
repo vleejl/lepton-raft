@@ -2,7 +2,6 @@
 #define _LEPTON_STATE_TRACE_H_
 #include <raft.pb.h>
 
-#include "protobuf.h"
 #include "tracker.h"
 #include "types.h"
 namespace lepton {

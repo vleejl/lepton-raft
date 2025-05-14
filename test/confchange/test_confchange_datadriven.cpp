@@ -18,7 +18,6 @@
 #include "fmt/format.h"
 #include "leaf.hpp"
 #include "progress.h"
-#include "protobuf.h"
 #include "tracker.h"
 #include "types.h"
 #include "utility_data_test.h"

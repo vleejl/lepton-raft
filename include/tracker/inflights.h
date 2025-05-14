@@ -39,7 +39,7 @@ class inflights {
 
   void add(std::uint64_t inflight, std::uint64_t bytes) {
     if (full()) {
-      panic("cannot add into a Full inflights");
+      LEPTON_CRITICAL("cannot add into a Full inflights");
       return;
     }
     bytes_ += bytes;

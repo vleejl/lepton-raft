@@ -141,7 +141,7 @@ class progress {
         msg_app_flow_paused_ = inflights_.full();
       }
       default:
-        panic(fmt::format("sending append in unhandled state {}", magic_enum::enum_name(state_)));
+        LEPTON_CRITICAL("sending append in unhandled state {}", magic_enum::enum_name(state_));
         break;
     }
   }
@@ -414,9 +414,9 @@ class progress_map {
   progress_map(progress_map&&) = default;
   progress_map& operator=(progress_map&&) = default;
 
-  const std::unordered_map<std::uint64_t, progress>& view() const { return map_; }
+  const type& view() const { return map_; }
 
-  std::unordered_map<std::uint64_t, progress>& mutable_view() { return map_; }
+  type& mutable_view() { return map_; }
 
   void add_progress(std::uint64_t id, progress&& p) { map_.emplace(id, std::move(p)); }
 

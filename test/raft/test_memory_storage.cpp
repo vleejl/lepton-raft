@@ -15,8 +15,8 @@
 #include "error.h"
 #include "leaf.hpp"
 #include "memory_storage.h"
-#include "protobuf.h"
 #include "test_raft_protobuf.h"
+#include "types.h"
 #include "utility_macros_test.h"
 using namespace lepton;
 inline const std::error_code EC_SUCCESS;

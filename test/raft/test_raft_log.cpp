@@ -1162,7 +1162,7 @@ TEST_F(raft_log_test_suit, scan) {
         if (err == logic_error::LOOP_BREAK) {
           return {};
         }
-        panic(fmt::format("error scanning unapplied entries "));
+        LEPTON_CRITICAL("error scanning unapplied entries ");
         return new_error(err);
       });
   ASSERT_EQ(iters, 2);
@@ -1190,7 +1190,7 @@ TEST_F(raft_log_test_suit, scan) {
         if (err == logic_error::LOOP_BREAK) {
           return {};
         }
-        panic(fmt::format("error scanning unapplied entries "));
+        LEPTON_CRITICAL("error scanning unapplied entries ");
         return new_error(err);
       });
   ASSERT_TRUE(result);

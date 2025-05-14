@@ -4,7 +4,7 @@
 #include <optional>
 
 #include "error.h"
-#include "protobuf.h"
+#include "types.h"
 #include "raft.pb.h"
 #include "utility_macros.h"
 namespace lepton {

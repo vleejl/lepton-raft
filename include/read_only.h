@@ -95,7 +95,7 @@ class read_only {
       i++;
       auto iter = pending_read_index_.find(okctx);
       if (iter == pending_read_index_.end()) {
-        panic("cannot find corresponding read state from pending map");
+        LEPTON_CRITICAL("cannot find corresponding read state from pending map");
       }
       rss_keys.push_back(okctx);
       if (okctx == ctx) {
@@ -118,7 +118,7 @@ class read_only {
           // 并用 std::move 转移所有权到 vector 中
           rss.emplace_back(std::move(node.mapped()));
         } else {
-          panic(fmt::format("key:{} not exist in pending_read_index", iter));
+          LEPTON_CRITICAL("key:{} not exist in pending_read_index", iter);
         }
       }
       return rss;

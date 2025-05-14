@@ -23,8 +23,10 @@ leaf::result<void> config::validate() const {
     return new_error(logic_error::CONFIG_INVALID, "max inflight messages must be greater than 0");
   }
 
-  if (this->max_inflight_bytes < this->max_inflight_msgs) {
-    return new_error(logic_error::CONFIG_INVALID, "max inflight bytes must be >= max message size");
+  if (this->max_inflight_bytes != NO_LIMIT) {
+    if (this->max_inflight_bytes < this->max_inflight_msgs) {
+      return new_error(logic_error::CONFIG_INVALID, "max inflight bytes must be >= max message size");
+    }
   }
 
   if (this->read_only_opt == read_only_option::READ_ONLY_LEASE_BASED && !this->check_quorum) {

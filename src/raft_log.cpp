@@ -151,7 +151,7 @@ pb::repeated_entry raft_log::next_committed_ents(bool allow_unstable) {
         return v;
       },
       [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
-        panic(e.message);
+        LEPTON_CRITICAL(e.message);
         return new_error(e);
       });
   assert(entries.has_value());
@@ -199,7 +199,7 @@ std::uint64_t raft_log::first_index() const {
   if (auto index = storage_->first_index(); index.has_value()) {
     return index.value();
   }
-  panic("unreachable case");  // TODO(bdarnell)
+  LEPTON_CRITICAL("unreachable case");  // TODO(bdarnell)
   return 0;
 }
 
@@ -211,7 +211,7 @@ std::uint64_t raft_log::last_index() const {
   if (auto index = storage_->last_index(); index.has_value()) {
     return index.value();
   } else {
-    panic("unreachable case");  // TODO(bdarnell)
+    LEPTON_CRITICAL("unreachable case");  // TODO(bdarnell)
     return 0;
   }
 }
@@ -301,7 +301,7 @@ leaf::result<std::uint64_t> raft_log::term(std::uint64_t i) const {
         if (e.err_code == storage_error::COMPACTED || e.err_code == storage_error::UNAVAILABLE) {
           return new_error(e);
         }
-        panic(e.message);
+        LEPTON_CRITICAL(e.message);
         return new_error(e);
       });
   return r;
@@ -325,7 +325,7 @@ pb::repeated_entry raft_log::all_entries() {
         if (e.err_code == storage_error::COMPACTED) {
           return all_entries();
         }
-        panic(e.message);
+        LEPTON_CRITICAL(e.message);
       });
   assert(ents.has_value());
   return ents.value();
@@ -408,7 +408,7 @@ leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t
           }
         }
         // TODO(pavelkalinnikov): handle errors uniformly
-        panic(e.message);
+        LEPTON_CRITICAL(e.message);
         return new_error(e);
       });
   if (storage_entries.has_error()) {
@@ -474,7 +474,7 @@ std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
         if (e.err_code == storage_error::UNAVAILABLE) {
           return 0;
         }
-        panic(fmt::format("unexpected error {}", e.message));
+        LEPTON_CRITICAL("unexpected error {}", e.message);
       });
   assert(!r.has_error());
   return r.value();

@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <magic_enum.hpp>
 
-#include "conf_change.h"
 #include "conf_state.h"
 #include "error.h"
 #include "fmt/format.h"
@@ -130,7 +129,7 @@ void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::
         LEPTON_CRITICAL("conf states mismatch: {}", err.message);
         return new_error(err);
       });
-  assert(!result);
+  assert(result);
 }
 
 bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
@@ -146,7 +145,7 @@ raftpb::message_type vote_response_type(raftpb::message_type type) {
     case raftpb::message_type::MSG_PRE_VOTE:
       return raftpb::message_type::MSG_PRE_VOTE_RESP;
     default:
-      lepton::panic(fmt::format("not a vote message: {}", magic_enum::enum_name(type)));
+      LEPTON_CRITICAL("not a vote message: {}", magic_enum::enum_name(type));
   }
 }
 

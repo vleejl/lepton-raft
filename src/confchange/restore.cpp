@@ -7,7 +7,7 @@
 
 #include "confchange.h"
 #include "leaf.hpp"
-#include "protobuf.h"
+#include "types.h"
 namespace lepton {
 
 namespace confchange {
@@ -19,10 +19,8 @@ raftpb::conf_change_single create_conf_change_single(raftpb::conf_change_type ty
   return conf;
 }
 
-// toConfChangeSingle translates a conf state into 1) a slice of operations
-// creating
-// first the config that will become the outgoing one, and then the incoming
-// one, and b) another slice that, when applied to the config resulted from 1),
+// toConfChangeSingle translates a conf state into 1) a slice of operations creating first the config that will become
+// the outgoing one, and then the incoming one, and b) another slice that, when applied to the config resulted from 1),
 // represents the ConfState.
 std::tuple<pb::repeated_conf_change, pb::repeated_conf_change> to_conf_change_single(const raftpb::conf_state &cs) {
   // Example to follow along this code:
@@ -68,7 +66,7 @@ std::tuple<pb::repeated_conf_change, pb::repeated_conf_change> to_conf_change_si
   in.Reserve(in_size);
   // First, we'll remove all of the outgoing voters.
   for (const auto &id : cs.voters_outgoing()) {
-    in.Add(create_conf_change_single(raftpb::conf_change_type::CONF_CHANGE_ADD_NODE, id));
+    in.Add(create_conf_change_single(raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE, id));
   }
   // Then we'll add the incoming voters and learners.
   for (const auto &id : cs.voters()) {
