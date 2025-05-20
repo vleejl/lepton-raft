@@ -435,7 +435,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
         // 可能因网络不稳定或日志不一致而逐条发送日志条目。若某次响应表明 Follower 已追上进度，Leader 可将其状态切换回
         // StateReplicate，恢复高效批量复制。
         // 当 Follower 处于 StateProbe（探测状态），且响应表明其日志已对齐到当前探测位置（可切换回批量复制模式）。
-        if (pr.maybe_update(m.index() || (pr.match() == m.index() && pr.state() == tracker::state_type::STATE_PROBE))) {
+        if (pr.maybe_update(m.index()) || (pr.match() == m.index() && pr.state() == tracker::state_type::STATE_PROBE)) {
           if (pr.state() == tracker::state_type::STATE_PROBE) {
             pr.become_replicate();
           } else if ((pr.state() == tracker::state_type::STATE_SNAPSHOT) &&
@@ -1218,6 +1218,7 @@ bool raft::append_entry(pb::repeated_entry&& entries) {
   m.set_to(id_);
   m.set_type(raftpb::message_type::MSG_APP_RESP);
   m.set_index(li);
+  send(std::move(m));
   return true;
 }
 
@@ -1348,9 +1349,9 @@ void raft::become_leader() {
   // could be expensive.
   pending_conf_index_ = raft_log_handle_.last_index();
   trace_become_leader(*this);
-  pb::repeated_entry empty_ent;
-  assert(empty_ent.empty());
-  if (!append_entry(std::move(empty_ent))) {
+  pb::repeated_entry empty_ents;
+  empty_ents.Add();
+  if (!append_entry(std::move(empty_ents))) {
     // This won't happen because we just called reset() above.
     LEPTON_CRITICAL("empty entry was dropped");
   }
@@ -2078,7 +2079,7 @@ leaf::result<void> raft::step_or_send(pb::repeated_message&& m) {
   for (auto& msg : m) {
     if (msg.to() == id_) {
       auto result = step(std::move(msg));
-      if (result) {
+      if (!result) {
         return result;
       }
     } else {

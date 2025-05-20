@@ -139,6 +139,7 @@ class progress {
         // If this message overflows the in-flights tracker, or it was already full,
         // consider this message being a probe, so that the flow is paused.
         msg_app_flow_paused_ = inflights_.full();
+        break;
       }
       default:
         LEPTON_CRITICAL("sending append in unhandled state {}", magic_enum::enum_name(state_));
