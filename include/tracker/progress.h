@@ -67,6 +67,8 @@ class progress {
 
   void set_msg_app_flow_paused(bool paused) { msg_app_flow_paused_ = paused; }
 
+  auto msg_app_flow_paused() const { return msg_app_flow_paused_; }
+
   auto state() const { return state_; }
 
   void set_pending_snapshot(std::uint64_t pending_snapshot) { pending_snapshot_ = pending_snapshot; }

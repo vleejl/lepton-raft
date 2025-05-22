@@ -115,6 +115,14 @@ static lepton::raft new_test_raft(std::uint64_t id, int election_tick, int heart
   return std::move(r.value());
 }
 
+static raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type) {
+  raftpb::message msg;
+  msg.set_from(from);
+  msg.set_to(to);
+  msg.set_type(type);
+  return msg;
+}
+
 TEST_F(raft_test_suit, progress_leader) {
   auto ms = new_memory_storage({with_peers({1, 2})});
   pro::proxy_view<storage_builer> storage{ms.get()};
@@ -124,10 +132,7 @@ TEST_F(raft_test_suit, progress_leader) {
   r.trk_.progress_map_mutable_view().mutable_view().at(2).become_replicate();
 
   // Send proposals to r1. The first 5 entries should be queued in the unstable log.
-  raftpb::message prop_msg;
-  prop_msg.set_from(1);
-  prop_msg.set_to(1);
-  prop_msg.set_type(raftpb::message_type::MSG_PROP);
+  raftpb::message prop_msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
   auto entry = prop_msg.add_entries();
   entry->set_data("foo");
   for (std::size_t i = 0; i < 5; ++i) {
@@ -144,4 +149,40 @@ TEST_F(raft_test_suit, progress_leader) {
   r.advance_messages_after_append();
   GTEST_ASSERT_EQ(6, r.trk_.progress_map_mutable_view().mutable_view().at(1).match());
   GTEST_ASSERT_EQ(7, r.trk_.progress_map_mutable_view().mutable_view().at(1).next());
+}
+
+// TestProgressResumeByHeartbeatResp ensures raft.heartbeat reset progress.paused by heartbeat response.
+TEST_F(raft_test_suit, progress_resume_by_heartbeat_resp) {
+  auto ms = new_memory_storage({with_peers({1, 2})});
+  pro::proxy_view<storage_builer> storage{ms.get()};
+  auto r = new_test_raft(1, 5, 1, storage);
+  r.become_candidate();
+  r.become_leader();
+  r.trk_.progress_map_mutable_view().mutable_view().at(2).set_msg_app_flow_paused(true);
+
+  // Send proposals to r1. The first 5 entries should be queued in the unstable log.
+  r.step(new_pb_message(1, 1, raftpb::MSG_BEAT));
+  GTEST_ASSERT_TRUE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
+
+  r.trk_.progress_map_mutable_view().mutable_view().at(2).become_replicate();
+  GTEST_ASSERT_FALSE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
+  r.trk_.progress_map_mutable_view().mutable_view().at(2).set_msg_app_flow_paused(true);
+  r.step(new_pb_message(2, 1, raftpb::MSG_HEARTBEAT_RESP));
+  GTEST_ASSERT_FALSE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
+}
+
+TEST_F(raft_test_suit, progress_paused) {
+  auto ms = new_memory_storage({with_peers({1, 2})});
+  pro::proxy_view<storage_builer> storage{ms.get()};
+  auto r = new_test_raft(1, 5, 1, storage);
+  r.become_candidate();
+  r.become_leader();
+  auto prop_msg = new_pb_message(1, 1, raftpb::MSG_PROP);
+  prop_msg.add_entries()->set_data("somedata");
+  r.step(raftpb::message(prop_msg));
+  r.step(raftpb::message(prop_msg));
+  r.step(raftpb::message(prop_msg));
+
+  auto msgs = r.read_messages();
+  GTEST_ASSERT_EQ(1, msgs.size());
 }

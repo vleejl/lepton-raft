@@ -523,14 +523,14 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
       // Note that StateSnapshot typically satisfies pr.Match < lastIndex, but
       // `pr.Paused()` is always true for StateSnapshot, so sendAppend is a
       // no-op.
-      if ((pr.match() < r.raft_log_handle_.last_index()) && (pr.state() != tracker::state_type::STATE_PROBE)) {
+      if ((pr.match() < r.raft_log_handle_.last_index()) || (pr.state() == tracker::state_type::STATE_PROBE)) {
         // 发送 empty append message to the follower
         // 以便其可以恢复到正常的复制状态（StateReplicate）
         r.send_append(msg_from);
       }
 
       // 仅当配置为 ReadOnlySafe（线性一致读）且心跳响应携带上下文（m.Context，即关联的只读请求 ID）时，继续处理。
-      if ((r.read_only_.read_only_opt() != read_only_option::READ_ONLY_SAFE) && (m.context().empty())) {
+      if ((r.read_only_.read_only_opt() != read_only_option::READ_ONLY_SAFE) || (m.context().empty())) {
         return {};
       }
 
@@ -975,8 +975,9 @@ bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   if (pr.is_paused()) {
     return false;
   }
-
-  auto prev_index = pr.next() - 1;
+  auto pr_next = pr.next();
+  assert(pr_next > 0);
+  auto prev_index = pr_next - 1;
   auto prev_term = raft_log_handle_.term(prev_index);
   if (!prev_term) {
     // The log probably got truncated at >= pr.Next, so we can't catch up the
@@ -993,7 +994,7 @@ bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   // leader to send an append), allowing it to be acked or rejected, both of
   // which will clear out Inflights.
   if (pr.state() != tracker::state_type::STATE_REPLICATE || pr.ref_inflights().full()) {
-    auto ents_result = raft_log_handle_.entries(to, max_msg_size_);
+    auto ents_result = raft_log_handle_.entries(pr_next, max_msg_size_);
     if (ents_result) {
       ents = std::move(*ents_result);
     } else {
@@ -1017,8 +1018,11 @@ bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   msg.set_index(prev_index);
   msg.set_term(prev_term.value());
   msg.mutable_entries()->Swap(&ents);
+  const auto entries_size = static_cast<std::uint64_t>(msg.entries_size());
+  const auto bytes = pb::payloads_size(msg.entries());
   msg.set_commit(raft_log_handle_.committed());
-  pr.sent_entries(static_cast<std::uint64_t>(msg.entries_size()), pb::payloads_size(msg.entries()));
+  send(std::move(msg));
+  pr.sent_entries(entries_size, bytes);
   pr.sent_commit(msg.commit());
   return true;
 }
@@ -1079,7 +1083,7 @@ void raft::send_heartbeat(std::uint64_t id, std::string&& ctx) {
   // an unmatched index.
   auto commit = std::min(pr_iter->second.match(), raft_log_handle_.committed());
   raftpb::message m;
-  m.set_to(id_);
+  m.set_to(id);
   m.set_type(raftpb::message_type::MSG_HEARTBEAT);
   m.set_commit(commit);
   *m.mutable_context() = std::move(ctx);
@@ -1100,11 +1104,11 @@ void raft::bcast_append() {
 void raft::bcast_heartbeat() { bcast_heartbeat_with_ctx(read_only_.last_pending_request_ctx()); }
 
 void raft::bcast_heartbeat_with_ctx(std::string&& ctx) {
-  trk_.visit([&](std::uint64_t id, tracker::progress& pr) {
+  trk_.visit([&](std::uint64_t id, tracker::progress&) {
     if (id == id_) {
       return;
     }
-    send_heartbeat(id, std::move(ctx));
+    send_heartbeat(id, std::string(ctx));
   });
 }
 
@@ -1175,7 +1179,7 @@ void raft::reset(std::uint64_t term) {
   trk_.reset_votes();
 
   trk_.visit([&](std::uint64_t id, tracker::progress& pr) {
-    pr = tracker::progress{raft_log_handle_.last_index(),
+    pr = tracker::progress{raft_log_handle_.last_index() + 1,
                            tracker::inflights{trk_.max_inflight(), trk_.max_inflight_bytes()}, pr.is_learner(), false};
     if (id_ == id) {
       pr.set_match(raft_log_handle_.last_index());

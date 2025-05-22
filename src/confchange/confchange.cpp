@@ -130,22 +130,22 @@ void changer::init_progress(std::uint64_t id, bool is_learner, tracker::config &
   }
 
   prs.add_progress(
-      id, tracker::progress{
-              // Initializing the Progress with the last index means that the
-              // follower
-              // can be probed (with the last index).
-              //
-              // TODO(tbg): seems awfully optimistic. Using the first index would be
-              // better. The general expectation here is that the follower has no
-              // log
-              // at all (and will thus likely need a snapshot), though the app may
-              // have applied a snapshot out of band before adding the replica (thus
-              // making the first index the better choice).
-              last_index_, tracker::inflights{tracker_.max_inflight(), tracker_.max_inflight_bytes()}, is_learner,
-              // When a node is first added, we should mark it as recently active.
-              // Otherwise, CheckQuorum may cause us to step down if it is invoked
-              // before the added node has had a chance to communicate with us.
-              true});
+      id, tracker::progress{// Initializing the Progress with the last index means that the
+                            // follower
+                            // can be probed (with the last index).
+                            //
+                            // TODO(tbg): seems awfully optimistic. Using the first index would be
+                            // better. The general expectation here is that the follower has no
+                            // log
+                            // at all (and will thus likely need a snapshot), though the app may
+                            // have applied a snapshot out of band before adding the replica (thus
+                            // making the first index the better choice).
+                            std::max(last_index_, static_cast<std::uint64_t>(1)),  // invariant: Match < Next
+                            tracker::inflights{tracker_.max_inflight(), tracker_.max_inflight_bytes()}, is_learner,
+                            // When a node is first added, we should mark it as recently active.
+                            // Otherwise, CheckQuorum may cause us to step down if it is invoked
+                            // before the added node has had a chance to communicate with us.
+                            true});
 }
 
 void changer::make_voters(std::uint64_t id, tracker::config &cfg, tracker::progress_map &prs) const {

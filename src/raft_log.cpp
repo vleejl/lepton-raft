@@ -286,7 +286,7 @@ leaf::result<std::uint64_t> raft_log::term(std::uint64_t i) const {
   auto last_idx = last_index();
   if (i < dummy_index || i > last_idx) {
     // TODO: return an error instead?
-    return 0;
+    return new_error(storage_error::COMPACTED);
   }
 
   if (auto t = unstable_.maybe_term(i); t.has_value()) {
