@@ -993,7 +993,7 @@ bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   // MsgApp will eventually reach the follower (heartbeats responses prompt the
   // leader to send an append), allowing it to be acked or rejected, both of
   // which will clear out Inflights.
-  if (pr.state() != tracker::state_type::STATE_REPLICATE || pr.ref_inflights().full()) {
+  if (pr.state() != tracker::state_type::STATE_REPLICATE || !pr.ref_inflights().full()) {
     auto ents_result = raft_log_handle_.entries(pr_next, max_msg_size_);
     if (ents_result) {
       ents = std::move(*ents_result);
@@ -1016,8 +1016,9 @@ bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   msg.set_to(to);
   msg.set_type(raftpb::message_type::MSG_APP);
   msg.set_index(prev_index);
-  msg.set_term(prev_term.value());
+  msg.set_log_term(prev_term.value());
   msg.mutable_entries()->Swap(&ents);
+  msg.set_commit(raft_log_handle_.committed());
   const auto entries_size = static_cast<std::uint64_t>(msg.entries_size());
   const auto bytes = pb::payloads_size(msg.entries());
   msg.set_commit(raft_log_handle_.committed());

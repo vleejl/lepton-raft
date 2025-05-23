@@ -279,19 +279,27 @@ pb::entry_id raft_log::last_entry_id() const {
 }
 
 leaf::result<std::uint64_t> raft_log::term(std::uint64_t i) const {
-  // the valid term range is [index of dummy entry, last index]
+  // Check the unstable log first, even before computing the valid term range,
+  // which may need to access stable Storage. If we find the entry's term in
+  // the unstable log, we know it was in the valid range.
+  if (auto t = unstable_.maybe_term(i); t.has_value()) {
+    return t.value();
+  }
+
+  // The valid term range is [firstIndex-1, lastIndex]. Even though the entry at
+  // firstIndex-1 is compacted away, its term is available for matching purposes
+  // when doing log appends.
   auto first_idx = first_index();
   assert(first_idx > 0);
   auto dummy_index = first_idx - 1;
   auto last_idx = last_index();
-  if (i < dummy_index || i > last_idx) {
-    // TODO: return an error instead?
+  if (i < dummy_index) {
     return new_error(storage_error::COMPACTED);
   }
-
-  if (auto t = unstable_.maybe_term(i); t.has_value()) {
-    return t.value();
+  if (i > last_idx) {
+    return new_error(storage_error::UNAVAILABLE);
   }
+
   leaf::result<std::uint64_t> r = leaf::try_handle_some(
       [&]() -> leaf::result<std::uint64_t> {
         BOOST_LEAF_AUTO(v, storage_->term(i));

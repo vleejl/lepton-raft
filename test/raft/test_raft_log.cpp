@@ -22,6 +22,7 @@
 #include "spdlog/spdlog.h"
 #include "test_raft_protobuf.h"
 #include "types.h"
+#include "utility_data_test.h"
 #include "utility_macros_test.h"
 using namespace lepton;
 
@@ -969,15 +970,37 @@ TEST_F(raft_log_test_suit, term) {
 
   struct test_case {
     std::uint64_t index;
-    std::uint64_t w;
+    std::uint64_t term;
+    std::error_code werr;
   };
   std::vector<test_case> tests = {
-      {offset - 1, 0}, {offset, 1}, {offset + num / 2, num / 2}, {offset + num - 1, num - 1}, {offset + num, 0},
+      {offset - 1, 0, lepton::storage_error::COMPACTED},
+      {offset, 1, EC_SUCCESS},
+      {offset + num / 2, num / 2, EC_SUCCESS},
+      {offset + num - 1, num - 1, EC_SUCCESS},
+      {offset + num, 0, lepton::storage_error::UNAVAILABLE},
   };
   for (auto &iter_test : tests) {
-    auto term = raft_log->term(iter_test.index);
-    ASSERT_TRUE(term.has_value());
-    ASSERT_EQ(term.value(), iter_test.w);
+    std::error_code err_code = EC_SUCCESS;
+    auto has_called_error = false;
+    auto result = leaf::try_handle_some(
+        [&]() -> leaf::result<std::uint64_t> {
+          BOOST_LEAF_AUTO(v, raft_log->term(iter_test.index));
+          return v;
+        },
+        [&](const lepton::lepton_error &err) -> leaf::result<std::uint64_t> {
+          has_called_error = true;
+          err_code = err.err_code;
+          return new_error(err);
+        });
+    if (iter_test.werr == EC_SUCCESS) {
+      ASSERT_FALSE(has_called_error);
+      ASSERT_TRUE(result.has_value());
+      ASSERT_EQ(result.value(), iter_test.term);
+    } else {
+      ASSERT_TRUE(has_called_error);
+      ASSERT_EQ(iter_test.werr, err_code);
+    }
   }
 }
 
@@ -993,21 +1016,41 @@ TEST_F(raft_log_test_suit, term_with_unstable_snapshot) {
 
   struct test_case {
     std::uint64_t index;
-    std::uint64_t w;
+    std::uint64_t term;
+    std::error_code werr;
   };
   std::vector<test_case> tests = {
       // cannot get term from storage
-      {storagesnapi, 0},
+      {storagesnapi, 0, lepton::storage_error::COMPACTED},
       // cannot get term from the gap between storage ents and unstable snapshot
-      {storagesnapi + 1, 0},
-      {unstablesnapi - 1, 0},
+      {storagesnapi + 1, 0, lepton::storage_error::COMPACTED},
+      {unstablesnapi - 1, 0, lepton::storage_error::COMPACTED},
       // get term from unstable snapshot index
-      {unstablesnapi, 1},
+      {unstablesnapi, 1, EC_SUCCESS},
+      // the log beyond the unstable snapshot is empty
+      {unstablesnapi + 1, 0, lepton::storage_error::UNAVAILABLE},
   };
   for (auto &iter_test : tests) {
-    auto term = raft_log->term(iter_test.index);
-    ASSERT_TRUE(term.has_value());
-    ASSERT_EQ(term.value(), iter_test.w);
+    std::error_code err_code = EC_SUCCESS;
+    auto has_called_error = false;
+    auto result = leaf::try_handle_some(
+        [&]() -> leaf::result<std::uint64_t> {
+          BOOST_LEAF_AUTO(v, raft_log->term(iter_test.index));
+          return v;
+        },
+        [&](const lepton::lepton_error &err) -> leaf::result<std::uint64_t> {
+          has_called_error = true;
+          err_code = err.err_code;
+          return new_error(err);
+        });
+    if (iter_test.werr == EC_SUCCESS) {
+      ASSERT_FALSE(has_called_error);
+      ASSERT_TRUE(result.has_value());
+      ASSERT_EQ(result.value(), iter_test.term);
+    } else {
+      ASSERT_TRUE(has_called_error);
+      ASSERT_EQ(iter_test.werr, err_code);
+    }
   }
 }
 

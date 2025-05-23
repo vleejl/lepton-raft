@@ -139,16 +139,16 @@ TEST_F(raft_test_suit, progress_leader) {
     raftpb::message new_prop_msg{prop_msg};
     r.step(std::move(new_prop_msg));
   }
-  GTEST_ASSERT_EQ(0, r.trk_.progress_map_mutable_view().mutable_view().at(1).match());
+  ASSERT_EQ(0, r.trk_.progress_map_mutable_view().mutable_view().at(1).match());
 
   auto ents = r.raft_log_handle_.next_unstable_ents();
-  GTEST_ASSERT_EQ(6, ents.size());
-  GTEST_ASSERT_TRUE(ents[0]->data().empty());
-  GTEST_ASSERT_EQ("foo", ents[5]->data());
+  ASSERT_EQ(6, ents.size());
+  ASSERT_TRUE(ents[0]->data().empty());
+  ASSERT_EQ("foo", ents[5]->data());
 
   r.advance_messages_after_append();
-  GTEST_ASSERT_EQ(6, r.trk_.progress_map_mutable_view().mutable_view().at(1).match());
-  GTEST_ASSERT_EQ(7, r.trk_.progress_map_mutable_view().mutable_view().at(1).next());
+  ASSERT_EQ(6, r.trk_.progress_map_mutable_view().mutable_view().at(1).match());
+  ASSERT_EQ(7, r.trk_.progress_map_mutable_view().mutable_view().at(1).next());
 }
 
 // TestProgressResumeByHeartbeatResp ensures raft.heartbeat reset progress.paused by heartbeat response.
@@ -162,13 +162,13 @@ TEST_F(raft_test_suit, progress_resume_by_heartbeat_resp) {
 
   // Send proposals to r1. The first 5 entries should be queued in the unstable log.
   r.step(new_pb_message(1, 1, raftpb::MSG_BEAT));
-  GTEST_ASSERT_TRUE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
+  ASSERT_TRUE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
 
   r.trk_.progress_map_mutable_view().mutable_view().at(2).become_replicate();
-  GTEST_ASSERT_FALSE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
+  ASSERT_FALSE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
   r.trk_.progress_map_mutable_view().mutable_view().at(2).set_msg_app_flow_paused(true);
   r.step(new_pb_message(2, 1, raftpb::MSG_HEARTBEAT_RESP));
-  GTEST_ASSERT_FALSE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
+  ASSERT_FALSE(r.trk_.progress_map_mutable_view().mutable_view().at(2).msg_app_flow_paused());
 }
 
 TEST_F(raft_test_suit, progress_paused) {
@@ -184,5 +184,80 @@ TEST_F(raft_test_suit, progress_paused) {
   r.step(raftpb::message(prop_msg));
 
   auto msgs = r.read_messages();
-  GTEST_ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(1, msgs.size());
+}
+
+TEST_F(raft_test_suit, progress_flow_control) {
+  auto ms = new_memory_storage({with_peers({1, 2})});
+  pro::proxy_view<storage_builer> storage{ms.get()};
+  auto cfg = new_test_config(1, 5, 1, storage);
+  cfg.max_inflight_msgs = 3;
+  cfg.max_size_per_msg = 2048;
+  cfg.max_inflight_bytes = 9000;  // A little over MaxInflightMsgs * MaxSizePerMsg.
+  auto r_result = new_raft(std::move(cfg));
+  ASSERT_TRUE(r_result);
+  auto &r = r_result.value();
+  r.become_candidate();
+  r.become_leader();
+
+  // Throw away all the messages relating to the initial election.
+  r.read_messages();
+
+  // While node 2 is in probe state, propose a bunch of entries.
+  r.trk_.progress_map_mutable_view().mutable_view().at(2).become_probe();
+  auto blob = std::string(1000, 'a');
+  auto large = std::string(5000, 'b');
+  for (auto i = 0; i < 22; ++i) {
+    auto entry_data = blob;
+    if (i >= 10 && i < 16) {
+      entry_data = large;
+    }
+    auto msg = new_pb_message(1, 1, raftpb::MSG_PROP);
+    msg.add_entries()->mutable_data()->swap(entry_data);
+    r.step(std::move(msg));
+  }
+
+  auto msgs = r.read_messages();
+  // First append has two entries: the empty entry to confirm the
+  // election, and the first proposal (only one proposal gets sent
+  // because we're in probe state).
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(raftpb::message_type::MSG_APP, msgs[0].type());
+  ASSERT_EQ(2, msgs[0].entries_size());
+  ASSERT_TRUE(msgs[0].entries().at(0).data().empty());
+  ASSERT_EQ(1000, msgs[0].entries().at(1).data().size());
+
+  auto ack_and_verify = [&](std::uint64_t index, std::vector<int> exp_entries) -> std::uint64_t {
+    auto msg = new_pb_message(2, 1, raftpb::MSG_APP_RESP);
+    msg.set_index(index);
+    r.step(std::move(msg));
+    auto msgs = r.read_messages();
+    auto msgs_size = msgs.size();
+    auto exp_entries_size = static_cast<int>(exp_entries.size());
+    assert(msgs_size == exp_entries_size);
+    for (int i = 0; i < msgs.size(); ++i) {
+      assert(raftpb::message_type::MSG_APP == msgs[i].type());
+      const auto entries_size = msgs[i].entries_size();
+      assert(exp_entries[static_cast<std::size_t>(i)] == entries_size);
+    }
+    auto last = msgs.at(msgs.size() - 1).entries();
+    if (last.empty()) {
+      return index;
+    }
+    return last.at(last.size() - 1).index();
+  };
+
+  // When this append is acked, we change to replicate state and can
+  // send multiple messages at once.
+  auto index = ack_and_verify(msgs.at(0).entries().at(1).index(), {2, 2, 2});
+  // Ack all three of those messages together and get another 3 messages. The
+  // third message contains a single large entry, in contrast to 2 before.
+  index = ack_and_verify(index, {2, 1, 1});
+  // All subsequent messages contain one large entry, and we cap at 2 messages
+  // because it overflows MaxInflightBytes.
+  index = ack_and_verify(index, {1, 1});
+  index = ack_and_verify(index, {1, 1});
+  // Start getting small messages again.
+  index = ack_and_verify(index, {1, 2, 2});
+  ack_and_verify(index, {2});
 }

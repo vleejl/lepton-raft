@@ -17,9 +17,9 @@
 #include "memory_storage.h"
 #include "test_raft_protobuf.h"
 #include "types.h"
+#include "utility_data_test.h"
 #include "utility_macros_test.h"
 using namespace lepton;
-inline const std::error_code EC_SUCCESS;
 
 class memory_storage_test_suit : public testing::Test {
  protected:

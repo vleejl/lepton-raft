@@ -34,3 +34,5 @@ inline bool string_to_bool(const std::string& str) {
   iss >> std::boolalpha >> result;
   return result;
 }
+
+inline const std::error_code EC_SUCCESS;
