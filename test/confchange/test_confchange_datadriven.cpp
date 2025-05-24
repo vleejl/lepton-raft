@@ -18,9 +18,9 @@
 #include "fmt/format.h"
 #include "leaf.hpp"
 #include "progress.h"
+#include "test_utility_data.h"
 #include "tracker.h"
 #include "types.h"
-#include "utility_data_test.h"
 using namespace lepton;
 
 // The test files use the commands

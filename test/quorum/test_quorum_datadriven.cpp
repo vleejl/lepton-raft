@@ -1,5 +1,6 @@
 #include <fmt/core.h>
 #include <gtest/gtest.h>
+#include <proxy.h>
 
 #include <cassert>
 #include <cstddef>
@@ -18,9 +19,8 @@
 #include "data_driven.h"
 #include "joint.h"
 #include "majority.h"
-#include "proxy.h"
 #include "quorum.h"
-#include "utility_data_test.h"
+#include "test_utility_data.h"
 using namespace lepton;
 
 std::string vote_result2etcd_raft(quorum::vote_result v) {

@@ -7,6 +7,7 @@
 #include "conf_state.h"
 #include "error.h"
 #include "fmt/format.h"
+#include "types.h"
 
 static raftpb::hard_state EMPTY_STATE;
 
@@ -27,6 +28,10 @@ entry_encoding_size ent_size(const pb::span_entry& entries) {
     size += entry->ByteSizeLong();
   }
   return size;
+}
+
+entry_payload_size payloads_size(const raftpb::entry& entry) {
+  return static_cast<entry_payload_size>(entry.data().size());
 }
 
 entry_payload_size payloads_size(const repeated_entry& entries) {

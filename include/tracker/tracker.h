@@ -160,6 +160,10 @@ class progress_tracker {
 
   const config& config_view() const { return config_; }
 
+#ifdef LEPTON_TEST
+  config& mutable_config_view() { return config_; }
+#endif
+
   const progress_map& progress_map_view() const { return progress_map_; }
 
   progress_map& progress_map_mutable_view() { return progress_map_; }

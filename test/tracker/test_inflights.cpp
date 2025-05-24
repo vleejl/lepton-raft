@@ -6,7 +6,7 @@
 
 #include "gtest/gtest.h"
 #include "inflights.h"
-#include "utility_macros_test.h"
+#include "test_utility_macros.h"
 using namespace lepton;
 using namespace lepton::tracker;
 
@@ -163,7 +163,7 @@ TEST_F(inflights_test_suit, full) {
 TEST_F(inflights_test_suit, reset) {
   inflights in{10, 1000};
   // Imitate a semi-realistic flow during which the inflight tracker is
-	// periodically reset to empty. Byte usage must not "leak" across resets.
+  // periodically reset to empty. Byte usage must not "leak" across resets.
   std::uint64_t index = 0;
   for (int i = 0; i < 100; ++i) {
     in.reset();

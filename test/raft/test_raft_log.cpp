@@ -17,13 +17,15 @@
 #include "gtest/gtest.h"
 #include "memory_storage.h"
 #include "protobuf.h"
+#include "proxy.h"
 #include "raft_log.h"
 #include "raft_log_unstable.h"
 #include "spdlog/spdlog.h"
+#include "storage.h"
 #include "test_raft_protobuf.h"
+#include "test_utility_data.h"
+#include "test_utility_macros.h"
 #include "types.h"
-#include "utility_data_test.h"
-#include "utility_macros_test.h"
 using namespace lepton;
 
 class raft_log_test_suit : public testing::Test {
@@ -68,8 +70,7 @@ TEST_F(raft_log_test_suit, test_find_conflict) {
 
   for (const auto &iter_test : tests) {
     pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
-    pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(std::move(memory_storager));
     raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
     auto gconflict = raft_log->find_conflict(iter_test.entries);
     ASSERT_EQ(gconflict, iter_test.wconflict);
@@ -117,9 +118,8 @@ TEST_F(raft_log_test_suit, test_find_conflict_by_term) {
     lepton::memory_storage mm_storage;
     auto snapshot = create_snapshot(iter_test.entries[0].index(), iter_test.entries[0].term());
     mm_storage.apply_snapshot(std::move(snapshot));
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
     iter_test.entries.DeleteSubrange(0, 1);
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     raft_log->append(std::move(iter_test.entries));
 
     auto gconflict = raft_log->find_conflict_by_term(iter_test.index, iter_test.term);
@@ -133,9 +133,7 @@ TEST_F(raft_log_test_suit, test_find_conflict_by_term) {
 }
 
 TEST_F(raft_log_test_suit, is_up_to_date) {
-  pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
-  pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
-  auto raft_log = new_raft_log(memory_storager_view);
+  auto raft_log = new_raft_log(pro::make_proxy<storage_builer, memory_storage>());
   raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
   struct test_case {
     std::uint64_t last_index;
@@ -202,9 +200,7 @@ TEST_F(raft_log_test_suit, append) {
   for (auto &iter_test : tests) {
     lepton::memory_storage mm_storage;
     mm_storage.append(create_entries({{1, 1}, {2, 2}}));
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     auto index = raft_log->append(std::move(iter_test.entries));
     ASSERT_EQ(index, iter_test.windex);
 
@@ -354,9 +350,7 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
     test_index++;
     printf("current test case index:%d\n", test_index);
     // initial
-    pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
-    pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer, memory_storage>());
     raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
     raft_log->commit_to(INIT_COMMIT);
 
@@ -402,10 +396,11 @@ TEST_F(raft_log_test_suit, compaction_side_effects) {
   // Populate the log with 1000 entries; 750 in stable storage and 250 in unstable.
   constexpr std::uint64_t LAST_INDEX = 1000;
   constexpr std::uint64_t UNSTABLE_INDEX = 750;
-  lepton::memory_storage mm_storage;
+  auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+  auto &mm_storage = *mm_storage_ptr;
   mm_storage.append(create_entries_with_term_range(1, 1, UNSTABLE_INDEX + 1));
-  pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-  auto raft_log = new_raft_log(memory_storager_view);
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto raft_log = new_raft_log(std::move(storage_proxy));
   raft_log->append(create_entries_with_term_range(UNSTABLE_INDEX + 1, UNSTABLE_INDEX + 1, LAST_INDEX + 1));
   auto commit_result = raft_log->maybe_commit(raft_log->last_entry_id());
   ASSERT_TRUE(commit_result);
@@ -482,8 +477,7 @@ TEST_F(raft_log_test_suit, has_next_committed_ents) {
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append(lepton::pb::extract_range_without_copy(ents, 0, 1)));
 
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     ASSERT_TRUE(raft_log.has_value());
     raft_log->append(create_entries(4, {1, 1, 1}));
     raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
@@ -554,8 +548,7 @@ TEST_F(raft_log_test_suit, next_committed_ents) {
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
 
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     ASSERT_TRUE(raft_log.has_value());
     raft_log->append(create_entries(4, {1, 1, 1}));
     raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
@@ -610,8 +603,7 @@ TEST_F(raft_log_test_suit, accept_applying) {
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
 
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-    auto raft_log = new_raft_log_with_size(memory_storager_view, MAX_SIZE);
+    auto raft_log = new_raft_log_with_size(pro::make_proxy<storage_builer>(std::move(mm_storage)), MAX_SIZE);
     ASSERT_TRUE(raft_log.has_value());
 
     raft_log->append(create_entries(4, {1, 1, 1}));
@@ -657,8 +649,7 @@ TEST_F(raft_log_test_suit, applied_to) {
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
 
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-    auto raft_log = new_raft_log_with_size(memory_storager_view, MAX_SIZE);
+    auto raft_log = new_raft_log_with_size(pro::make_proxy<storage_builer>(std::move(mm_storage)), MAX_SIZE);
     ASSERT_TRUE(raft_log.has_value());
 
     raft_log->append(create_entries(4, {1, 1, 1}));
@@ -698,8 +689,7 @@ TEST_F(raft_log_test_suit, next_unstable_ents) {
       ents.Add()->CopyFrom(previous_ents[i]);
     }
     mm_storage.append(std::move(ents));
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     ASSERT_TRUE(raft_log.has_value());
     ents.Clear();
     for (std::uint64_t i = iter_test.unstable - 1; i < previous_ents.size(); ++i) {
@@ -734,9 +724,7 @@ TEST_F(raft_log_test_suit, commit_to) {
       {4, 0, true},   // commit out of range -> panic
   };
   for (auto &iter_test : tests) {
-    pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
-    pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer, memory_storage>());
     raft_log->append(create_entries({{1, 1}, {2, 2}, {3, 3}}));
     raft_log->set_commit(COMMIT);
     if (iter_test.wpanic) {
@@ -762,9 +750,7 @@ TEST_F(raft_log_test_suit, stable_to) {
       {3, 1, 1},  // bad index
   };
   for (auto &iter_test : tests) {
-    pro::proxy<storage_builer> memory_storager = pro::make_proxy<storage_builer, memory_storage>();
-    pro::proxy_view<storage_builer> memory_storager_view = memory_storager;
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer, memory_storage>());
     raft_log->append(create_entries({{1, 1}, {2, 2}}));
     raft_log->stable_to({iter_test.stablet, iter_test.stablei});
     ASSERT_EQ(raft_log->unstable_view().offset(), iter_test.wunstable);
@@ -809,8 +795,7 @@ TEST_F(raft_log_test_suit, stable_to_with_snapshot) {
     printf("current test case index:%d\n", test_index);
     lepton::memory_storage mm_storage;
     mm_storage.apply_snapshot(create_snapshot(snapi, snapt));
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-    auto raft_log = new_raft_log(memory_storager_view);
+    auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     raft_log->append(std::move(iter_test.newEnts));
 
     raft_log->stable_to({iter_test.stablet, iter_test.stablei});
@@ -843,14 +828,15 @@ TEST_F(raft_log_test_suit, compactions) {
   for (auto &iter_test : tests) {
     test_index++;
     printf("current test case index:%d\n", test_index);
-    lepton::memory_storage mm_storage;
+    auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+    auto &mm_storage = *mm_storage_ptr;
     std::vector<std::tuple<uint64_t, uint64_t>> entrie_params;
     for (std::uint64_t i = 1; i <= iter_test.lastIndex; ++i) {
       entrie_params.push_back({i, 0});
     }
     mm_storage.append(create_entries(entrie_params));
-    pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-    auto raft_log = new_raft_log(memory_storager_view);
+    pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+    auto raft_log = new_raft_log(std::move(storage_proxy));
     raft_log->maybe_commit(lepton::pb::entry_id{.term = 0, .index = iter_test.lastIndex});
     raft_log->applied_to(raft_log->committed(), 0);
 
@@ -878,8 +864,7 @@ TEST_F(raft_log_test_suit, log_restore) {
   constexpr std::uint64_t TERM = 1000;
   lepton::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(INDEX, TERM));
-  pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-  auto raft_log = new_raft_log(memory_storager_view);
+  auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   ASSERT_EQ(raft_log->all_entries().size(), 0);
   ASSERT_EQ(raft_log->first_index(), INDEX + 1);
   ASSERT_EQ(raft_log->committed(), INDEX);
@@ -919,8 +904,7 @@ TEST_F(raft_log_test_suit, is_out_of_bounds) {
 
   lepton::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(offset, 0));
-  pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-  auto raft_log = new_raft_log(memory_storager_view);
+  auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   std::vector<std::tuple<uint64_t, uint64_t>> entrie_params;
   for (std::uint64_t i = 1; i <= num; ++i) {
     entrie_params.push_back({i + offset, 0});
@@ -960,8 +944,7 @@ TEST_F(raft_log_test_suit, term) {
   constexpr std::uint64_t num = 100;
   lepton::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(offset, 1));
-  pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-  auto raft_log = new_raft_log(memory_storager_view);
+  auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   std::vector<std::tuple<uint64_t, uint64_t>> entrie_params;
   for (std::uint64_t i = 1; i < num; ++i) {
     entrie_params.push_back({i + offset, i});
@@ -1010,8 +993,7 @@ TEST_F(raft_log_test_suit, term_with_unstable_snapshot) {
 
   lepton::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(storagesnapi, 1));
-  pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-  auto raft_log = new_raft_log(memory_storager_view);
+  auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   raft_log->restore(create_snapshot(unstablesnapi, 1));
 
   struct test_case {
@@ -1101,8 +1083,7 @@ TEST_F(raft_log_test_suit, slice) {
     entrie_params.push_back({i + offset, i + offset});
   }
   mm_storage.append(create_entries(entrie_params));
-  pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-  auto raft_log = new_raft_log(memory_storager_view);
+  auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
 
   for (std::uint64_t i = num / 2; i < num; ++i) {
     entrie_params.push_back({i + offset, i + offset});
@@ -1159,8 +1140,7 @@ TEST_F(raft_log_test_suit, scan) {
   lepton::memory_storage mm_storage;
   ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(offset, 0)));
   ASSERT_TRUE(mm_storage.append(entries_func(offset + 1, half)));
-  pro::proxy_view<storage_builer> memory_storager_view = &mm_storage;
-  auto raft_log = new_raft_log(memory_storager_view);
+  auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   raft_log->append(entries_func(half, last));
 
   // Test that scan() returns the same entries as slice(), on all inputs.

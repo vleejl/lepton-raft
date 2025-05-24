@@ -8,7 +8,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "fmt/format.h"
 #include "inflights.h"
 #include "log.h"
 #include "quorum.h"
@@ -36,7 +35,11 @@ class progress {
         is_learner_(is_learner) {}
 
  public:
-  MOVABLE_BUT_NOT_COPYABLE(progress)
+#ifdef LEPTON_TEST
+  progress() : progress(0, inflights{0}, false, false) {}
+
+  void set_learner(bool is_learner) { is_learner_ = is_learner; }
+#endif
   progress(std::uint64_t next, inflights&& inflights, bool is_learner, bool recent_active)
       : match_(0),
         next_(next),
@@ -46,7 +49,7 @@ class progress {
         msg_app_flow_paused_(false),
         inflights_(std::move(inflights)),
         is_learner_(is_learner) {}
-
+  MOVABLE_BUT_NOT_COPYABLE(progress)
   progress clone() const {
     return progress{
         match_,     next_, state_, pending_snapshot_, recent_active_, msg_app_flow_paused_, inflights_.clone(),

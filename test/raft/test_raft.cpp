@@ -4,30 +4,22 @@
 
 #include <cstddef>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "config.h"
 #include "error.h"
+#include "magic_enum.hpp"
 #include "memory_storage.h"
+#include "protobuf.h"
 #include "raft.h"
+#include "state.h"
+#include "storage.h"
+#include "test_raft_networking.h"
+#include "test_raft_state_machine.h"
+#include "test_utility_data.h"
 #include "types.h"
 using namespace lepton;
-using memory_storage_ptr = std::unique_ptr<lepton::memory_storage>;
-
-PRO_DEF_MEM_DISPATCH(state_machine_step, step);
-
-PRO_DEF_MEM_DISPATCH(state_machine_read_messages, read_messages);
-
-PRO_DEF_MEM_DISPATCH(state_machine_advance_messages_after_append, advance_messages_after_append);
-
-// clang-format off
-struct state_machine_builer : pro::facade_builder 
-  ::add_convention<state_machine_step, leaf::result<void>()> 
-  ::add_convention<state_machine_read_messages, lepton::pb::repeated_message()>
-  ::add_convention<state_machine_advance_messages_after_append, void()>
-  ::add_view<storage_builer>
-  ::build{};
-// clang-format on
 
 class raft_test_suit : public testing::Test {
  protected:
@@ -65,52 +57,23 @@ static void must_append_entry(raft &r, lepton::pb::repeated_entry &&ents) {
   }
 }
 
-using test_memory_storage_options = std::function<void(lepton::memory_storage &)>;
-
-static test_memory_storage_options with_peers(lepton::pb::repeated_peers &&peers) {
-  // / 将右值 peers 移动构造到堆内存，并用 shared_ptr 管理 auto data =
-  auto data = std::make_shared<lepton::pb::repeated_peers>(std::move(peers));
-
-  // 返回的 lambda 按值捕获 shared_ptr（安全）
-  return [data](lepton::memory_storage &ms) {
-    auto *conf_state = ms.snapshot_ref().mutable_metadata()->mutable_conf_state();
-
-    // 安全操作：data 的生命周期与 lambda 绑定
-    conf_state->mutable_voters()->Swap(data.get());
-  };
-}
-
-static test_memory_storage_options with_peers(std::vector<std::uint64_t> &&peers) {
-  lepton::pb::repeated_peers repeated_peers;
-  for (auto id : peers) {
-    repeated_peers.Add(id);
-  }
-  return with_peers(std::move(repeated_peers));
-}
-
 static test_memory_storage_options with_learners(lepton::pb::repeated_peers &&learners) {
   return [&](lepton::memory_storage &ms) -> void {
     ms.snapshot_ref().mutable_metadata()->mutable_conf_state()->mutable_learners()->Swap(&learners);
   };
 }
 
-static memory_storage_ptr new_memory_storage(std::vector<test_memory_storage_options> &&options) {
-  auto ms_ptr = std::make_unique<lepton::memory_storage>();
-  auto &ms = *ms_ptr;
+static memory_storage new_memory_storage(std::vector<test_memory_storage_options> &&options) {
+  memory_storage ms;
   for (auto &option : options) {
     option(ms);
   }
-  return ms_ptr;
-}
-
-static lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbeat_tick,
-                                      pro::proxy_view<storage_builer> storage) {
-  return lepton::config{id, election_tick, heartbeat_tick, storage, lepton::NO_LIMIT, 256};
+  return ms;
 }
 
 static lepton::raft new_test_raft(std::uint64_t id, int election_tick, int heartbeat_tick,
-                                  pro::proxy_view<storage_builer> storage) {
-  auto r = new_raft(new_test_config(id, election_tick, heartbeat_tick, storage));
+                                  pro::proxy<storage_builer> &&storage) {
+  auto r = new_raft(new_test_config(id, election_tick, heartbeat_tick, std::move(storage)));
   assert(r);
   return std::move(r.value());
 }
@@ -123,10 +86,32 @@ static raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raft
   return msg;
 }
 
+static state_machine_builer_pair ents_with_config(std::function<void(lepton::config &)> config_func,
+                                                  std::vector<std::uint64_t> &&term) {
+  memory_storage ms;
+  lepton::pb::repeated_entry entries;
+  for (std::size_t i = 0; i < term.size(); ++i) {
+    auto entry = entries.Add();
+    entry->set_index(i + 1);
+    entry->set_term(term[i]);
+  }
+  assert(ms.append(std::move(entries)));
+
+  auto storage = pro::make_proxy<storage_builer, memory_storage>(std::move(ms));
+  auto cfg = new_test_config(1, 5, 1, std::move(storage));
+  if (config_func != nullptr) {
+    config_func(cfg);
+  }
+  auto r = new_raft(std::move(cfg));
+  assert(r);
+  r->reset(term.back());
+  auto raft_handle = std::make_unique<lepton::raft>(std::move(r.value()));
+  return state_machine_builer_pair{std::move(raft_handle)};
+}
+
 TEST_F(raft_test_suit, progress_leader) {
-  auto ms = new_memory_storage({with_peers({1, 2})});
-  pro::proxy_view<storage_builer> storage{ms.get()};
-  auto r = new_test_raft(1, 5, 1, storage);
+  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
+  auto r = new_test_raft(1, 5, 1, std::move(storage));
   r.become_candidate();
   r.become_leader();
   r.trk_.progress_map_mutable_view().mutable_view().at(2).become_replicate();
@@ -153,9 +138,8 @@ TEST_F(raft_test_suit, progress_leader) {
 
 // TestProgressResumeByHeartbeatResp ensures raft.heartbeat reset progress.paused by heartbeat response.
 TEST_F(raft_test_suit, progress_resume_by_heartbeat_resp) {
-  auto ms = new_memory_storage({with_peers({1, 2})});
-  pro::proxy_view<storage_builer> storage{ms.get()};
-  auto r = new_test_raft(1, 5, 1, storage);
+  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
+  auto r = new_test_raft(1, 5, 1, std::move(storage));
   r.become_candidate();
   r.become_leader();
   r.trk_.progress_map_mutable_view().mutable_view().at(2).set_msg_app_flow_paused(true);
@@ -172,9 +156,8 @@ TEST_F(raft_test_suit, progress_resume_by_heartbeat_resp) {
 }
 
 TEST_F(raft_test_suit, progress_paused) {
-  auto ms = new_memory_storage({with_peers({1, 2})});
-  pro::proxy_view<storage_builer> storage{ms.get()};
-  auto r = new_test_raft(1, 5, 1, storage);
+  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
+  auto r = new_test_raft(1, 5, 1, std::move(storage));
   r.become_candidate();
   r.become_leader();
   auto prop_msg = new_pb_message(1, 1, raftpb::MSG_PROP);
@@ -188,9 +171,8 @@ TEST_F(raft_test_suit, progress_paused) {
 }
 
 TEST_F(raft_test_suit, progress_flow_control) {
-  auto ms = new_memory_storage({with_peers({1, 2})});
-  pro::proxy_view<storage_builer> storage{ms.get()};
-  auto cfg = new_test_config(1, 5, 1, storage);
+  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
+  auto cfg = new_test_config(1, 5, 1, std::move(storage));
   cfg.max_inflight_msgs = 3;
   cfg.max_size_per_msg = 2048;
   cfg.max_inflight_bytes = 9000;  // A little over MaxInflightMsgs * MaxSizePerMsg.
@@ -261,3 +243,197 @@ TEST_F(raft_test_suit, progress_flow_control) {
   index = ack_and_verify(index, {1, 2, 2});
   ack_and_verify(index, {2});
 }
+
+TEST_F(raft_test_suit, uncommitted_entry_limit) {
+  // Use a relatively large number of entries here to prevent regression of a
+  // bug which computed the size before it was fixed. This test would fail
+  // with the bug, either because we'd get dropped proposals earlier than we
+  // expect them, or because the final tally ends up nonzero. (At the time of
+  // writing, the former).
+  constexpr auto max_entries = 1024;
+  raftpb::entry test_entry;
+  test_entry.set_data("testdata");
+  auto max_entry_size = max_entries * lepton::pb::payloads_size(test_entry);
+
+  ASSERT_EQ(0, lepton::pb::payloads_size(raftpb::entry{}));
+
+  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2, 3})}));
+  auto cfg = new_test_config(1, 5, 1, std::move(storage));
+  cfg.max_uncommitted_entries_size = max_entry_size;
+  cfg.max_inflight_msgs = 2 * 1024;  // avoid interference
+  auto r_result = new_raft(std::move(cfg));
+  ASSERT_TRUE(r_result);
+  auto &r = r_result.value();
+  r.become_candidate();
+  r.become_leader();
+  ASSERT_EQ(0, r.uncommitted_size_);
+
+  // Set the two followers to the replicate state. Commit to tail of log.
+  constexpr auto num_followers = 2;
+  r.trk_.progress_map_mutable_view().mutable_view().at(2).become_replicate();
+  r.trk_.progress_map_mutable_view().mutable_view().at(3).become_replicate();
+  r.uncommitted_size_ = 0;
+
+  // Send proposals to r1. The first 5 entries should be appended to the log.
+  auto prop_msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  prop_msg.mutable_entries()->Add()->CopyFrom(test_entry);
+  lepton::pb::repeated_entry prop_ents;
+  prop_ents.Reserve(max_entries);
+  for (std::size_t i = 0; i < max_entries; ++i) {
+    auto result = r.step(raftpb::message{prop_msg});
+    ASSERT_TRUE(result);
+    prop_ents.Add()->CopyFrom(test_entry);
+  }
+
+  // Send one more proposal to r1. It should be rejected.
+  std::error_code err_code = EC_SUCCESS;
+  auto has_called_error = false;
+  auto step_resilt = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(r.step(raftpb::message{prop_msg}));
+        return {};
+      },
+      [&](const lepton_error &e) -> leaf::result<void> {
+        has_called_error = true;
+        err_code = e.err_code;
+        return new_error(e);
+      });
+  ASSERT_TRUE(has_called_error);
+  ASSERT_EQ(err_code, lepton::logic_error::PROPOSAL_DROPPED);
+
+  // Read messages and reduce the uncommitted size as if we had committed
+  // these entries.
+  auto msgs = r.read_messages();
+  ASSERT_EQ(max_entries * num_followers, msgs.size());
+  r.reduce_uncommitted_size(lepton::pb::payloads_size(prop_ents));
+  ASSERT_EQ(0, r.uncommitted_size_);
+
+  // Send a single large proposal to r1. Should be accepted even though it
+  // pushes us above the limit because we were beneath it before the proposal.
+  prop_ents.Clear();
+  prop_ents.Reserve(2 * max_entries);
+  for (std::size_t i = 0; i < 2 * max_entries; ++i) {
+    prop_ents.Add()->CopyFrom(test_entry);
+  }
+  auto prop_msg_large = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  prop_msg_large.mutable_entries()->Add(prop_ents.begin(), prop_ents.end());
+  auto result = r.step(raftpb::message{prop_msg_large});
+  ASSERT_TRUE(result);
+
+  // Send one more proposal to r1. It should be rejected, again.
+  err_code = EC_SUCCESS;
+  has_called_error = false;
+  step_resilt = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(r.step(raftpb::message{prop_msg}));
+        return {};
+      },
+      [&](const lepton_error &e) -> leaf::result<void> {
+        has_called_error = true;
+        err_code = e.err_code;
+        return new_error(e);
+      });
+  ASSERT_TRUE(has_called_error);
+  ASSERT_EQ(err_code, lepton::logic_error::PROPOSAL_DROPPED);
+
+  // But we can always append an entry with no Data. This is used both for the
+  // leader's first empty entry and for auto-transitioning out of joint config
+  // states.
+  raftpb::message empty_msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  empty_msg.add_entries();
+  result = r.step(raftpb::message{empty_msg});
+  ASSERT_TRUE(result);
+
+  // Read messages and reduce the uncommitted size as if we had committed
+  // these entries.
+  msgs = r.read_messages();
+  ASSERT_EQ(2 * num_followers, msgs.size());
+  r.reduce_uncommitted_size(lepton::pb::payloads_size(prop_ents));
+  ASSERT_EQ(0, r.uncommitted_size_);
+}
+
+static void pre_vote_config(config &cfg) { cfg.pre_vote = true; }
+
+static auto nop_stepper = pro::make_proxy<state_machine_builer, black_hole>();
+
+static void test_leader_election(bool pre_vote) {
+  std::function<void(lepton::config &)> config_func;
+  auto cand_state = lepton::state_type::STATE_CANDIDATE;
+  std::uint64_t cand_term = 1;
+  if (pre_vote) {
+    config_func = pre_vote_config;
+    // In pre-vote mode, an election that fails to complete
+    // leaves the node in pre-candidate state without advancing
+    // the term.
+    cand_state = lepton::state_type::STATE_PRE_CANDIDATE;
+    cand_term = 0;
+  }
+
+  struct test_case {
+    network nw;
+    lepton::state_type state;
+    std::uint64_t expr_term;
+    test_case(network &&network, lepton::state_type s, std::uint64_t term)
+        : nw(std::move(network)), state(s), expr_term(term) {}
+  };
+  std::vector<test_case> test_cases;
+  {
+    std::vector<state_machine_builer_pair> peers;
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), lepton::state_type::STATE_LEADER,
+                            1);
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
+    test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), lepton::state_type::STATE_LEADER,
+                            1);
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
+    test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), cand_state, cand_term);
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
+    peers.emplace_back(state_machine_builer_pair{});
+    test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), cand_state, cand_term);
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(ents_with_config(config_func, {1}));
+    peers.emplace_back(ents_with_config(config_func, {1}));
+    peers.emplace_back(ents_with_config(config_func, {1}));
+    test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), lepton::state_type::STATE_FOLLOWER,
+                            1);
+  }
+
+  for (auto &test_case : test_cases) {
+    test_case.nw.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+    auto &iter = test_case.nw.peers.at(1);
+    // ASSERT_NE(iter, test_case.nw.peers.end());
+    ASSERT_NE(nullptr, iter.raft_handle);
+    auto &raft_handle = *iter.raft_handle;
+    ASSERT_EQ(magic_enum::enum_name(test_case.state), magic_enum::enum_name(raft_handle.state_type_));
+    ASSERT_EQ(test_case.expr_term, raft_handle.term_);
+  }
+}
+
+TEST_F(raft_test_suit, test_leader_election) { test_leader_election(false); }
+
+TEST_F(raft_test_suit, test_leader_election_pre_vote) { test_leader_election(true); }

@@ -4,8 +4,8 @@
 #include <optional>
 
 #include "error.h"
-#include "types.h"
 #include "raft.pb.h"
+#include "types.h"
 #include "utility_macros.h"
 namespace lepton {
 // MemoryStorage implements the Storage interface backed by an
@@ -18,8 +18,10 @@ class memory_storage {
 
  public:
   memory_storage();
+  memory_storage(memory_storage&& ms)
+      : hard_state_(std::move(ms.hard_state_)), snapshot_(std::move(ms.snapshot_)), ents_(std::move(ms.ents_)){};
 #ifdef LEPTON_TEST
-  memory_storage(const pb::repeated_entry& ents) : ents_(ents) {}
+  explicit memory_storage(const pb::repeated_entry& ents) : ents_(ents) {}
   raftpb::snapshot& snapshot_ref() { return snapshot_; }
 #endif
   leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> initial_state() const;
@@ -28,15 +30,15 @@ class memory_storage {
 
   void set_hard_state(const raftpb::hard_state hard_state);
 
-  leaf::result<pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size);
+  leaf::result<pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const;
 
-  leaf::result<std::uint64_t> term(std::uint64_t i);
+  leaf::result<std::uint64_t> term(std::uint64_t i) const;
 
-  leaf::result<std::uint64_t> last_index();
+  leaf::result<std::uint64_t> last_index() const;
 
-  leaf::result<std::uint64_t> first_index();
+  leaf::result<std::uint64_t> first_index() const;
 
-  leaf::result<raftpb::snapshot> snapshot();
+  leaf::result<raftpb::snapshot> snapshot() const;
 
   // ApplySnapshot overwrites the contents of this Storage object with
   // those of the given snapshot.
@@ -63,7 +65,7 @@ class memory_storage {
   // Protects access to all fields. Most methods of MemoryStorage are
   // run on the raft goroutine, but Append() is run on an application
   // goroutine.
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
 
   raftpb::hard_state hard_state_;
   raftpb::snapshot snapshot_;

@@ -16,7 +16,7 @@ class raft_log {
   NOT_COPYABLE(raft_log)
  public:
   raft_log(raft_log&& rhs) = default;
-  raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t first_index, std::uint64_t last_index,
+  raft_log(pro::proxy<storage_builer>&& sstorage, std::uint64_t first_index, std::uint64_t last_index,
            std::uint64_t max_applying_ents_size);
 
   std::string string();
@@ -182,7 +182,7 @@ class raft_log {
 
  private:
   // storage contains all stable entries since the last snapshot.
-  pro::proxy_view<storage_builer> storage_;
+  pro::proxy<storage_builer> storage_;
 
   // unstable contains all unstable entries and snapshot.
   // they will be saved into storage.
@@ -234,11 +234,11 @@ class raft_log {
   bool applying_ents_paused_ = false;
 };
 
-leaf::result<raft_log> new_raft_log_with_size(pro::proxy_view<storage_builer> storage,
+leaf::result<raft_log> new_raft_log_with_size(pro::proxy<storage_builer>&& storage,
                                               pb::entry_encoding_size max_applying_ents_size);
 
-inline leaf::result<raft_log> new_raft_log(pro::proxy_view<storage_builer> storage) {
-  return new_raft_log_with_size(storage, NO_LIMIT);
+inline leaf::result<raft_log> new_raft_log(pro::proxy<storage_builer>&& storage) {
+  return new_raft_log_with_size(std::move(storage), NO_LIMIT);
 }
 
 }  // namespace lepton

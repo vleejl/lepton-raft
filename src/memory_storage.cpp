@@ -57,7 +57,8 @@ void memory_storage::set_hard_state(const raftpb::hard_state hard_state) {
   hard_state_ = hard_state;
 }
 
-leaf::result<pb::repeated_entry> memory_storage::entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) {
+leaf::result<pb::repeated_entry> memory_storage::entries(std::uint64_t lo, std::uint64_t hi,
+                                                         std::uint64_t max_size) const {
   std::lock_guard<std::mutex> guard(mutex_);
   const auto offset = ents_[0].index();
   if (lo <= offset) {
@@ -85,7 +86,7 @@ leaf::result<pb::repeated_entry> memory_storage::entries(std::uint64_t lo, std::
   return pb::limit_entry_size(sub_entries, max_size);
 }
 
-leaf::result<std::uint64_t> memory_storage::term(std::uint64_t i) {
+leaf::result<std::uint64_t> memory_storage::term(std::uint64_t i) const {
   std::lock_guard<std::mutex> guard(mutex_);
   const auto offset = ents_[0].index();
   if (i < offset) {
@@ -98,17 +99,17 @@ leaf::result<std::uint64_t> memory_storage::term(std::uint64_t i) {
   return ents_[static_cast<int>(i - offset)].term();
 }
 
-leaf::result<std::uint64_t> memory_storage::last_index() {
+leaf::result<std::uint64_t> memory_storage::last_index() const {
   std::lock_guard<std::mutex> guard(mutex_);
   return _last_index();
 }
 
-leaf::result<std::uint64_t> memory_storage::first_index() {
+leaf::result<std::uint64_t> memory_storage::first_index() const {
   std::lock_guard<std::mutex> guard(mutex_);
   return _first_index();
 }
 
-leaf::result<raftpb::snapshot> memory_storage::snapshot() {
+leaf::result<raftpb::snapshot> memory_storage::snapshot() const {
   std::lock_guard<std::mutex> guard(mutex_);
   return snapshot_;
 }
@@ -149,6 +150,7 @@ leaf::result<raftpb::snapshot> memory_storage::create_snapshot(std::uint64_t i, 
 
 leaf::result<void> memory_storage::compact(std::uint64_t compact_index) {
   std::lock_guard<std::mutex> guard(mutex_);
+  assert(!ents_.empty());
   const auto offset = ents_[0].index();
   if (compact_index <= offset) {
     return new_error(storage_error::COMPACTED);

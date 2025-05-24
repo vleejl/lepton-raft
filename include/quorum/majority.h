@@ -128,7 +128,7 @@ class majority_config {
   // 选择排序后的第 n/2 + 1 小的节点索引（保证大多数节点的承诺被采纳）。
   // 用途：计算并返回当前多数配置的承诺索引，这是 Raft
   // 协议中用于决定日志是否已经提交的关键值。
-  log_index committed_index(const pro::proxy_view<acked_indexer_builder> indexer) const {
+  log_index committed_index(pro::proxy_view<acked_indexer_builder> indexer) const {
     if (id_set_.empty()) {
       // This plays well with joint quorums which, when one half is the zero
       // MajorityConfig, should behave like the other half.

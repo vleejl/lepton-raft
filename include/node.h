@@ -1,6 +1,7 @@
 #ifndef _LEPTON_NODE_
 #define _LEPTON_NODE_
 #include <absl/types/span.h>
+#include <proxy.h>
 #include <raft.pb.h>
 
 #include <cstddef>
@@ -9,7 +10,6 @@
 
 #include "channel.h"
 #include "error.h"
-#include "proxy.h"
 #include "read_only.h"
 #include "state.h"
 #include "utility_macros.h"

@@ -1,10 +1,11 @@
 #ifndef _LEPTON_CONFIG_H_
 #define _LEPTON_CONFIG_H_
+#include <proxy.h>
+
 #include <cstddef>
 #include <cstdint>
 
 #include "error.h"
-#include "proxy.h"
 #include "storage.h"
 #include "types.h"
 namespace lepton {
@@ -28,14 +29,14 @@ enum class read_only_option : int {
 
 // Config contains the parameters to start a raft.
 struct config {
-  config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy_view<storage_builer> storage,
+  config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy<storage_builer> &&storage,
          std::uint64_t applied_index, std::uint64_t max_size_per_msg, std::uint64_t max_committed_size_per_ready,
          std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes,
          bool check_quorum, read_only_option read_only_opt, bool disable_proposal_forwarding)
       : id(id),
         election_tick(election_tick),
         heartbeat_tick(heartbeat_tick),
-        storage(storage),
+        storage(std::move(storage)),
         applied_index(applied_index),
         max_size_per_msg(max_size_per_msg),
         max_committed_size_per_ready(max_committed_size_per_ready),
@@ -57,10 +58,10 @@ struct config {
       this->max_inflight_bytes = NO_LIMIT;
     }
   }
-  config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy_view<storage_builer> storage,
+  config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy<storage_builer> &&storage,
          std::uint64_t max_size_per_msg, std::size_t max_inflight_msgs)
-      : config(id, election_tick, heartbeat_tick, storage, 0, max_size_per_msg, 0, 0, max_inflight_msgs, 0, false,
-               read_only_option::READ_ONLY_SAFE, false) {}
+      : config(id, election_tick, heartbeat_tick, std::move(storage), 0, max_size_per_msg, 0, 0, max_inflight_msgs, 0,
+               false, read_only_option::READ_ONLY_SAFE, false) {}
 
   // ID is the identity of the local raft. ID cannot be 0.
   // Raft 节点的唯一标识符。每个 Raft
@@ -84,7 +85,7 @@ struct config {
   // stored in storage. raft reads the persisted entries and states out of
   // Storage when it needs. raft reads out the previous state and configuration
   // out of storage when restarting.
-  pro::proxy_view<storage_builer> storage;
+  pro::proxy<storage_builer> storage;
 
   // Applied is the last applied index. It should only be set when
   // restarting raft. raft will not return entries to the application

@@ -39,14 +39,14 @@ leaf::result<std::uint64_t> test_function(Storage& storage, int i, bool& has_rep
 }
 
 // GTest 用例
-TEST(TryHandleSomeTest, ThrowsOnCompactedError) {
+TEST(boost_leaaf_try, ThrowsOnCompactedError) {
   Storage storage;
   auto has_repeat_error = false;
   EXPECT_THROW({ test_function(storage, -1, has_repeat_error).value(); }, std::runtime_error);
   EXPECT_FALSE(has_repeat_error);
 }
 
-TEST(TryHandleSomeTest, unknown_error) {
+TEST(boost_leaaf_try, unknown_error) {
   Storage storage;
   auto has_repeat_error = false;
   auto result = test_function(storage, 0, has_repeat_error);
@@ -54,7 +54,7 @@ TEST(TryHandleSomeTest, unknown_error) {
   EXPECT_TRUE(has_repeat_error);
 }
 
-TEST(TryHandleSomeTest, ReturnsValidValue) {
+TEST(boost_leaaf_try, ReturnsValidValue) {
   Storage storage;
   auto has_repeat_error = false;
   EXPECT_EQ(test_function(storage, 10, has_repeat_error).value(), 10);

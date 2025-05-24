@@ -16,9 +16,9 @@
 #include "leaf.hpp"
 #include "memory_storage.h"
 #include "test_raft_protobuf.h"
+#include "test_utility_data.h"
+#include "test_utility_macros.h"
 #include "types.h"
-#include "utility_data_test.h"
-#include "utility_macros_test.h"
 using namespace lepton;
 
 class memory_storage_test_suit : public testing::Test {
@@ -267,7 +267,7 @@ TEST_F(memory_storage_test_suit, test_storage_create_snapshot) {
     } else {
       GTEST_ASSERT_TRUE(has_called_error);
     }
-    if (result.value().SerializeAsString() != iter_test.wsnap.SerializeAsString()) {
+    if (result.value().DebugString() != iter_test.wsnap.DebugString()) {
       GTEST_ASSERT_TRUE(false);
     }
   }

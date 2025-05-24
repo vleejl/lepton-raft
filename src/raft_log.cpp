@@ -17,9 +17,9 @@
 #include "types.h"
 
 namespace lepton {
-raft_log::raft_log(pro::proxy_view<storage_builer> storage, std::uint64_t first_index, std::uint64_t last_index,
+raft_log::raft_log(pro::proxy<storage_builer>&& storage, std::uint64_t first_index, std::uint64_t last_index,
                    std::uint64_t max_applying_ents_size)
-    : storage_(storage),
+    : storage_(std::move(storage)),
       unstable_(last_index + 1, last_index + 1),
       committed_(first_index - 1),
       applying_(first_index - 1),
@@ -488,7 +488,7 @@ std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
   return r.value();
 }
 
-leaf::result<raft_log> new_raft_log_with_size(pro::proxy_view<storage_builer> storage,
+leaf::result<raft_log> new_raft_log_with_size(pro::proxy<storage_builer>&& storage,
                                               pb::entry_encoding_size max_applying_ents_size) {
   if (!storage.has_value()) {
     return new_error(encoding_error::NULL_POINTER, "storage must not be nil");
@@ -496,6 +496,6 @@ leaf::result<raft_log> new_raft_log_with_size(pro::proxy_view<storage_builer> st
 
   BOOST_LEAF_AUTO(first_index, storage->first_index());
   BOOST_LEAF_AUTO(last_index, storage->last_index());
-  return raft_log{storage, first_index, last_index, max_applying_ents_size};
+  return raft_log{std::move(storage), first_index, last_index, max_applying_ents_size};
 }
 }  // namespace lepton

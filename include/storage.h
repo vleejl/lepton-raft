@@ -76,12 +76,12 @@ PRO_DEF_MEM_DISPATCH(storage_snapshot, snapshot);
 // clang-format off
 struct storage_builer : pro::facade_builder 
   ::add_convention<storage_initial_state, leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>()> 
-  ::add_convention<storage_entries, leaf::result<pb::repeated_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size)> 
-  ::add_convention<storage_term, leaf::result<std::uint64_t>(std::uint64_t i)> 
-  ::add_convention<storage_last_index, leaf::result<std::uint64_t>()> 
-  ::add_convention<storage_first_index, leaf::result<std::uint64_t>()> 
-  ::add_convention<storage_snapshot, leaf::result<raftpb::snapshot>()> 
-  ::add_view<storage_builer>
+  ::add_convention<storage_entries, leaf::result<pb::repeated_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
+  ::add_convention<storage_term, leaf::result<std::uint64_t>(std::uint64_t i) const> 
+  ::add_convention<storage_last_index, leaf::result<std::uint64_t>() const> 
+  ::add_convention<storage_first_index, leaf::result<std::uint64_t>() const> 
+  ::add_convention<storage_snapshot, leaf::result<raftpb::snapshot>() const> 
+  ::support_view
   ::build{};
 // clang-format on
 }  // namespace lepton

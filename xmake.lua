@@ -3,6 +3,28 @@ add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
 set_languages("cxx2b")
 set_warnings("all", "extra")
 set_policy("build.warning", true)
+
+-- 基础内存检测 (GCC/Clang 通用)
+set_policy("build.sanitizer.address", true)
+set_policy("build.sanitizer.undefined", true)
+set_policy("build.sanitizer.leak", true)
+-- 编译器差异化配置
+if is_plat("linux", "macosx") then
+    -- 公共选项
+    add_cxflags("-fno-omit-frame-pointer")
+    
+    -- Clang 专属增强检测
+    if is_kind("clang", "clangxx") then
+        add_cxflags("-fsanitize-address-use-after-return=always")
+        add_cxflags("-fsanitize-address-use-odr-indicator")
+    end
+    
+    -- GCC 替代方案
+    if is_kind("gcc", "gxx") then
+        add_cxflags("-fsanitize-address-use-after-scope")
+        add_cxflags("-static-libasan")  -- 确保链接 ASan 库
+    end
+end
 -- set_policy("build.sanitizer.address", true)
     -- set_policy("build.sanitizer.thread", true)
     -- set_policy("build.sanitizer.memory", true)

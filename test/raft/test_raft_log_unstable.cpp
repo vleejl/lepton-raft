@@ -12,8 +12,8 @@
 #include "absl/types/span.h"
 #include "raft_log_unstable.h"
 #include "test_raft_protobuf.h"
+#include "test_utility_macros.h"
 #include "types.h"
-#include "utility_macros_test.h"
 using namespace lepton;
 
 class unstable_test_suit : public testing::Test {
@@ -260,7 +260,7 @@ TEST_F(unstable_test_suit, restore) {
   u.restore(create_snapshot(6, 2));
   ASSERT_EQ(u.offset(), s->metadata().index() + 1);
   ASSERT_TRUE(u.entries_view().empty());
-  ASSERT_EQ(u.snapshot_view().SerializeAsString(), s->SerializeAsString());
+  ASSERT_EQ(u.snapshot_view().DebugString(), s->DebugString());
 }
 
 TEST_F(unstable_test_suit, next_entries) {
@@ -311,7 +311,7 @@ TEST_F(unstable_test_suit, next_snapshot) {
     if (!res) {
       ASSERT_FALSE(iter.wsnapshot);
     } else {
-      ASSERT_EQ(res->get().SerializeAsString(), iter.wsnapshot->SerializeAsString());
+      ASSERT_EQ(res->get().DebugString(), iter.wsnapshot->DebugString());
     }
   }
 }
@@ -640,8 +640,8 @@ TEST_F(unstable_test_suit, truncate_and_append) {
                               const lepton::pb::repeated_entry &rhs_entries) {
       ASSERT_EQ(lhs_entries.size(), rhs_entries.size());
       for (int i = 0; i < lhs_entries.size(); ++i) {
-        auto lhs_entry = lhs_entries[i].SerializeAsString();
-        auto rhs_entry = rhs_entries[i].SerializeAsString();
+        auto lhs_entry = lhs_entries[i].DebugString();
+        auto rhs_entry = rhs_entries[i].DebugString();
         ASSERT_EQ(lhs_entry, rhs_entry);
       }
     };
