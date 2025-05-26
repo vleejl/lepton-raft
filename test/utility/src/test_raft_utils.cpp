@@ -1,4 +1,4 @@
-#include "test_raft_networking.h"
+#include "test_raft_utils.h"
 
 #include <cassert>
 #include <cstddef>
@@ -7,20 +7,20 @@
 #include <memory>
 #include <vector>
 
+#include "error.h"
 #include "log.h"
 #include "memory_storage.h"
 #include "progress.h"
 #include "proxy.h"
 #include "raft.h"
 #include "raft.pb.h"
-#include "spdlog/spdlog.h"
 #include "storage.h"
 #include "test_utility_data.h"
 #include "tracker.h"
 
-test_memory_storage_options with_peers(lepton::pb::repeated_peers &&peers) {
+static test_memory_storage_options with_peers(lepton::pb::repeated_uint64 &&peers) {
   // / 将右值 peers 移动构造到堆内存，并用 shared_ptr 管理 auto data =
-  auto data = std::make_shared<lepton::pb::repeated_peers>(std::move(peers));
+  auto data = std::make_shared<lepton::pb::repeated_uint64>(std::move(peers));
 
   // 返回的 lambda 按值捕获 shared_ptr（安全）
   return [data](lepton::memory_storage &ms) {
@@ -32,11 +32,32 @@ test_memory_storage_options with_peers(lepton::pb::repeated_peers &&peers) {
 }
 
 test_memory_storage_options with_peers(std::vector<std::uint64_t> &&peers) {
-  lepton::pb::repeated_peers repeated_peers;
+  lepton::pb::repeated_uint64 repeated_uint64;
   for (auto id : peers) {
-    repeated_peers.Add(id);
+    repeated_uint64.Add(id);
   }
-  return with_peers(std::move(repeated_peers));
+  return with_peers(std::move(repeated_uint64));
+}
+
+static test_memory_storage_options with_learners(lepton::pb::repeated_uint64 &&learners) {
+  // / 将右值 peers 移动构造到堆内存，并用 shared_ptr 管理 auto data =
+  auto data = std::make_shared<lepton::pb::repeated_uint64>(std::move(learners));
+
+  // 返回的 lambda 按值捕获 shared_ptr（安全）
+  return [data](lepton::memory_storage &ms) {
+    auto *conf_state = ms.snapshot_ref().mutable_metadata()->mutable_conf_state();
+
+    // 安全操作：data 的生命周期与 lambda 绑定
+    conf_state->mutable_learners()->Swap(data.get());
+  };
+}
+
+test_memory_storage_options with_learners(std::vector<std::uint64_t> &&learners) {
+  lepton::pb::repeated_uint64 repeated_learners;
+  for (auto id : learners) {
+    repeated_learners.Add(id);
+  }
+  return with_learners(std::move(repeated_learners));
 }
 
 lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbeat_tick,
@@ -51,6 +72,10 @@ std::unique_ptr<lepton::memory_storage> new_test_memory_storage(std::vector<test
     option(ms);
   }
   return ms_ptr;
+}
+
+void set_randomized_election_timeout(lepton::raft &r, int election_timeout) {
+  r.randomized_election_timeout_ = election_timeout;
 }
 
 static std::vector<std::uint64_t> ids_by_size(std::size_t size) {
@@ -97,7 +122,7 @@ network new_network_with_config(std::function<void(lepton::config &)> config_fun
           lepton::tracker::progress pr;
           if (learners.find(peer_id) != learners.end()) {
             pr.set_learner(true);
-            raft_handle.trk_.mutable_config_view().add_leaner_node(j);
+            raft_handle.trk_.mutable_config_view().add_leaner_node(peer_id);
           } else {
             raft_handle.trk_.mutable_config_view().voters.insert_node_into_primary_config(peer_id);
           }
@@ -122,13 +147,15 @@ network new_network_with_config(std::function<void(lepton::config &)> config_fun
       auto r = new_raft(std::move(cfg));
       assert(r);
       auto raft_handle = std::make_unique<lepton::raft>(std::move(r.value()));
-      state_machine_builer_pair pair;
-      pair.builder_view = raft_handle.get();
-      pair.raft_handle = std::move(raft_handle);
+      state_machine_builer_pair pair{std::move(raft_handle)};
       npeers.try_emplace(id, std::move(pair));
     }
   }
   return {std::move(npeers), std::move(nstorage), {}, {}, nullptr};
+}
+
+network new_network(std::vector<state_machine_builer_pair> &&peers) {
+  return new_network_with_config(nullptr, std::move(peers));
 }
 
 void network::send(std::vector<raftpb::message> &&msgs) {

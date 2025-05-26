@@ -155,23 +155,15 @@ concept err_types =
     std::is_same_v<error_code_type, lepton::storage_error> || std::is_same_v<error_code_type, lepton::logic_error>;
 struct lepton_error {
   std::error_code err_code;
-  std::string_view message;
+  std::string message;
   std::source_location location;
 
   template <err_types err_type>
-  lepton_error(err_type code, std::source_location&& location) : err_code(make_error_code(code)), location(location) {}
+  lepton_error(err_type code, std::source_location location) : err_code(make_error_code(code)), location(location) {}
 
   template <err_types err_type>
-  lepton_error(err_type code, const char* msg, std::source_location&& location)
-      : err_code(make_error_code(code)), message(msg), location(location) {}
-
-  template <err_types err_type>
-  lepton_error(err_type code, std::string_view msg, std::source_location&& location)
-      : err_code(make_error_code(code)), message(msg), location(location) {}
-
-  template <err_types err_type>
-  lepton_error(err_type code, const std::string& msg, std::source_location&& location)
-      : err_code(make_error_code(code)), message(msg), location(location) {}
+  lepton_error(err_type code, std::string msg, std::source_location location)
+      : err_code(make_error_code(code)), message(std::move(msg)), location(location) {}
 
   template <err_types err_type>
   auto operator<=>(err_type error_code) const {
@@ -216,9 +208,9 @@ bool operator!=(const err_type& code, const std::error_code& err_code) {
 }
 
 template <err_types error_code_type, typename error_msg_type>
-auto new_error(error_code_type code, error_msg_type msg,
+auto new_error(error_code_type code, error_msg_type&& msg,
                std::source_location location = std::source_location::current()) {
-  return leaf::new_error(lepton_error{code, msg, std::move(location)});
+  return leaf::new_error(lepton_error{code, std::string(std::forward<error_msg_type>(msg)), std::move(location)});
 }
 
 template <err_types error_code_type>

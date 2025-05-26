@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "conf_change.h"
 #include "config.h"
 #include "error.h"
 #include "magic_enum.hpp"
@@ -15,8 +16,8 @@
 #include "raft.h"
 #include "state.h"
 #include "storage.h"
-#include "test_raft_networking.h"
 #include "test_raft_state_machine.h"
+#include "test_raft_utils.h"
 #include "test_utility_data.h"
 #include "types.h"
 using namespace lepton;
@@ -57,7 +58,7 @@ static void must_append_entry(raft &r, lepton::pb::repeated_entry &&ents) {
   }
 }
 
-static test_memory_storage_options with_learners(lepton::pb::repeated_peers &&learners) {
+static test_memory_storage_options with_learners(lepton::pb::repeated_uint64 &&learners) {
   return [&](lepton::memory_storage &ms) -> void {
     ms.snapshot_ref().mutable_metadata()->mutable_conf_state()->mutable_learners()->Swap(&learners);
   };
@@ -76,6 +77,11 @@ static lepton::raft new_test_raft(std::uint64_t id, int election_tick, int heart
   auto r = new_raft(new_test_config(id, election_tick, heartbeat_tick, std::move(storage)));
   assert(r);
   return std::move(r.value());
+}
+
+static lepton::raft new_test_learner_raft(std::uint64_t id, int election_tick, int heartbeat_tick,
+                                          pro::proxy<storage_builer> &&storage) {
+  return new_test_raft(id, election_tick, heartbeat_tick, std::move(storage));
 }
 
 static raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type) {
@@ -437,3 +443,73 @@ static void test_leader_election(bool pre_vote) {
 TEST_F(raft_test_suit, test_leader_election) { test_leader_election(false); }
 
 TEST_F(raft_test_suit, test_leader_election_pre_vote) { test_leader_election(true); }
+
+// TestLearnerElectionTimeout verfies that the leader should not start election even
+// when times out.
+TEST_F(raft_test_suit, test_learner_election_timeout) {
+  auto n1 = new_test_learner_raft(
+      1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+  auto n2 = new_test_learner_raft(
+      2, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+
+  n1.become_follower(1, NONE);
+  n2.become_follower(1, NONE);
+
+  // n2 is learner. Learner should not start election even when times out.
+  set_randomized_election_timeout(n2, n2.election_timeout_);
+  for (int i = 0; i < n2.election_timeout_; ++i) {
+    n2.tick_func_();
+  }
+
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_FOLLOWER), magic_enum::enum_name(n2.state_type_));
+}
+
+// TestLearnerPromotion verifies that the learner should not election until
+// it is promoted to a normal peer.
+TEST_F(raft_test_suit, test_learner_promotion) {
+  auto n1 = new_test_learner_raft(
+      1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+  auto n2 = new_test_learner_raft(
+      2, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+
+  n1.become_follower(1, NONE);
+  n2.become_follower(1, NONE);
+
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{n1});
+  peers.emplace_back(state_machine_builer_pair{n2});
+
+  auto nt = new_network(std::move(peers));
+
+  ASSERT_NE(magic_enum::enum_name(lepton::state_type::STATE_LEADER), magic_enum::enum_name(n1.state_type_));
+
+  // n1 should become leader
+  set_randomized_election_timeout(n1, n1.election_timeout_);
+  for (int i = 0; i < n1.election_timeout_; ++i) {
+    n1.tick_func_();
+  }
+  n1.advance_messages_after_append();
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_LEADER), magic_enum::enum_name(n1.state_type_));
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_FOLLOWER), magic_enum::enum_name(n2.state_type_));
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+
+  raftpb::conf_change cc1;
+  cc1.set_node_id(2);
+  cc1.set_type(raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
+  raftpb::conf_change cc2;
+  cc2.CopyFrom(cc1);
+  n1.apply_conf_change(lepton::pb::conf_change_as_v2(std::move(cc1)));
+  n2.apply_conf_change(lepton::pb::conf_change_as_v2(std::move(cc2)));
+  ASSERT_FALSE(n2.is_learner_);
+
+  // n2 start election, should become leader
+  set_randomized_election_timeout(n2, n2.election_timeout_);
+  for (int i = 0; i < n2.election_timeout_; ++i) {
+    n2.tick_func_();
+  }
+  n2.advance_messages_after_append();
+  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_BEAT)});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_FOLLOWER), magic_enum::enum_name(n1.state_type_));
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_LEADER), magic_enum::enum_name(n2.state_type_));
+}

@@ -1920,7 +1920,7 @@ raftpb::conf_state raft::apply_conf_change(raftpb::conf_change_v2&& cc) {
         return new_error(err);
       });
   ;
-  assert(!change_result);
+  assert(change_result);
   auto& [cfg, trk] = change_result.value();
   return switch_to_config(std::move(cfg), std::move(trk));
 }
@@ -1939,9 +1939,7 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progre
 
   // Update whether the node itself is a learner, resetting to false when the
   // node is removed.
-  if (exist && iter_pr->second.is_learner()) {
-    is_learner_ = true;
-  }
+  is_learner_ = exist && iter_pr->second.is_learner();
 
   // etcd-raft 的设计遵循
   // ​事件驱动模型，状态变更通常由外部消息或定时器触发，而非在配置变更函数中立即执行。例如：

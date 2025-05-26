@@ -4,8 +4,8 @@
 #include <memory>
 #include <vector>
 
-#include "test_raft_networking.h"
 #include "test_raft_state_machine.h"
+#include "test_raft_utils.h"
 class proxy_test_suit : public testing::Test {
  protected:
   static void SetUpTestSuite() { std::cout << "run before first case..." << std::endl; }

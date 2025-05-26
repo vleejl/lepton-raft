@@ -16,11 +16,15 @@
 
 using test_memory_storage_options = std::function<void(lepton::memory_storage &)>;
 
-test_memory_storage_options with_peers(lepton::pb::repeated_peers &&peers);
 test_memory_storage_options with_peers(std::vector<std::uint64_t> &&peers);
+test_memory_storage_options with_learners(std::vector<std::uint64_t> &&learners);
 lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbeat_tick,
                                pro::proxy<lepton::storage_builer> &&storage);
 std::unique_ptr<lepton::memory_storage> new_test_memory_storage(std::vector<test_memory_storage_options> &&options);
+// setRandomizedElectionTimeout set up the value by caller instead of choosing
+// by system, in some test scenario we need to fill in some expected value to
+// ensure the certainty
+void set_randomized_election_timeout(lepton::raft &r, int election_timeout);
 
 struct black_hole {
   lepton::leaf::result<void> step(raftpb::message &&) { return {}; }
@@ -51,17 +55,25 @@ struct state_machine_builer_pair {
   // state_machine_builer_pair(pro::proxy_view<state_machine_builer> builder_param)
   //     : builder_view(builder_param), raft_handle(nullptr) {}  // 从 pro::proxy 获取视图
   state_machine_builer_pair(std::unique_ptr<lepton::raft> &&raft_handle_param)
-      : raft_handle(std::move(raft_handle_param)) {
-    builder_view = raft_handle.get();
+      : raft_handle_ptr(std::move(raft_handle_param)) {
+    builder_view = raft_handle_ptr.get();
+    raft_handle = raft_handle_ptr.get();
   }
-  void init_black_hole_builder(pro::proxy<state_machine_builer> &&black_hole_builder_param) {
-    black_hole_builder = std::move(black_hole_builder_param);
+
+  state_machine_builer_pair(lepton::raft &raft_ref) {
+    builder_view = pro::proxy_view<state_machine_builer>(&raft_ref);
+    raft_handle = &raft_ref;
+  }
+
+  void init_black_hole_builder(pro::proxy<state_machine_builer> &&builder_param) {
+    black_hole_builder = std::move(builder_param);
     builder_view = black_hole_builder;
   }
   state_machine_builer_pair(state_machine_builer_pair &&other) = default;
   pro::proxy<state_machine_builer> black_hole_builder;
   pro::proxy_view<state_machine_builer> builder_view;
-  std::unique_ptr<lepton::raft> raft_handle;
+  std::unique_ptr<lepton::raft> raft_handle_ptr;
+  lepton::raft *raft_handle;
 };
 
 struct network {
@@ -94,4 +106,10 @@ struct network {
 // modify the configuration of any state machines it creates.
 network new_network_with_config(std::function<void(lepton::config &)> config_func,
                                 std::vector<state_machine_builer_pair> &&peers);
+
+// newNetwork initializes a network from peers.
+// A nil node will be replaced with a new *stateMachine.
+// A *stateMachine will get its k, id.
+// When using stateMachine, the address list is always [1, n].
+network new_network(std::vector<state_machine_builer_pair> &&peers);
 #endif  // _LEPTON_TEST_RAFT_NETWORKING_H_
