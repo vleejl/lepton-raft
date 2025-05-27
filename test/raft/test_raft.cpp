@@ -115,6 +115,29 @@ static state_machine_builer_pair ents_with_config(std::function<void(lepton::con
   return state_machine_builer_pair{std::move(raft_handle)};
 }
 
+// votedWithConfig creates a raft state machine with Vote and Term set
+// to the given value but no log entries (indicating that it voted in
+// the given term but has not received any logs).
+static state_machine_builer_pair voted_with_config(std::function<void(lepton::config &)> config_func,
+                                                   std::uint64_t vote, std::uint64_t term) {
+  memory_storage ms;
+  raftpb::hard_state hard_state;
+  hard_state.set_vote(vote);
+  hard_state.set_term(term);
+  ms.set_hard_state(std::move(hard_state));
+
+  auto storage = pro::make_proxy<storage_builer, memory_storage>(std::move(ms));
+  auto cfg = new_test_config(1, 5, 1, std::move(storage));
+  if (config_func != nullptr) {
+    config_func(cfg);
+  }
+  auto r = new_raft(std::move(cfg));
+  assert(r);
+  r->reset(term);
+  auto raft_handle = std::make_unique<lepton::raft>(std::move(r.value()));
+  return state_machine_builer_pair{std::move(raft_handle)};
+}
+
 TEST_F(raft_test_suit, progress_leader) {
   auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
   auto r = new_test_raft(1, 5, 1, std::move(storage));
@@ -512,4 +535,119 @@ TEST_F(raft_test_suit, test_learner_promotion) {
   nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_BEAT)});
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_FOLLOWER), magic_enum::enum_name(n1.state_type_));
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_LEADER), magic_enum::enum_name(n2.state_type_));
+}
+
+// TestLearnerCanVote checks that a learner can vote when it receives a valid Vote request.
+// See (*raft).Step for why this is necessary and correct behavior.
+TEST_F(raft_test_suit, test_learner_can_vote) {
+  auto n2 = new_test_learner_raft(
+      2, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+
+  n2.become_follower(1, NONE);
+
+  // Send a vote request to n2.
+  raftpb::message vote_req = new_pb_message(1, 2, raftpb::message_type::MSG_VOTE);
+  vote_req.set_term(2);
+  vote_req.set_log_term(11);
+  vote_req.set_index(11);
+  auto result = n2.step(std::move(vote_req));
+  ASSERT_TRUE(result);
+
+  auto msgs = n2.read_messages();
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(raftpb::message_type::MSG_VOTE_RESP, msgs[0].type());
+  ASSERT_FALSE(msgs[0].reject());
+}
+
+// testLeaderCycle verifies that each node in a cluster can campaign
+// and be elected in turn. This ensures that elections (including
+// pre-vote) work when not starting from a clean slate (as they do in
+// TestLeaderElection)
+void leader_cycle(bool pre_vote) {
+  std::function<void(lepton::config &)> config_func;
+  if (pre_vote) {
+    config_func = pre_vote_config;
+  }
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{});
+  peers.emplace_back(state_machine_builer_pair{});
+  peers.emplace_back(state_machine_builer_pair{});
+  auto n = new_network_with_config(config_func, std::move(peers));
+  for (std::uint64_t campaigner_id = 1; campaigner_id <= 3; ++campaigner_id) {
+    n.send({new_pb_message(campaigner_id, campaigner_id, raftpb::message_type::MSG_HUP)});
+
+    for (auto &iter : n.peers) {
+      auto &raft_handle = *iter.second.raft_handle;
+      if (raft_handle.id_ == campaigner_id) {
+        ASSERT_EQ(lepton::state_type::STATE_LEADER, raft_handle.state_type_);
+      } else {
+        ASSERT_EQ(lepton::state_type::STATE_FOLLOWER, raft_handle.state_type_);
+      }
+    }
+  }
+}
+
+TEST_F(raft_test_suit, test_leader_cycle) { leader_cycle(false); }
+
+TEST_F(raft_test_suit, test_leader_cycle_pre_vote) { leader_cycle(true); }
+
+void test_leader_election_overwrite_newer_logs(bool pre_vote) {
+  std::function<void(lepton::config &)> config_func;
+  if (pre_vote) {
+    config_func = pre_vote_config;
+  }
+  // This network represents the results of the following sequence of
+  // events:
+  // - Node 1 won the election in term 1.
+  // - Node 1 replicated a log entry to node 2 but died before sending
+  //   it to other nodes.
+  // - Node 3 won the second election in term 2.
+  // - Node 3 wrote an entry to its logs but died without sending it
+  //   to any other nodes.
+  //
+  // At this point, nodes 1, 2, and 3 all have uncommitted entries in
+  // their logs and could win an election at term 3. The winner's log
+  // entry overwrites the losers'. (TestLeaderSyncFollowerLog tests
+  // the case where older log entries are overwritten, so this test
+  // focuses on the case where the newer entries are lost).
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(ents_with_config(config_func, {1}));    // Node 1: Won first election
+  peers.emplace_back(ents_with_config(config_func, {1}));    // Node 2: Got logs from node 1
+  peers.emplace_back(ents_with_config(config_func, {2}));    // Node 3: Won second election
+  peers.emplace_back(voted_with_config(config_func, 3, 2));  // Node 4: Voted but didn't get logs
+  peers.emplace_back(voted_with_config(config_func, 3, 2));  // Node 5: Voted but didn't get logs
+  auto n = new_network_with_config(config_func, std::move(peers));
+
+  // Node 1 campaigns. The election fails because a quorum of nodes
+  // know about the election that already happened at term 2. Node 1's
+  // term is pushed ahead to 2.
+  n.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  auto &raft_handle = *n.peers.at(1).raft_handle;
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_FOLLOWER), magic_enum::enum_name(raft_handle.state_type_));
+  ASSERT_EQ(2, raft_handle.term_);
+
+  // Node 1 campaigns again with a higher term. This time it succeeds.
+  n.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_LEADER), magic_enum::enum_name(raft_handle.state_type_));
+  ASSERT_EQ(3, raft_handle.term_);
+
+  // Now all nodes agree on a log entry with term 1 at index 1 (and
+  // term 3 at index 2).
+  for (auto &iter : n.peers) {
+    auto &raft_handle = *iter.second.raft_handle;
+    auto all_entries = raft_handle.raft_log_handle_.all_entries();
+    ASSERT_EQ(2, all_entries.size());
+    ASSERT_EQ(1, all_entries[0].term());
+    ASSERT_EQ(3, all_entries[1].term());
+  }
+}
+
+// TestLeaderElectionOverwriteNewerLogs tests a scenario in which a
+// newly-elected leader does *not* have the newest (i.e. highest term)
+// log entries, and must overwrite higher-term log entries with
+// lower-term ones.
+TEST_F(raft_test_suit, test_leader_election_overwrite_newer_logs) { test_leader_election_overwrite_newer_logs(false); }
+
+TEST_F(raft_test_suit, test_leader_election_overwrite_newer_logs_pre_vote) {
+  test_leader_election_overwrite_newer_logs(true);
 }

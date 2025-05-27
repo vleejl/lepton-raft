@@ -60,7 +60,7 @@ leaf::result<raft> new_raft(config&& c) {
   auto [cfg, trk] = std::move(restore_result);
   pb::assert_conf_states_equivalent(conf_state, r.switch_to_config(std::move(cfg), std::move(trk)));
 
-  if (pb::is_empty_hard_state(hard_state)) {
+  if (!pb::is_empty_hard_state(hard_state)) {
     r.load_state(hard_state);
   }
   if (c.applied_index > 0) {
@@ -640,6 +640,7 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
   // our pre-candidate state).
   auto post_vote_resp_func = [&]() {
     const auto [gr, rj, res] = r.poll(m.from(), m.type(), !m.reject());
+    SPDLOG_INFO("{} has received {} {} votes and {} vote rejections", r.id_, gr, magic_enum::enum_name(m.type()), rj);
     switch (res) {
       case quorum::vote_result::VOTE_WON:
         if (r.state_type_ == state_type::STATE_PRE_CANDIDATE) {
