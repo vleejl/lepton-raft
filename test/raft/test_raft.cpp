@@ -10,6 +10,7 @@
 #include "conf_change.h"
 #include "config.h"
 #include "error.h"
+#include "fmt/format.h"
 #include "magic_enum.hpp"
 #include "memory_storage.h"
 #include "protobuf.h"
@@ -33,6 +34,7 @@ class raft_test_suit : public testing::Test {
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
 
+// nextEnts returns the appliable entries and updates the applied index.
 static lepton::pb::repeated_entry next_ents(raft &r, memory_storage &s) {
   lepton::pb::repeated_entry ents;
   auto next_unstable_ents = r.raft_log_handle_.next_unstable_ents();
@@ -89,6 +91,17 @@ static raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raft
   msg.set_from(from);
   msg.set_to(to);
   msg.set_type(type);
+  return msg;
+}
+
+static raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type,
+                                      std::string data) {
+  raftpb::message msg;
+  msg.set_from(from);
+  msg.set_to(to);
+  msg.set_type(type);
+  auto entry = msg.add_entries();
+  entry->set_data(data);
   return msg;
 }
 
@@ -591,7 +604,7 @@ TEST_F(raft_test_suit, test_leader_cycle) { leader_cycle(false); }
 
 TEST_F(raft_test_suit, test_leader_cycle_pre_vote) { leader_cycle(true); }
 
-void test_leader_election_overwrite_newer_logs(bool pre_vote) {
+static void test_leader_election_overwrite_newer_logs(bool pre_vote) {
   std::function<void(lepton::config &)> config_func;
   if (pre_vote) {
     config_func = pre_vote_config;
@@ -650,4 +663,149 @@ TEST_F(raft_test_suit, test_leader_election_overwrite_newer_logs) { test_leader_
 
 TEST_F(raft_test_suit, test_leader_election_overwrite_newer_logs_pre_vote) {
   test_leader_election_overwrite_newer_logs(true);
+}
+
+static void test_state_from_any_state(raftpb::message_type vt) {
+  for (auto st_idx = static_cast<std::uint64_t>(lepton::state_type::STATE_FOLLOWER);
+       st_idx <= static_cast<std::uint64_t>(lepton::state_type::STATE_PRE_CANDIDATE); ++st_idx) {
+    auto st = static_cast<lepton::state_type>(st_idx);
+    auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+    r.term_ = 1;
+
+    switch (st) {
+      case state_type::STATE_FOLLOWER: {
+        r.become_follower(r.term_, 3);
+        break;
+      }
+      case state_type::STATE_CANDIDATE: {
+        r.become_candidate();
+        break;
+      }
+      case state_type::STATE_LEADER: {
+        r.become_candidate();
+        r.become_leader();
+        break;
+      }
+      case state_type::STATE_PRE_CANDIDATE: {
+        r.become_pre_candidate();
+        break;
+      }
+    }
+
+    // Note that setting our state above may have advanced r.Term
+    // past its initial value.
+    const auto origin_term = r.term_;
+    const auto new_term = r.term_ + 1;
+
+    auto msg = new_pb_message(2, 1, vt);
+    msg.set_term(new_term);
+    msg.set_log_term(new_term);
+    msg.set_index(42);
+    ASSERT_TRUE(r.step(std::move(msg)));
+    auto msgs = r.read_messages();
+    ASSERT_EQ(1, msgs.size());
+    auto resp = msgs[0];
+    ASSERT_EQ(magic_enum::enum_name(lepton::pb::vote_response_type(vt)), magic_enum::enum_name(resp.type()));
+    ASSERT_FALSE(resp.reject());
+
+    // If this was a real vote, we reset our state and term.
+    if (vt == raftpb::message_type::MSG_VOTE) {
+      ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_FOLLOWER), magic_enum::enum_name(r.state_type_));
+      ASSERT_EQ(new_term, r.term_);
+      ASSERT_EQ(2, r.vote_id_);
+    } else {
+      // In a prevote, nothing changes.
+      ASSERT_EQ(magic_enum::enum_name(st), magic_enum::enum_name(r.state_type_));
+      ASSERT_EQ(origin_term, r.term_);
+      // if st == StateFollower or StatePreCandidate, r hasn't voted yet.
+      // In StateCandidate or StateLeader, it's voted for itself.
+      ASSERT_TRUE(r.vote_id_ == NONE || 1 == r.vote_id_);
+    }
+  }
+}
+
+TEST_F(raft_test_suit, vote_from_any_state) { test_state_from_any_state(raftpb::message_type::MSG_VOTE); }
+
+TEST_F(raft_test_suit, pre_vote_from_any_state) { test_state_from_any_state(raftpb::message_type::MSG_PRE_VOTE); }
+
+TEST_F(raft_test_suit, log_replication) {
+  struct test_case {
+    network nw;
+    std::vector<raftpb::message> msgs;
+    std::uint64_t wcommitted;
+  };
+  std::vector<test_case> test_cases;
+  {
+    std::vector<state_machine_builer_pair> peers;
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    auto nt = new_network(std::move(peers));
+    test_cases.push_back({
+        .nw = std::move(nt),
+        .msgs =
+            {
+                new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"),
+            },
+        .wcommitted = 2,
+    });
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    peers.emplace_back(state_machine_builer_pair{});
+    auto nt = new_network(std::move(peers));
+    test_cases.push_back({
+        .nw = std::move(nt),
+        .msgs =
+            {
+                new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"),
+                new_pb_message(1, 2, raftpb::message_type::MSG_HUP),
+                new_pb_message(1, 2, raftpb::message_type::MSG_PROP, "somedata"),
+            },
+        .wcommitted = 4,
+    });
+  }
+  for (auto &test_case : test_cases) {
+    auto &nw = test_case.nw;
+    nw.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+    {
+      auto &raft_handle = *nw.peers.at(1).raft_handle;
+      ASSERT_EQ(magic_enum::enum_name(lepton::state_type::STATE_LEADER),
+                magic_enum::enum_name(raft_handle.state_type_));
+    }
+
+    for (auto msg : test_case.msgs) {
+      nw.send({msg});
+    }
+
+    for (auto &[j, x] : nw.peers) {
+      auto &raft_handle = *x.raft_handle;
+      ASSERT_EQ(test_case.wcommitted, raft_handle.raft_log_handle_.committed())
+          << fmt::format("id: {} committed not math expected", j);
+
+      lepton::pb::repeated_entry entries;
+      auto next_entries = next_ents(raft_handle, *nw.storage.at(j));
+      for (auto &entry : next_entries) {
+        if (entry.has_data()) {
+          entries.Add()->CopyFrom(entry);
+        }
+      }
+
+      lepton::pb::repeated_message msgs;
+      for (auto &msg : test_case.msgs) {
+        if (msg.type() == raftpb::message_type::MSG_PROP) {
+          // Only add proposal messages to the output.
+          msgs.Add()->CopyFrom(msg);
+        }
+      }
+
+      for (auto i = 0; i < entries.size(); ++i) {
+        ASSERT_EQ(entries[i].data(), msgs[i].entries(0).data())
+            << "Entries mismatch at index " << i << ": expected " << entries[i].data() << ", got "
+            << msgs[i].entries(0).data();
+      }
+    }
+  }
 }

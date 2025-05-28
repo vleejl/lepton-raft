@@ -1437,7 +1437,7 @@ bool raft::has_unapplied_conf_change() const {
         LEPTON_CRITICAL("error scanning unapplied entries [{}, {}): {}", lo, hi, err.message);
         return new_error(err);
       });
-  assert(!result);
+  assert(result);
   return found;
 }
 
@@ -1741,7 +1741,7 @@ void raft::handle_append_entries(raftpb::message&& message) {
   }
 
   // 尝试本地追加日志
-  if (auto m_last_index = raft_log_handle_.maybe_append(std::move(log_slice), raft_log_handle_.committed());
+  if (auto m_last_index = raft_log_handle_.maybe_append(std::move(log_slice), message.commit());
       m_last_index) {  // 本地追加日志成功： 返回最新日志索引 mlastIndex，发送 MsgAppResp 确认。
     resp_msg.set_index(m_last_index.value());
     send(std::move(resp_msg));

@@ -175,7 +175,7 @@ class unstable {
     auto term_result = maybe_term(id.index);
     // 1. log index 可能已经被快照覆盖
     // 2. log index 可能已经无效
-    if (!term_result) {
+    if (term_result.has_error()) {
       // Unstable entry missing. Ignore.
       SPDLOG_INFO("entry at index {} missing from unstable log; ignoring", id.index);
       return;
