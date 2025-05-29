@@ -643,7 +643,7 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
     SPDLOG_INFO("{} has received {} {} votes and {} vote rejections", r.id_, gr, magic_enum::enum_name(m.type()), rj);
     switch (res) {
       case quorum::vote_result::VOTE_WON:
-        if (r.state_type_ == state_type::STATE_PRE_CANDIDATE) {
+        if (r.state_type_ == state_type::PRE_CANDIDATE) {
           r.campaign(campaign_type::CAMPAIGN_ELECTION);
         } else {
           r.become_leader();
@@ -672,11 +672,11 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
     }
     case raftpb::MSG_VOTE_RESP:
     case raftpb::MSG_PRE_VOTE_RESP: {
-      if (r.state_type_ == state_type::STATE_PRE_CANDIDATE) {
+      if (r.state_type_ == state_type::PRE_CANDIDATE) {
         if (msg_type == raftpb::MSG_PRE_VOTE_RESP) {
           post_vote_resp_func();
         }
-      } else if (r.state_type_ == state_type::STATE_CANDIDATE) {
+      } else if (r.state_type_ == state_type::CANDIDATE) {
         post_vote_resp_func();
       } else {
         LEPTON_CRITICAL("{} [term {}] ignoring message from {} in state {}", r.id_, r.term_, m.from(),
@@ -1127,7 +1127,7 @@ void raft::applied_to(std::uint64_t index, pb::entry_encoding_size size) {
   auto old_applied = raft_log_handle_.applied();
   auto new_applied = std::max(index, old_applied);
   raft_log_handle_.applied_to(new_applied, size);
-  if (trk_.config_view().auto_leave && new_applied >= pending_conf_index_ && state_type_ == state_type::STATE_LEADER) {
+  if (trk_.config_view().auto_leave && new_applied >= pending_conf_index_ && state_type_ == state_type::LEADER) {
     // If the current (and most recent, at least for this leader's term)
     // configuration should be auto-left, initiate that now. We use a
     // nil Data which unmarshals into an empty ConfChangeV2 and has the
@@ -1270,12 +1270,12 @@ void raft::tick_heartbeat() {
     }
     // If current leader cannot transfer leadership in electionTimeout, it becomes leader again.
     // 若在 electionTimeout 内未完成转移，Leader 终止流程继续服务，避免阻塞。
-    if ((state_type_ == state_type::STATE_LEADER) && (leader_transferee_ != NONE)) {
+    if ((state_type_ == state_type::LEADER) && (leader_transferee_ != NONE)) {
       SPDLOG_DEBUG("{} [term {}] leader transfer timeout, become leader again", id_, term_);
       abort_leader_transfer();
     }
   }
-  if (state_type_ != state_type::STATE_LEADER) {
+  if (state_type_ != state_type::LEADER) {
     return;
   }
   if (heartbeat_elapsed_ >= heartbeat_timeout_) {
@@ -1300,12 +1300,12 @@ void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
   reset(term);
   tick_func_ = [this]() { tick_election(); };
   lead_ = lead;
-  state_type_ = state_type::STATE_FOLLOWER;
+  state_type_ = state_type::FOLLOWER;
 }
 
 void raft::become_candidate() {
   // TODO(xiangli) remove the panic when the raft implementation is stable
-  if (state_type_ == state_type::STATE_LEADER) {
+  if (state_type_ == state_type::LEADER) {
     LEPTON_CRITICAL("{} [term {}] invalid transition [leader -> candidate]", id_, term_);
   }
   // Becoming a candidate changes our step functions and state, but
@@ -1315,7 +1315,7 @@ void raft::become_candidate() {
   reset(term_ + 1);
   tick_func_ = [this]() { tick_election(); };
   vote_id_ = id_;
-  state_type_ = state_type::STATE_CANDIDATE;
+  state_type_ = state_type::CANDIDATE;
   SPDLOG_INFO("{} [term {}] became candidate", id_, term_);
 
   trace_become_candidate(*this);
@@ -1323,7 +1323,7 @@ void raft::become_candidate() {
 
 void raft::become_pre_candidate() {
   // TODO(xiangli) remove the panic when the raft implementation is stable
-  if (state_type_ == state_type::STATE_LEADER) {
+  if (state_type_ == state_type::LEADER) {
     LEPTON_CRITICAL("{} [term {}] invalid transition [leader -> pre-candidate]", id_, term_);
   }
   // Becoming a pre-candidate changes our step functions and state,
@@ -1333,20 +1333,20 @@ void raft::become_pre_candidate() {
   trk_.reset_votes();
   tick_func_ = [this]() { tick_election(); };
   lead_ = NONE;
-  state_type_ = state_type::STATE_PRE_CANDIDATE;
+  state_type_ = state_type::PRE_CANDIDATE;
   SPDLOG_INFO("{} [term {}] became pre-candidate", id_, term_);
 }
 
 void raft::become_leader() {
   // TODO(xiangli) remove the panic when the raft implementation is stable
-  if (state_type_ == state_type::STATE_FOLLOWER) {
+  if (state_type_ == state_type::FOLLOWER) {
     LEPTON_CRITICAL("{} [term {}] invalid transition [follower -> leader]", id_, term_);
   }
   step_func_ = step_leader;
   reset(term_);
   tick_func_ = [this]() { tick_heartbeat(); };
   lead_ = id_;
-  state_type_ = state_type::STATE_LEADER;
+  state_type_ = state_type::LEADER;
   // Followers enter replicate mode when they've been successfully probed
   // (perhaps after having received a snapshot as a result). The leader is
   // trivially in this state. Note that r.reset() has initialized this
@@ -1382,7 +1382,7 @@ void raft::become_leader() {
 // 节点有资格参与选举（可提升为候选者）。
 // 没有未应用的集群配置变更。
 void raft::hup(campaign_type t) {
-  if (state_type_ == state_type::STATE_LEADER) {
+  if (state_type_ == state_type::LEADER) {
     SPDLOG_DEBUG("{} [term {}] ignoring MsgHup because already leader", id_, term_);
     return;
   }
@@ -1775,7 +1775,7 @@ void raft::handle_append_entries(raftpb::message&& message) {
   resp_msg.set_index(message.index());
   resp_msg.set_reject(true);
   resp_msg.set_reject_hint(hint_index);
-  resp_msg.set_term(hint_term);
+  resp_msg.set_log_term(hint_term);
   send(std::move(resp_msg));
 }
 
@@ -1827,7 +1827,7 @@ bool raft::restore(raftpb::snapshot&& snapshot) {
   // Raft协议中，只有Follower或Candidate可以被动接受来自Leader的快照。
   // 当一个节点（即使是Leader）发现快照中的任期（Term）比自己的当前任期更高时，必须立即转为Follower。
   // 这种状态转换是协议强制要求的，目的是保证系统的任期单调递增原则和Leader唯一性。
-  if (state_type_ != state_type::STATE_FOLLOWER) {
+  if (state_type_ != state_type::FOLLOWER) {
     // This is defense-in-depth: if the leader somehow ended up applying a
     // snapshot, it could move into a new term without moving into a
     // follower state. This should never fire, but if it did, we'd have
@@ -1952,7 +1952,7 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progre
 
   // raft.becomeFollower 切换状态 当新配置移除了当前 Leader 节点或将其降级为
   // Learner 时，函数通过以下逻辑触发降级：
-  if ((!exist || is_learner_) && state_type_ == state_type::STATE_LEADER) {
+  if ((!exist || is_learner_) && state_type_ == state_type::LEADER) {
     // This node is leader and was removed or demoted, step down if requested.
     //
     // We prevent demotions at the time writing but hypothetically we handle
@@ -1969,7 +1969,7 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progre
 
   // The remaining steps only make sense if this node is the leader and there
   // are other nodes.
-  if (state_type_ != state_type::STATE_LEADER || cs.voters_size() == 0) {
+  if (state_type_ != state_type::LEADER || cs.voters_size() == 0) {
     return cs;
   }
 

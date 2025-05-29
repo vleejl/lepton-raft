@@ -1,5 +1,6 @@
 #ifndef _LEPTON_TEST_RAFT_NETWORKING_H_
 #define _LEPTON_TEST_RAFT_NETWORKING_H_
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -20,7 +21,8 @@ test_memory_storage_options with_peers(std::vector<std::uint64_t> &&peers);
 test_memory_storage_options with_learners(std::vector<std::uint64_t> &&learners);
 lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbeat_tick,
                                pro::proxy<lepton::storage_builer> &&storage);
-std::unique_ptr<lepton::memory_storage> new_test_memory_storage(std::vector<test_memory_storage_options> &&options);
+lepton::memory_storage new_test_memory_storage(std::vector<test_memory_storage_options> &&options);
+std::unique_ptr<lepton::memory_storage> new_test_memory_storage_ptr(std::vector<test_memory_storage_options> &&options);
 // setRandomizedElectionTimeout set up the value by caller instead of choosing
 // by system, in some test scenario we need to fill in some expected value to
 // ensure the certainty
@@ -99,6 +101,33 @@ struct network {
   std::function<bool(const raftpb::message &)> msg_hook;
 
   void send(std::vector<raftpb::message> &&msgs);
+
+  void drop(std::uint64_t from, std::uint64_t to, double perc) { dropm[connem{.from = from, .to = to}] = perc; }
+
+  void cut(std::uint64_t from, std::uint64_t to) {
+    drop(from, to, 2.0);  // always drop
+    drop(from, to, 2.0);  // always drop
+  }
+
+  void isolate(std::uint64_t id) {
+    for (std::size_t i = 0; i < peers.size(); ++i) {
+      auto nid = static_cast<std::uint64_t>(i) + 1;
+      if (nid != id) {
+        drop(id, nid, 1.0);
+        drop(nid, id, 1.0);
+      }
+    }
+  }
+
+  void ignore(raftpb::message_type t) {
+    ignorem.insert({t, true});
+  }
+
+  void recover() {
+    dropm.clear();
+    ignorem.clear();
+  }
+
   std::vector<raftpb::message> filter(const lepton::pb::repeated_message &msgs);
 };
 

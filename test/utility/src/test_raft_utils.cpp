@@ -65,7 +65,16 @@ lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbea
   return lepton::config{id, election_tick, heartbeat_tick, std::move(storage), lepton::NO_LIMIT, 256};
 }
 
-std::unique_ptr<lepton::memory_storage> new_test_memory_storage(std::vector<test_memory_storage_options> &&options) {
+lepton::memory_storage new_test_memory_storage(std::vector<test_memory_storage_options> &&options) {
+  lepton::memory_storage ms;
+  for (auto &option : options) {
+    option(ms);
+  }
+  return ms;
+}
+
+std::unique_ptr<lepton::memory_storage> new_test_memory_storage_ptr(
+    std::vector<test_memory_storage_options> &&options) {
   auto ms_ptr = std::make_unique<lepton::memory_storage>();
   auto &ms = *ms_ptr;
   for (auto &option : options) {
@@ -137,7 +146,7 @@ network new_network_with_config(std::function<void(lepton::config &)> config_fun
       }
     } else {  // empty proxy view
       assert(!nstorage.contains(id));
-      nstorage.insert({id, new_test_memory_storage({with_peers(ids_by_size(size))})});
+      nstorage.insert({id, new_test_memory_storage_ptr({with_peers(ids_by_size(size))})});
       pro::proxy<lepton::storage_builer> storage = nstorage[id].get();
       auto cfg = new_test_config(id, 10, 1, std::move(storage));
       if (config_func != nullptr) {

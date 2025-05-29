@@ -7,7 +7,7 @@
 #include "tracker.h"
 namespace lepton {
 
-enum class state_type : std::uint64_t { STATE_FOLLOWER, STATE_CANDIDATE, STATE_LEADER, STATE_PRE_CANDIDATE };
+enum class state_type : std::uint64_t { FOLLOWER, CANDIDATE, LEADER, PRE_CANDIDATE };
 
 // SoftState provides state that is useful for logging and debugging.
 // The state is volatile and does not need to be persisted to the WAL.
