@@ -209,15 +209,12 @@ class progress_tracker {
   auto is_singleton() const { return config_.voters.is_singleton(); }
 
   // Committed returns the largest log index known to be committed based on
-  // what
-  // the voting members of the group have acknowledged.
+  // what the voting members of the group have acknowledged.
   std::uint64_t committed() {
     return config_.voters.committed_index(pro::proxy_view<quorum::acked_indexer_builder>{&progress_map_});
   }
 
-  // using
-  // Visit invokes the supplied closure for all tracked progresses in stable
-  // order.
+  // using Visit invokes the supplied closure for all tracked progresses in stable order.
   // 使用 const 引用而不是指针，是为了进一步降低内存风险
   void visit(std::function<void(std::uint64_t id, progress& p)> f) {
     size_t n = progress_map_.map_.size();

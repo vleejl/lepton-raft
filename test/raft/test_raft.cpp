@@ -74,6 +74,12 @@ static memory_storage new_memory_storage(std::vector<test_memory_storage_options
   return ms;
 }
 
+static lepton::raft new_test_raft(lepton::config &&config) {
+  auto r = new_raft(std::move(config));
+  assert(r);
+  return std::move(r.value());
+}
+
 static lepton::raft new_test_raft(std::uint64_t id, int election_tick, int heartbeat_tick,
                                   pro::proxy<storage_builer> &&storage) {
   auto r = new_raft(new_test_config(id, election_tick, heartbeat_tick, std::move(storage)));
@@ -876,7 +882,9 @@ TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER),
             magic_enum::enum_name(nt.peers.at(1).raft_handle->state_type_));
-  ASSERT_EQ(1, nt.peers.at(1).raft_handle->raft_log_handle_.committed());
+  for (auto &[id, pr] : nt.peers) {
+    ASSERT_EQ(1, pr.raft_handle->raft_log_handle_.committed()) << fmt::format("id: {}", id);
+  }
 
   // 0 cannot reach 2,3,4
   nt.cut(1, 3);
@@ -885,7 +893,6 @@ TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
 
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data")});
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data")});
-
   ASSERT_EQ(1, nt.peers.at(1).raft_handle->raft_log_handle_.committed());
 
   // network recovery
@@ -905,6 +912,9 @@ TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
 
   nt.recover();
   // send heartbeat; reset wait
+  // leader 在收到follower MSG_HEARTBEAT_RESP 以后，会给 follower 发送 MSG_APPEND
+  // follower 受到 MSG_APPEND 以后，如果当前 leader log index 与本地一致，则会返回成功，并更新本地commit；
+  // 否则返回拒绝，返回拒绝时会反馈给follower丢失的log index 位置，方便leader选择正确的位置发送MSG_APP
   nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_BEAT)});
   // node 1 选举为 leader 的 empty entry
   // node 2 选举为 leader 的 empty entry
@@ -914,4 +924,152 @@ TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
   nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_PROP, "some data")});
   // expect the committed to be advanced
   ASSERT_EQ(5, nt.peers.at(2).raft_handle->raft_log_handle_.committed());
+}
+
+TEST_F(raft_test_suit, dueling_candidates) {
+  struct test_case {
+    raft *raft_handle;
+    lepton::state_type expected_state;
+    std::uint64_t expected_term;
+    std::uint64_t last_index;
+  };
+
+  auto a = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+  auto b = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+  auto c = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{a});
+  peers.emplace_back(state_machine_builer_pair{b});
+  peers.emplace_back(state_machine_builer_pair{c});
+  auto nt = new_network(std::move(peers));
+
+  nt.cut(1, 3);
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+
+  // 1 becomes leader since it receives votes from 1 and 2
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER),
+            magic_enum::enum_name(nt.peers.at(1).raft_handle->state_type_));
+
+  // 3 stays as candidate since it receives a vote from 3 and a rejection from 2
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::CANDIDATE),
+            magic_enum::enum_name(nt.peers.at(3).raft_handle->state_type_));
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 1, 0},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+
+  nt.recover();
+
+  // candidate 3 now increases its term and tries to vote again
+  // we expect it to disrupt the leader 1 since it has a higher term
+  // 3 will be follower again since both 1 and 2 rejects its vote request since 3 does not have a long enough log
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER),
+            magic_enum::enum_name(nt.peers.at(3).raft_handle->state_type_));
+  {
+    // 根据 Raft 协议，节点在收到更高任期的请求时必须更新自己的任期并转换为 Follower 状态。原因如下：
+    /*
+    日志提交安全：
+
+      旧 Leader 可能提交了未被多数接受的日志
+      新任期 Leader 必须覆盖这些不安全日志
+      只有承认更高任期，才能中断旧 Leader 操作
+    选举安全：
+      节点更新任期后，会拒绝旧任期的投票请求
+      避免同一个节点在不同分区多次投票
+    状态机安全：
+      强制状态转换确保所有节点最终同意最新任期
+      这是实现强一致性的基础
+     */
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 0},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+}
+
+TEST_F(raft_test_suit, dueling_pre_candidates) {
+  struct test_case {
+    raft *raft_handle;
+    lepton::state_type expected_state;
+    std::uint64_t expected_term;
+    std::uint64_t last_index;
+  };
+
+  auto a_cfg =
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+  auto b_cfg =
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+  auto c_cfg =
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+  a_cfg.pre_vote = true;
+  b_cfg.pre_vote = true;
+  c_cfg.pre_vote = true;
+  auto a = new_test_raft(std::move(a_cfg));
+  auto b = new_test_raft(std::move(b_cfg));
+  auto c = new_test_raft(std::move(c_cfg));
+
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{a});
+  peers.emplace_back(state_machine_builer_pair{b});
+  peers.emplace_back(state_machine_builer_pair{c});
+  auto nt = new_network(std::move(peers));
+
+  nt.cut(1, 3);
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+
+  // 1 becomes leader since it receives votes from 1 and 2
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER),
+            magic_enum::enum_name(nt.peers.at(1).raft_handle->state_type_));
+
+  // 3 campaigns then reverts to follower when its PreVote is rejected
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER),
+            magic_enum::enum_name(nt.peers.at(3).raft_handle->state_type_));
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 0},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+
+  nt.recover();
+
+  // Candidate 3 now increases its term and tries to vote again.
+  // With PreVote, it does not disrupt the leader.
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 0},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
 }

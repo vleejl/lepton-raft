@@ -1229,6 +1229,9 @@ bool raft::append_entry(pb::repeated_entry&& entries) {
   //  if r.maybeCommit() {
   //  	r.bcastAppend()
   //  }
+  // 为了减少一次RPC，且避免死循环（​​自我响应悖论​​：发送 MsgApp
+  // 后需要等待自己的响应才能确认持久化 → 但响应又依赖于持久化完成 → 逻辑死结）
+  // 所以leader 不能自己给自己发送 MSG_APP 消息
   raftpb::message m;
   m.set_to(id_);
   m.set_type(raftpb::message_type::MSG_APP_RESP);
