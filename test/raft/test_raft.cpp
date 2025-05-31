@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -11,12 +12,16 @@
 #include "config.h"
 #include "error.h"
 #include "fmt/format.h"
+#include "gtest/gtest.h"
 #include "magic_enum.hpp"
 #include "memory_storage.h"
 #include "protobuf.h"
 #include "raft.h"
+#include "raft_log.h"
 #include "state.h"
 #include "storage.h"
+#include "test_diff.h"
+#include "test_raft_protobuf.h"
 #include "test_raft_state_machine.h"
 #include "test_raft_utils.h"
 #include "test_utility_data.h"
@@ -108,6 +113,16 @@ static raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raft
   msg.set_type(type);
   auto entry = msg.add_entries();
   entry->set_data(data);
+  return msg;
+}
+
+static raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type,
+                                      lepton::pb::repeated_entry &&entries) {
+  raftpb::message msg;
+  msg.set_from(from);
+  msg.set_to(to);
+  msg.set_type(type);
+  msg.mutable_entries()->Swap(&entries);
   return msg;
 }
 
@@ -402,7 +417,14 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
 
 static void pre_vote_config(config &cfg) { cfg.pre_vote = true; }
 
-static auto nop_stepper = pro::make_proxy<state_machine_builer, black_hole>();
+void emplace_nil_peer(std::vector<state_machine_builer_pair> &peers) {
+  peers.emplace_back(state_machine_builer_pair{});
+}
+
+void emplace_nop_stepper(std::vector<state_machine_builer_pair> &peers) {
+  emplace_nil_peer(peers);
+  peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
+}
 
 static void test_leader_election(bool pre_vote) {
   std::function<void(lepton::config &)> config_func;
@@ -427,41 +449,36 @@ static void test_leader_election(bool pre_vote) {
   std::vector<test_case> test_cases;
   {
     std::vector<state_machine_builer_pair> peers;
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
     test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), lepton::state_type::LEADER, 1);
   }
   {
     std::vector<state_machine_builer_pair> peers;
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    emplace_nop_stepper(peers);
     test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), lepton::state_type::LEADER, 1);
   }
   {
     std::vector<state_machine_builer_pair> peers;
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
+    emplace_nil_peer(peers);
+    emplace_nop_stepper(peers);
+    emplace_nop_stepper(peers);
     test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), cand_state, cand_term);
   }
   {
     std::vector<state_machine_builer_pair> peers;
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
-    peers.emplace_back(state_machine_builer_pair{});
+    emplace_nil_peer(peers);
+    emplace_nop_stepper(peers);
+    emplace_nop_stepper(peers);
+    emplace_nil_peer(peers);
     test_cases.emplace_back(new_network_with_config(config_func, std::move(peers)), cand_state, cand_term);
   }
   {
     std::vector<state_machine_builer_pair> peers;
-    peers.emplace_back(state_machine_builer_pair{});
+    emplace_nil_peer(peers);
     peers.emplace_back(ents_with_config(config_func, {1}));
     peers.emplace_back(ents_with_config(config_func, {1}));
     peers.emplace_back(ents_with_config(config_func, {1}));
@@ -585,9 +602,9 @@ void leader_cycle(bool pre_vote) {
     config_func = pre_vote_config;
   }
   std::vector<state_machine_builer_pair> peers;
-  peers.emplace_back(state_machine_builer_pair{});
-  peers.emplace_back(state_machine_builer_pair{});
-  peers.emplace_back(state_machine_builer_pair{});
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
   auto n = new_network_with_config(config_func, std::move(peers));
   for (std::uint64_t campaigner_id = 1; campaigner_id <= 3; ++campaigner_id) {
     n.send({new_pb_message(campaigner_id, campaigner_id, raftpb::message_type::MSG_HUP)});
@@ -740,9 +757,9 @@ TEST_F(raft_test_suit, log_replication) {
   std::vector<test_case> test_cases;
   {
     std::vector<state_machine_builer_pair> peers;
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
     auto nt = new_network(std::move(peers));
     test_cases.push_back({
         .nw = std::move(nt),
@@ -755,9 +772,9 @@ TEST_F(raft_test_suit, log_replication) {
   }
   {
     std::vector<state_machine_builer_pair> peers;
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
     auto nt = new_network(std::move(peers));
     test_cases.push_back({
         .nw = std::move(nt),
@@ -873,11 +890,11 @@ TEST_F(raft_test_suit, test_single_node_commit) {
 // filtered.
 TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
   std::vector<state_machine_builer_pair> peers;
-  peers.emplace_back(state_machine_builer_pair{});
-  peers.emplace_back(state_machine_builer_pair{});
-  peers.emplace_back(state_machine_builer_pair{});
-  peers.emplace_back(state_machine_builer_pair{});
-  peers.emplace_back(state_machine_builer_pair{});
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
   auto nt = new_network(std::move(peers));
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER),
@@ -1070,6 +1087,369 @@ TEST_F(raft_test_suit, dueling_pre_candidates) {
       ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
       ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
       ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+}
+
+TEST_F(raft_test_suit, candidates_concede) {
+  struct test_case {
+    raft *raft_handle;
+    lepton::state_type expected_state;
+    std::uint64_t expected_term;
+    std::uint64_t last_index;
+  };
+
+  std::vector<state_machine_builer_pair> peers;
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  auto nt = new_network(std::move(peers));
+
+  nt.isolate(1);
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::CANDIDATE, 1, 0},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 1, 1},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+
+  // heal the partition
+  nt.recover();
+  // send heartbeat; reset wait
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_BEAT)});
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 1, 1},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+
+  std::string data{"force follower"};
+  // send a proposal to 3 to flush out a MsgApp to 1
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_PROP, data)});
+  // send heartbeat; flush out commit
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_BEAT)});
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 1, 2},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+
+  // 预期两个 entry
+  // 第一个：leader 选举触发的empty enrty
+  // 第二个：发送的 PROP 消息
+  lepton::pb::repeated_entry entries;
+  auto entry1 = entries.Add();
+  entry1->set_term(1);
+  entry1->set_index(1);
+  auto entry2 = entries.Add();
+  entry2->set_term(1);
+  entry2->set_index(2);
+  entry2->set_data(data);
+
+  auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+  auto &mm_storage = *mm_storage_ptr;
+  mm_storage.append(std::move(entries));
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto raft_log = new_raft_log(std::move(storage_proxy));
+  auto want_log = ltoa(*raft_log);
+  for (auto &[id, p] : nt.peers) {
+    auto l = ltoa(p.raft_handle->raft_log_handle_);
+    ASSERT_EQ(want_log, l);
+    ASSERT_EQ(0, diffu(want_log, l).size());
+  }
+}
+
+TEST_F(raft_test_suit, single_node_candidate) {
+  std::vector<state_machine_builer_pair> peers;
+  emplace_nil_peer(peers);
+  auto nt = new_network(std::move(peers));
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER),
+            magic_enum::enum_name(nt.peers.at(1).raft_handle->state_type_));
+}
+
+TEST_F(raft_test_suit, single_node_pre_candidate) {
+  std::vector<state_machine_builer_pair> peers;
+  emplace_nil_peer(peers);
+  auto nt = new_network_with_config(pre_vote_config, std::move(peers));
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER),
+            magic_enum::enum_name(nt.peers.at(1).raft_handle->state_type_));
+}
+
+TEST_F(raft_test_suit, old_messages) {
+  struct test_case {
+    raft *raft_handle;
+    lepton::state_type expected_state;
+    std::uint64_t expected_term;
+    std::uint64_t last_index;
+  };
+  std::vector<state_machine_builer_pair> peers;
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  auto nt = new_network(std::move(peers));
+
+  // make 0 leader @ term 3
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+  // pretend we're an old leader trying to make progress; this entry is expected to be ignored.
+  auto msg1 = new_pb_message(2, 1, raftpb::message_type::MSG_APP);
+  msg1.set_term(2);
+  auto entries1 = create_entries(3, {2});
+  msg1.mutable_entries()->Swap(&entries1);
+  nt.send({msg1});
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+  // commit a new entry
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
+  {
+    std::vector<test_case> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 4},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
+    };
+    for (const auto &iter : tests) {
+      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
+      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
+      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
+    }
+  }
+
+  auto entries2 = create_entries(0, {0, 1, 2, 3, 3});
+  entries2[4].set_data("somedata");
+  auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+  auto &mm_storage = *mm_storage_ptr;
+  mm_storage.append(std::move(entries2));
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto ilog = new_raft_log(std::move(storage_proxy));
+  auto base = ltoa(*ilog);
+  for (auto &[id, p] : nt.peers) {
+    auto l = ltoa(p.raft_handle->raft_log_handle_);
+    ASSERT_EQ(base, l) << fmt::format("====== id: {}\n", id) << fmt::format("====== base: {}\n", base)
+                       << fmt::format("====== l: {}", l);
+    ASSERT_EQ(0, diffu(base, l).size());
+  }
+}
+
+TEST_F(raft_test_suit, proposal) {
+  struct test_case {
+    network nt;
+    bool success;
+    test_case(network &&network, bool success) : nt(std::move(network)), success(success) {}
+  };
+  std::vector<test_case> test_cases;
+  {
+    std::vector<state_machine_builer_pair> peers;
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    test_cases.emplace_back(new_network(std::move(peers)), true);
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    emplace_nop_stepper(peers);
+    test_cases.emplace_back(new_network(std::move(peers)), true);
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    emplace_nil_peer(peers);
+    emplace_nop_stepper(peers);
+    emplace_nop_stepper(peers);
+    test_cases.emplace_back(new_network(std::move(peers)), false);
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    emplace_nil_peer(peers);
+    emplace_nop_stepper(peers);
+    emplace_nop_stepper(peers);
+    emplace_nil_peer(peers);
+    test_cases.emplace_back(new_network(std::move(peers)), false);
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    emplace_nil_peer(peers);
+    emplace_nop_stepper(peers);
+    emplace_nop_stepper(peers);
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    test_cases.emplace_back(new_network(std::move(peers)), true);
+  }
+  for (std::size_t i = 0; i < test_cases.size(); ++i) {
+    auto &tt = test_cases[i];
+
+    std::string data{"somedata"};
+    // promote 1 to become leader
+    tt.nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+    tt.nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, data)});
+    auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+    if (tt.success) {
+      auto &mm_storage = *mm_storage_ptr;
+      lepton::pb::repeated_entry entries;
+      auto entry1 = entries.Add();
+      entry1->set_term(1);
+      entry1->set_index(1);
+      auto entry2 = entries.Add();
+      entry2->set_term(1);
+      entry2->set_index(2);
+      entry2->set_data(std::string{data});
+      mm_storage.append(std::move(entries));
+    }
+    pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+    auto raft_log = new_raft_log(std::move(storage_proxy));
+    auto base = ltoa(*raft_log);
+    for (std::size_t idx = 0; idx < tt.nt.peers.size(); ++idx) {
+      for (auto &[id, p] : tt.nt.peers) {
+        if (p.raft_handle == nullptr) {
+          ASSERT_TRUE(p.black_hole_builder.has_value());
+          std::cout << fmt::format("#{}: peer {} empty log\n", i, id);
+          continue;
+        }
+        ASSERT_FALSE(p.black_hole_builder.has_value());
+        ASSERT_NE(nullptr, p.raft_handle) << fmt::format("====== has exception test case: {}\n", i);
+        auto l = ltoa(p.raft_handle->raft_log_handle_);
+        ASSERT_EQ(base, l) << fmt::format("====== has exception test case: {}\n", i)
+                           << fmt::format("====== id: {}\n", id) << fmt::format("====== expected: {}\n", base)
+                           << fmt::format("====== actual: {}", l);
+        ASSERT_EQ(0, diffu(base, l).size());
+        ASSERT_EQ(1, tt.nt.peers.at(1).raft_handle->term_);
+      }
+    }
+  }
+}
+
+TEST_F(raft_test_suit, proposal_by_proxy) {
+  struct test_case {
+    network nt;
+    test_case(network &&network) : nt(std::move(network)) {}
+  };
+  std::vector<test_case> test_cases;
+  {
+    std::vector<state_machine_builer_pair> peers;
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    test_cases.emplace_back(new_network(std::move(peers)));
+  }
+  {
+    std::vector<state_machine_builer_pair> peers;
+    emplace_nil_peer(peers);
+    emplace_nil_peer(peers);
+    emplace_nop_stepper(peers);
+    test_cases.emplace_back(new_network(std::move(peers)));
+  }
+  for (std::size_t i = 0; i < test_cases.size(); ++i) {
+    auto &tt = test_cases[i];
+
+    std::string data{"somedata"};
+    // promote 1 to become leader
+    tt.nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+    // propose via follower
+    tt.nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_PROP, data)});
+    auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+    auto &mm_storage = *mm_storage_ptr;
+    lepton::pb::repeated_entry entries;
+    auto entry1 = entries.Add();
+    entry1->set_term(1);
+    entry1->set_index(1);
+    auto entry2 = entries.Add();
+    entry2->set_term(1);
+    entry2->set_index(2);
+    entry2->set_data(std::string{data});
+    mm_storage.append(std::move(entries));
+    pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+    auto raft_log = new_raft_log(std::move(storage_proxy));
+    auto base = ltoa(*raft_log);
+    for (std::size_t idx = 0; idx < tt.nt.peers.size(); ++idx) {
+      for (auto &[id, p] : tt.nt.peers) {
+        if (p.raft_handle == nullptr) {
+          ASSERT_TRUE(p.black_hole_builder.has_value());
+          std::cout << fmt::format("#{}: peer {} empty log\n", i, id);
+          continue;
+        }
+        ASSERT_FALSE(p.black_hole_builder.has_value());
+        ASSERT_NE(nullptr, p.raft_handle) << fmt::format("====== has exception test case: {}\n", i);
+        auto l = ltoa(p.raft_handle->raft_log_handle_);
+        ASSERT_EQ(base, l) << fmt::format("====== has exception test case: {}\n", i)
+                           << fmt::format("====== id: {}\n", id) << fmt::format("====== expected: {}\n", base)
+                           << fmt::format("====== actual: {}", l);
+        ASSERT_EQ(0, diffu(base, l).size());
+        ASSERT_EQ(1, tt.nt.peers.at(1).raft_handle->term_);
+      }
     }
   }
 }
