@@ -7,6 +7,41 @@
 
 #include "raft.pb.h"
 
+raftpb::message convert_test_pb_message(test_pb::message &&m) {
+  raftpb::message msg;
+  msg.set_type(m.msg_type);
+  if (m.from != 0) {
+    msg.set_from(m.from);
+  }
+  if (m.term != 0) {
+    msg.set_term(m.term);
+  }
+  if (m.term != 0) {
+    msg.set_term(m.term);
+  }
+  if (m.log_term != 0) {
+    msg.set_log_term(m.log_term);
+  }
+  if (m.index != 0) {
+    msg.set_index(m.index);
+  }
+  if (m.commit != 0) {
+    msg.set_commit(m.commit);
+  }
+  for (const auto &iter_entry : m.entries) {
+    auto entry = msg.add_entries();
+    if (iter_entry.term != 0) {
+      entry->set_term(iter_entry.term);
+    }
+    if (iter_entry.index != 0) {
+      entry->set_index(iter_entry.index);
+    }
+    entry->set_data(iter_entry.data);
+  }
+  msg.set_context(m.ctx);
+  return msg;
+}
+
 lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term) {
   auto entry = std::make_unique<raftpb::entry>();
   entry->set_index(index);
@@ -25,7 +60,8 @@ lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::
   return entries;
 }
 
-lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from, std::uint64_t term_to) {
+lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from,
+                                                          std::uint64_t term_to) {
   lepton::pb::repeated_entry entries;
   for (auto term = term_from; term < term_to; ++term) {
     auto entry = entries.Add();

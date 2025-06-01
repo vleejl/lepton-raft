@@ -349,7 +349,8 @@ bool raft_log::match_term(const pb::entry_id& id) {
   if (result.has_error()) {
     return false;
   }
-  return result.value() == id.term;
+  auto result_val = *result;
+  return result_val == id.term;
 }
 
 bool raft_log::maybe_commit(const pb::entry_id& at) {

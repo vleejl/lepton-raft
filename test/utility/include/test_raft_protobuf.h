@@ -1,8 +1,32 @@
 #ifndef _LEPTON_TEST_RAFT_PROTOBUF_H_
 #define _LEPTON_TEST_RAFT_PROTOBUF_H_
+#include <cstdint>
+#include <vector>
+
 #include "raft.pb.h"
 #include "types.h"
 
+namespace test_pb {
+
+struct entry {
+  std::uint64_t index = 0;
+  std::uint64_t term = 0;
+  std::string data;
+};
+struct message {
+  raftpb::message_type msg_type;
+  std::uint64_t from = 0;
+  std::uint64_t to = 0;
+  std::uint64_t term = 0;
+  std::uint64_t log_term = 0;
+  std::uint64_t index = 0;
+  std::uint64_t commit = 0;
+  std::vector<entry> entries;
+  std::string ctx;
+};
+}  // namespace test_pb
+
+raftpb::message convert_test_pb_message(test_pb::message &&);
 lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
 lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms);
 lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params);

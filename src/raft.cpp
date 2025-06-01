@@ -2006,8 +2006,9 @@ void raft::load_state(const raftpb::hard_state& state) {
   vote_id_ = state.vote();
 }
 
-bool raft::past_election_timeout() { return election_elapsed_ >= election_timeout_; }
+bool raft::past_election_timeout() { return election_elapsed_ >= randomized_election_timeout_; }
 
+// [electiontimeout, 2 * electiontimeout - 1]
 void raft::reset_randomized_election_timeout() {
   static std::mt19937 rng(std::random_device{}());  // 静态生成器
   std::uniform_int_distribution<int> dist(0, election_timeout_ - 1);

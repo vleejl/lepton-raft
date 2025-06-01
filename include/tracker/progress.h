@@ -39,6 +39,8 @@ class progress {
   progress() : progress(0, inflights{0}, false, false) {}
 
   void set_learner(bool is_learner) { is_learner_ = is_learner; }
+
+  void set_next(std::uint64_t next) { next_ = next; }
 #endif
   progress(std::uint64_t next, inflights&& inflights, bool is_learner, bool recent_active)
       : match_(0),

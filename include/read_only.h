@@ -3,7 +3,7 @@
 #include <absl/types/span.h>
 #include <raft.pb.h>
 
-#include <cstddef>
+#include <cassert>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -13,8 +13,6 @@
 
 #include "config.h"
 #include "error.h"
-#include "fmt/format.h"
-#include "leaf.hpp"
 #include "utility_macros.h"
 namespace lepton {
 
@@ -47,7 +45,15 @@ class read_only {
  public:
   MOVABLE_BUT_NOT_COPYABLE(read_only)
   read_only(read_only_option read_only_opt) : option_(read_only_opt) {}
+
   auto read_only_opt() const { return option_; }
+
+  const std::unordered_map<std::string_view, read_index_status>& pending_read_index() const {
+    return pending_read_index_;
+  }
+
+  const std::vector<std::string_view>& read_index_queue() const { return read_index_queue_; }
+
   // addRequest adds a read only request into readonly struct.
   // `index` is the commit index of the raft state machine when it received
   // the read only request.
@@ -89,7 +95,7 @@ class read_only {
     int i = 0;
     auto found = false;
 
-    const std::string& ctx = m.entries().rbegin()->data();
+    std::string_view ctx = m.context();
     std::vector<std::string_view> rss_keys;
     for (const auto& okctx : read_index_queue_) {
       i++;

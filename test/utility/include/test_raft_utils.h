@@ -21,8 +21,6 @@ test_memory_storage_options with_peers(std::vector<std::uint64_t> &&peers);
 test_memory_storage_options with_learners(std::vector<std::uint64_t> &&learners);
 lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbeat_tick,
                                pro::proxy<lepton::storage_builer> &&storage);
-lepton::memory_storage new_test_memory_storage(std::vector<test_memory_storage_options> &&options);
-std::unique_ptr<lepton::memory_storage> new_test_memory_storage_ptr(std::vector<test_memory_storage_options> &&options);
 // setRandomizedElectionTimeout set up the value by caller instead of choosing
 // by system, in some test scenario we need to fill in some expected value to
 // ensure the certainty

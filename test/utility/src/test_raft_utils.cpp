@@ -65,15 +65,7 @@ lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbea
   return lepton::config{id, election_tick, heartbeat_tick, std::move(storage), lepton::NO_LIMIT, 256};
 }
 
-lepton::memory_storage new_test_memory_storage(std::vector<test_memory_storage_options> &&options) {
-  lepton::memory_storage ms;
-  for (auto &option : options) {
-    option(ms);
-  }
-  return ms;
-}
-
-std::unique_ptr<lepton::memory_storage> new_test_memory_storage_ptr(
+static std::unique_ptr<lepton::memory_storage> new_test_memory_storage_ptr(
     std::vector<test_memory_storage_options> &&options) {
   auto ms_ptr = std::make_unique<lepton::memory_storage>();
   auto &ms = *ms_ptr;

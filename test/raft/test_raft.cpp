@@ -2,6 +2,7 @@
 #include <proxy.h>
 #include <raft.pb.h>
 
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -71,7 +72,7 @@ static test_memory_storage_options with_learners(lepton::pb::repeated_uint64 &&l
   };
 }
 
-static memory_storage new_memory_storage(std::vector<test_memory_storage_options> &&options) {
+static memory_storage new_test_memory_storage(std::vector<test_memory_storage_options> &&options) {
   memory_storage ms;
   for (auto &option : options) {
     option(ms);
@@ -173,7 +174,7 @@ static state_machine_builer_pair voted_with_config(std::function<void(lepton::co
 }
 
 TEST_F(raft_test_suit, progress_leader) {
-  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
+  auto storage = pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1, 2})}));
   auto r = new_test_raft(1, 5, 1, std::move(storage));
   r.become_candidate();
   r.become_leader();
@@ -201,7 +202,7 @@ TEST_F(raft_test_suit, progress_leader) {
 
 // TestProgressResumeByHeartbeatResp ensures raft.heartbeat reset progress.paused by heartbeat response.
 TEST_F(raft_test_suit, progress_resume_by_heartbeat_resp) {
-  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
+  auto storage = pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1, 2})}));
   auto r = new_test_raft(1, 5, 1, std::move(storage));
   r.become_candidate();
   r.become_leader();
@@ -219,7 +220,7 @@ TEST_F(raft_test_suit, progress_resume_by_heartbeat_resp) {
 }
 
 TEST_F(raft_test_suit, progress_paused) {
-  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
+  auto storage = pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1, 2})}));
   auto r = new_test_raft(1, 5, 1, std::move(storage));
   r.become_candidate();
   r.become_leader();
@@ -234,7 +235,7 @@ TEST_F(raft_test_suit, progress_paused) {
 }
 
 TEST_F(raft_test_suit, progress_flow_control) {
-  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2})}));
+  auto storage = pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1, 2})}));
   auto cfg = new_test_config(1, 5, 1, std::move(storage));
   cfg.max_inflight_msgs = 3;
   cfg.max_size_per_msg = 2048;
@@ -320,7 +321,7 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
 
   ASSERT_EQ(0, lepton::pb::payloads_size(raftpb::entry{}));
 
-  auto storage = pro::make_proxy<storage_builer>(new_memory_storage({with_peers({1, 2, 3})}));
+  auto storage = pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1, 2, 3})}));
   auto cfg = new_test_config(1, 5, 1, std::move(storage));
   cfg.max_uncommitted_entries_size = max_entry_size;
   cfg.max_inflight_msgs = 2 * 1024;  // avoid interference
@@ -504,9 +505,9 @@ TEST_F(raft_test_suit, test_leader_election_pre_vote) { test_leader_election(tru
 // when times out.
 TEST_F(raft_test_suit, test_learner_election_timeout) {
   auto n1 = new_test_learner_raft(
-      1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+      1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1}), with_learners({2})}})));
   auto n2 = new_test_learner_raft(
-      2, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+      2, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1}), with_learners({2})}})));
 
   n1.become_follower(1, NONE);
   n2.become_follower(1, NONE);
@@ -524,9 +525,9 @@ TEST_F(raft_test_suit, test_learner_election_timeout) {
 // it is promoted to a normal peer.
 TEST_F(raft_test_suit, test_learner_promotion) {
   auto n1 = new_test_learner_raft(
-      1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+      1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1}), with_learners({2})}})));
   auto n2 = new_test_learner_raft(
-      2, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+      2, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1}), with_learners({2})}})));
 
   n1.become_follower(1, NONE);
   n2.become_follower(1, NONE);
@@ -574,7 +575,7 @@ TEST_F(raft_test_suit, test_learner_promotion) {
 // See (*raft).Step for why this is necessary and correct behavior.
 TEST_F(raft_test_suit, test_learner_can_vote) {
   auto n2 = new_test_learner_raft(
-      2, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1}), with_learners({2})}})));
+      2, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1}), with_learners({2})}})));
 
   n2.become_follower(1, NONE);
 
@@ -689,7 +690,8 @@ static void test_state_from_any_state(raftpb::message_type vt) {
   for (auto st_idx = static_cast<std::uint64_t>(lepton::state_type::FOLLOWER);
        st_idx <= static_cast<std::uint64_t>(lepton::state_type::PRE_CANDIDATE); ++st_idx) {
     auto st = static_cast<lepton::state_type>(st_idx);
-    auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+    auto r =
+        new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
     r.term_ = 1;
 
     switch (st) {
@@ -951,9 +953,9 @@ TEST_F(raft_test_suit, dueling_candidates) {
     std::uint64_t last_index;
   };
 
-  auto a = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
-  auto b = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
-  auto c = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+  auto a = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  auto b = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  auto c = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   std::vector<state_machine_builer_pair> peers;
   peers.emplace_back(state_machine_builer_pair{a});
   peers.emplace_back(state_machine_builer_pair{b});
@@ -1029,11 +1031,11 @@ TEST_F(raft_test_suit, dueling_pre_candidates) {
   };
 
   auto a_cfg =
-      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   auto b_cfg =
-      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   auto c_cfg =
-      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_memory_storage({{with_peers({1, 2, 3})}})));
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   a_cfg.pre_vote = true;
   b_cfg.pre_vote = true;
   c_cfg.pre_vote = true;
@@ -1452,4 +1454,473 @@ TEST_F(raft_test_suit, proposal_by_proxy) {
       }
     }
   }
+}
+
+TEST_F(raft_test_suit, commit) {
+  struct test_case {
+    std::vector<std::uint64_t> matches;
+    lepton::pb::repeated_entry logs;
+    std::uint64_t sm_term;
+    std::uint64_t want;
+  };
+
+  std::vector<test_case> tests{
+      // single
+      {
+          .matches = std::vector<std::uint64_t>{1},
+          .logs = create_entries(1, {1}),
+          .sm_term = 1,
+          .want = 1,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{1},
+          .logs = create_entries(1, {1}),
+          .sm_term = 2,
+          .want = 0,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2},
+          .logs = create_entries(1, {1, 2}),
+          .sm_term = 2,
+          .want = 2,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{1},
+          .logs = create_entries(1, {2}),
+          .sm_term = 2,
+          .want = 1,
+      },
+
+      // odd
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 1},
+          .logs = create_entries(1, {1, 2}),
+          .sm_term = 1,
+          .want = 1,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 1},
+          .logs = create_entries(1, {1, 1}),
+          .sm_term = 2,
+          .want = 0,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 2},
+          .logs = create_entries(1, {1, 2}),
+          .sm_term = 2,
+          .want = 2,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 2},
+          .logs = create_entries(1, {1, 1}),
+          .sm_term = 2,
+          .want = 0,
+      },
+
+      // even
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 1, 1},
+          .logs = create_entries(1, {1, 2}),
+          .sm_term = 1,
+          .want = 1,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 1, 1},
+          .logs = create_entries(1, {1, 1}),
+          .sm_term = 2,
+          .want = 0,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 1, 2},
+          .logs = create_entries(1, {1, 2}),
+          .sm_term = 1,
+          .want = 1,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 1, 2},
+          .logs = create_entries(1, {1, 1}),
+          .sm_term = 2,
+          .want = 0,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 2, 2},
+          .logs = create_entries(1, {1, 2}),
+          .sm_term = 2,
+          .want = 2,
+      },
+      {
+          .matches = std::vector<std::uint64_t>{2, 1, 2, 2},
+          .logs = create_entries(1, {1, 1}),
+          .sm_term = 2,
+          .want = 0,
+      },
+  };
+
+  int test_case_idx = -1;
+  for (auto &iter : tests) {
+    ++test_case_idx;
+    auto mm_storage = new_test_memory_storage({with_peers({1})});
+    mm_storage.append(std::move(iter.logs));
+    raftpb::hard_state hs;
+    hs.set_term(iter.sm_term);
+    mm_storage.set_hard_state(hs);
+
+    auto sm = new_test_raft(1, 10, 2, pro::make_proxy<storage_builer>(std::move(mm_storage)));
+    for (std::size_t j = 0; j < iter.matches.size(); ++j) {
+      auto id = j + 1;
+      if (id > 1) {
+        raftpb::conf_change cc;
+        cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
+        cc.set_node_id(id);
+        sm.apply_conf_change(lepton::pb::conf_change_as_v2(std::move(cc)));
+      }
+      auto &pr = sm.trk_.progress_map_mutable_view().mutable_view().at(id);
+      pr.set_match(iter.matches[j]);
+      pr.set_next(iter.matches[j] + 1);
+    }
+    sm.maybe_commit();
+    ASSERT_EQ(iter.want, sm.raft_log_handle_.committed()) << fmt::format("has exception test case: {}", test_case_idx);
+  }
+}
+
+TEST_F(raft_test_suit, past_election_timeout) {
+  struct test_case {
+    int elapse;
+    double wprobability;
+    bool round;
+  };
+
+  std::vector<test_case> tests{
+      {.elapse = 5, .wprobability = 0, .round = false},
+      {10, 0.1, true},
+      {13, 0.4, true},
+      {15, 0.6, true},
+      {18, 0.9, true},
+      {20, 1, false},
+  };
+
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+    auto mm_storage = new_test_memory_storage({with_peers({1})});
+    auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(std::move(mm_storage)));
+    sm.election_elapsed_ = tt.elapse;
+    auto c = 0;
+    for (auto j = 0; j < 10000; ++j) {
+      sm.reset_randomized_election_timeout();
+      if (sm.past_election_timeout()) {
+        c++;
+      }
+    }
+    auto got = static_cast<double>(c) / 10000.0;
+    if (tt.round) {  // 如果需要四舍五入
+      got = std::floor(got * 10 + 0.5) / 10.0;
+    }
+    ASSERT_EQ(tt.wprobability, got) << fmt::format("has exception test case: {}", i);
+  }
+}
+
+// TestStepIgnoreOldTermMsg to ensure that the Step function ignores the message
+// from old term and does not pass it to the actual stepX function.
+TEST_F(raft_test_suit, step_ignore_old_term_msg) {
+  auto called = false;
+  auto sm =
+      new_test_learner_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
+  sm.step_func_ = [&](lepton::raft &_, raftpb::message &&msg) -> leaf::result<void> {
+    called = true;
+    return {};
+  };
+  sm.term_ = 2;
+  raftpb::message msg;
+  msg.set_type(raftpb::message_type::MSG_APP);
+  msg.set_term(sm.term_ - 1);
+  sm.step(std::move(msg));
+  ASSERT_FALSE(called);
+}
+
+// TestHandleMsgApp ensures:
+//  1. Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm.
+//  2. If an existing entry conflicts with a new one (same index but different terms),
+//     delete the existing entry and all that follow it; append any new entries not already in the log.
+//  3. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry).
+TEST_F(raft_test_suit, handle_msg_app) {
+  struct test_case {
+    raftpb::message m;
+    std::uint64_t w_index;
+    std::uint64_t w_commit;
+    bool w_reject;
+  };
+
+  std::vector<test_case> tests{
+      // 确保1: 日志不匹配的情况
+      {.m = convert_test_pb_message({
+           // previous log mismatch
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 3,
+           .index = 2,
+           .commit = 3,
+           .entries = {},
+       }),
+       .w_index = 2,
+       .w_commit = 0,
+       .w_reject = true},
+
+      {.m = convert_test_pb_message({
+           // previous log non-exist
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 3,
+           .index = 3,
+           .commit = 3,
+           .entries = {},
+       }),
+       .w_index = 2,
+       .w_commit = 0,
+       .w_reject = true},
+
+      // 确保2: 各种日志追加场景
+      {.m = convert_test_pb_message({
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 1,
+           .index = 1,
+           .commit = 1,
+           .entries = {},
+       }),
+       .w_index = 2,
+       .w_commit = 1,
+       .w_reject = false},
+
+      {.m = convert_test_pb_message({
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 0,
+           .index = 0,
+           .commit = 1,
+           .entries = {test_pb::entry{.index = 1, .term = 2}},
+       }),
+       .w_index = 1,
+       .w_commit = 1,
+       .w_reject = false},
+
+      {.m = convert_test_pb_message({
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 2,
+           .index = 2,
+           .commit = 3,
+           .entries = {test_pb::entry{.index = 3, .term = 2}, test_pb::entry{.index = 4, .term = 2}},
+       }),
+       .w_index = 4,
+       .w_commit = 3,
+       .w_reject = false},
+
+      {.m = convert_test_pb_message({
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 2,
+           .index = 2,
+           .commit = 4,
+           .entries = {test_pb::entry{.index = 3, .term = 2}},
+       }),
+       .w_index = 3,
+       .w_commit = 3,
+       .w_reject = false},
+
+      {.m = convert_test_pb_message({
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 1,
+           .index = 1,
+           .commit = 4,
+           .entries = {test_pb::entry{.index = 2, .term = 2}},
+       }),
+       .w_index = 2,
+       .w_commit = 2,
+       .w_reject = false},
+
+      // 确保3: 提交索引的处理
+      {.m = convert_test_pb_message({
+           // match entry 1, commit up to last new entry 1
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 1,
+           .log_term = 1,
+           .index = 1,
+           .commit = 3,
+           .entries = {},
+       }),
+       .w_index = 2,
+       .w_commit = 1,
+       .w_reject = false},
+
+      {.m = convert_test_pb_message({
+           // match entry 1, commit up to last new entry 2
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 1,
+           .log_term = 1,
+           .index = 1,
+           .commit = 3,
+           .entries = {test_pb::entry{.index = 2, .term = 2}},
+       }),
+       .w_index = 2,
+       .w_commit = 2,
+       .w_reject = false},
+
+      {.m = convert_test_pb_message({
+           // match entry 2, commit up to last new entry 2
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 2,
+           .index = 2,
+           .commit = 3,
+           .entries = {},
+       }),
+       .w_index = 2,
+       .w_commit = 2,
+       .w_reject = false},
+
+      {.m = convert_test_pb_message({
+           // commit up to log.last()
+           .msg_type = raftpb::message_type::MSG_APP,
+           .term = 2,
+           .log_term = 2,
+           .index = 2,
+           .commit = 4,
+           .entries = {},
+       }),
+       .w_index = 2,
+       .w_commit = 2,
+       .w_reject = false}};
+
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+    auto mm_storage = new_test_memory_storage({with_peers({1})});
+    ASSERT_TRUE(mm_storage.append(create_entries(1, {1, 2})));
+    auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(std::move(mm_storage)));
+    sm.become_follower(2, NONE);
+
+    sm.handle_append_entries(std::move(tt.m));
+    ASSERT_EQ(tt.w_index, sm.raft_log_handle_.last_index()) << fmt::format("#{}\n", i);
+    ASSERT_EQ(tt.w_commit, sm.raft_log_handle_.committed()) << fmt::format("#{}\n", i);
+    auto m = sm.read_messages();
+    ASSERT_EQ(1, m.size()) << fmt::format("#{}\n", i);
+    ASSERT_EQ(tt.w_reject, m[0].reject()) << fmt::format("#{}\n", i);
+  }
+}
+
+// TestHandleHeartbeat ensures that the follower commits to the commit in the message.
+TEST_F(raft_test_suit, handle_heartbeat) {
+  constexpr std::uint64_t commit = 2;
+  struct test_case {
+    raftpb::message m;
+    std::uint64_t w_commit;
+  };
+
+  std::vector<test_case> tests{
+      {
+          .m = convert_test_pb_message({
+              .msg_type = raftpb::message_type::MSG_HEARTBEAT,
+              .from = 2,
+              .to = 1,
+              .term = 2,
+              .commit = commit + 1,
+          }),
+          .w_commit = commit + 1,
+      },
+      {
+          // do not decrease commit
+          .m = convert_test_pb_message({
+              .msg_type = raftpb::message_type::MSG_HEARTBEAT,
+              .from = 2,
+              .to = 1,
+              .term = 2,
+              .commit = commit - 1,
+          }),
+          .w_commit = commit,
+      },
+  };
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+    auto mm_storage = new_test_memory_storage({with_peers({1, 2})});
+    ASSERT_TRUE(mm_storage.append(create_entries(1, {1, 2, 3})));
+    auto sm = new_test_raft(1, 5, 1, pro::make_proxy<storage_builer>(std::move(mm_storage)));
+    sm.become_follower(2, 2);
+    sm.raft_log_handle_.commit_to(commit);
+    sm.handle_heartbeat(std::move(tt.m));
+    ASSERT_EQ(tt.w_commit, sm.raft_log_handle_.committed());
+    auto m = sm.read_messages();
+    ASSERT_EQ(1, m.size());
+    ASSERT_EQ(raftpb::message_type::MSG_HEARTBEAT_RESP, m[0].type());
+  }
+}
+
+// TestHandleHeartbeatResp ensures that we re-send log entries when we get a heartbeat response.
+TEST_F(raft_test_suit, handle_heartbeat_resp) {
+  auto mm_storage = new_test_memory_storage({with_peers({1, 2})});
+  ASSERT_TRUE(mm_storage.append(create_entries(1, {1, 2, 3})));
+  auto sm = new_test_raft(1, 5, 1, pro::make_proxy<storage_builer>(std::move(mm_storage)));
+  sm.become_candidate();
+  sm.become_leader();
+  sm.raft_log_handle_.commit_to(sm.raft_log_handle_.last_index());
+
+  // A heartbeat response from a node that is behind; re-send MsgApp
+  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2}));
+  auto msgs = sm.read_messages();
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+
+  // A second heartbeat response generates another MsgApp re-send
+  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2}));
+  msgs = sm.read_messages();
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+
+  // Once we have an MsgAppResp, heartbeats no longer send MsgApp.
+  sm.step(convert_test_pb_message(
+      test_pb::message{.msg_type = raftpb::message_type::MSG_APP_RESP,
+                       .from = 2,
+                       .index = msgs[0].index() + static_cast<std::uint64_t>(msgs[0].entries_size())}));
+  // Consume the message sent in response to MsgAppResp
+  msgs = sm.read_messages();
+  ASSERT_EQ(0, msgs.size());
+
+  // 伪造 MSG_HEARTBEAT_APP index 已确认，不会再发 MSG_APP 补齐 entry
+  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2}));
+  msgs = sm.read_messages();
+  ASSERT_EQ(0, msgs.size());
+}
+
+// TestRaftFreesReadOnlyMem ensures raft will free read request from
+// readOnly readIndexQueue and pendingReadIndex map.
+// related issue: https://github.com/etcd-io/etcd/issues/7571
+TEST_F(raft_test_suit, raft_frees_read_only_mem) {
+  auto mm_storage = new_test_memory_storage({with_peers({1, 2})});
+  ASSERT_TRUE(mm_storage.append(create_entries(1, {1, 2, 3})));
+  auto sm = new_test_raft(1, 5, 1, pro::make_proxy<storage_builer>(std::move(mm_storage)));
+  sm.become_candidate();
+  sm.become_leader();
+  sm.raft_log_handle_.commit_to(sm.raft_log_handle_.last_index());
+
+  std::string ctx{"ctx"};
+
+  // leader starts linearizable read request.
+  // more info: raft dissertation 6.4, step 2.
+  sm.step(convert_test_pb_message(
+      test_pb::message{.msg_type = raftpb::message_type::MSG_READ_INDEX, .from = 2, .entries = {{.data = ctx}}}));
+  auto msgs = sm.read_messages();
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_HEARTBEAT), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(ctx, msgs[0].context());
+  ASSERT_EQ(1, sm.read_only_.read_index_queue().size());
+  ASSERT_EQ(1, sm.read_only_.pending_read_index().size());
+  ASSERT_TRUE(sm.read_only_.pending_read_index().contains(ctx));
+
+  // heartbeat responses from majority of followers (1 in this case)
+  // acknowledge the authority of the leader.
+  // more info: raft dissertation 6.4, step 3.
+  sm.step(convert_test_pb_message(
+      test_pb::message{.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2, .ctx = ctx}));
+  ASSERT_EQ(0, sm.read_only_.read_index_queue().size());
+  ASSERT_EQ(0, sm.read_only_.pending_read_index().size());
+  ASSERT_FALSE(sm.read_only_.pending_read_index().contains(ctx));
 }
