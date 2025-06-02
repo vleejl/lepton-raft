@@ -1469,7 +1469,7 @@ void raft::campaign(campaign_type t) {
     m.set_term(term);
 
     if (id == id_) {
-      m.set_type(pb::vote_response_type(vote_msg_type));
+      m.set_type(pb::vote_resp_msg_type(vote_msg_type));
       // The candidate votes for itself and should account for this self
       // vote once the vote has been durably persisted (since it doesn't
       // send a MsgVote to itself). This response message will be added to
@@ -1698,7 +1698,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
         raftpb::message resp;
         resp.set_to(m.from());
         resp.set_term(m.term());
-        resp.set_type(pb::vote_response_type(m.type()));
+        resp.set_type(pb::vote_resp_msg_type(m.type()));
         send(std::move(resp));
         if (m.type() == raftpb::message_type::MSG_VOTE) {
           // Only record real votes.
@@ -1712,7 +1712,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
         raftpb::message resp;
         resp.set_to(m.from());
         resp.set_term(term_);
-        resp.set_type(pb::vote_response_type(m.type()));
+        resp.set_type(pb::vote_resp_msg_type(m.type()));
         resp.set_reject(true);
         send(std::move(resp));
       }

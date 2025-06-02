@@ -19,6 +19,7 @@ using test_memory_storage_options = std::function<void(lepton::memory_storage &)
 
 test_memory_storage_options with_peers(std::vector<std::uint64_t> &&peers);
 test_memory_storage_options with_learners(std::vector<std::uint64_t> &&learners);
+std::unique_ptr<lepton::memory_storage> new_test_memory_storage_ptr(std::vector<test_memory_storage_options> &&options);
 lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbeat_tick,
                                pro::proxy<lepton::storage_builer> &&storage);
 // setRandomizedElectionTimeout set up the value by caller instead of choosing
@@ -117,9 +118,7 @@ struct network {
     }
   }
 
-  void ignore(raftpb::message_type t) {
-    ignorem.insert({t, true});
-  }
+  void ignore(raftpb::message_type t) { ignorem.insert({t, true}); }
 
   void recover() {
     dropm.clear();

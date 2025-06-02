@@ -13,6 +13,9 @@ raftpb::message convert_test_pb_message(test_pb::message &&m) {
   if (m.from != 0) {
     msg.set_from(m.from);
   }
+  if (m.to != 0) {
+    msg.set_to(m.to);
+  }
   if (m.term != 0) {
     msg.set_term(m.term);
   }

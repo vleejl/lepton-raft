@@ -55,6 +55,9 @@ class unstable {
   unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries, std::uint64_t offset)
       : snapshot_(std::move(snapshot)), entries_(std::move(entries)), offset_(offset) {}
   unstable(unstable&& lhs) = default;
+#ifdef LEPTON_TEST
+  unstable& operator=(unstable&&) = default;
+#endif
 
   const auto& entries_view() const { return entries_; }
 

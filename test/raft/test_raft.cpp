@@ -2,9 +2,11 @@
 #include <proxy.h>
 #include <raft.pb.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <source_location>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,6 +14,7 @@
 #include "conf_change.h"
 #include "config.h"
 #include "error.h"
+#include "fmt/base.h"
 #include "fmt/format.h"
 #include "gtest/gtest.h"
 #include "magic_enum.hpp"
@@ -39,6 +42,27 @@ class raft_test_suit : public testing::Test {
 
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
+
+struct test_expected_raft_status {
+  raft *raft_handle;
+  lepton::state_type expected_state;
+  std::uint64_t expected_term;
+  std::uint64_t last_index;
+};
+
+static void check_raft_node_after_send_msg(const std::vector<test_expected_raft_status> &tests,
+                                           std::source_location loc = std::source_location::current()) {
+  int test_case_idx = -1;
+  for (const auto &iter : tests) {
+    test_case_idx++;
+    ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_))
+        << fmt::format("#{} [{}:{}][{}]\n", test_case_idx, loc.file_name(), loc.line(), loc.function_name());
+    ASSERT_EQ(iter.expected_term, iter.raft_handle->term_)
+        << fmt::format("#{} [{}:{}][{}]\n", test_case_idx, loc.file_name(), loc.line(), loc.function_name());
+    ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index())
+        << fmt::format("#{} [{}:{}][{}]\n", test_case_idx, loc.file_name(), loc.line(), loc.function_name());
+  }
+}
 
 // nextEnts returns the appliable entries and updates the applied index.
 static lepton::pb::repeated_entry next_ents(raft &r, memory_storage &s) {
@@ -727,7 +751,7 @@ static void test_state_from_any_state(raftpb::message_type vt) {
     auto msgs = r.read_messages();
     ASSERT_EQ(1, msgs.size());
     auto resp = msgs[0];
-    ASSERT_EQ(magic_enum::enum_name(lepton::pb::vote_response_type(vt)), magic_enum::enum_name(resp.type()));
+    ASSERT_EQ(magic_enum::enum_name(lepton::pb::vote_resp_msg_type(vt)), magic_enum::enum_name(resp.type()));
     ASSERT_FALSE(resp.reject());
 
     // If this was a real vote, we reset our state and term.
@@ -946,13 +970,6 @@ TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
 }
 
 TEST_F(raft_test_suit, dueling_candidates) {
-  struct test_case {
-    raft *raft_handle;
-    lepton::state_type expected_state;
-    std::uint64_t expected_term;
-    std::uint64_t last_index;
-  };
-
   auto a = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   auto b = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   auto c = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
@@ -974,16 +991,12 @@ TEST_F(raft_test_suit, dueling_candidates) {
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::CANDIDATE),
             magic_enum::enum_name(nt.peers.at(3).raft_handle->state_type_));
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
         {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 1, 0},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
 
   nt.recover();
@@ -1009,27 +1022,16 @@ TEST_F(raft_test_suit, dueling_candidates) {
       强制状态转换确保所有节点最终同意最新任期
       这是实现强一致性的基础
      */
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
         {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 0},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
 }
 
 TEST_F(raft_test_suit, dueling_pre_candidates) {
-  struct test_case {
-    raft *raft_handle;
-    lepton::state_type expected_state;
-    std::uint64_t expected_term;
-    std::uint64_t last_index;
-  };
-
   auto a_cfg =
       new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   auto b_cfg =
@@ -1061,16 +1063,12 @@ TEST_F(raft_test_suit, dueling_pre_candidates) {
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER),
             magic_enum::enum_name(nt.peers.at(3).raft_handle->state_type_));
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
         {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 0},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
 
   nt.recover();
@@ -1080,27 +1078,16 @@ TEST_F(raft_test_suit, dueling_pre_candidates) {
   nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
 
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
         {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 0},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
 }
 
 TEST_F(raft_test_suit, candidates_concede) {
-  struct test_case {
-    raft *raft_handle;
-    lepton::state_type expected_state;
-    std::uint64_t expected_term;
-    std::uint64_t last_index;
-  };
-
   std::vector<state_machine_builer_pair> peers;
   emplace_nil_peer(peers);
   emplace_nil_peer(peers);
@@ -1112,16 +1099,12 @@ TEST_F(raft_test_suit, candidates_concede) {
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
   nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::CANDIDATE, 1, 0},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
         {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 1, 1},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
 
   // heal the partition
@@ -1129,16 +1112,12 @@ TEST_F(raft_test_suit, candidates_concede) {
   // send heartbeat; reset wait
   nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_BEAT)});
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
         {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 1, 1},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
 
   std::string data{"force follower"};
@@ -1147,16 +1126,12 @@ TEST_F(raft_test_suit, candidates_concede) {
   // send heartbeat; flush out commit
   nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_BEAT)});
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
         {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 1, 2},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
 
   // 预期两个 entry
@@ -1205,12 +1180,6 @@ TEST_F(raft_test_suit, single_node_pre_candidate) {
 }
 
 TEST_F(raft_test_suit, old_messages) {
-  struct test_case {
-    raft *raft_handle;
-    lepton::state_type expected_state;
-    std::uint64_t expected_term;
-    std::uint64_t last_index;
-  };
   std::vector<state_machine_builer_pair> peers;
   emplace_nil_peer(peers);
   emplace_nil_peer(peers);
@@ -1220,42 +1189,30 @@ TEST_F(raft_test_suit, old_messages) {
   // make 0 leader @ term 3
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
         {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
   nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
         {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 2},
         {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 3},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
         {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
   // pretend we're an old leader trying to make progress; this entry is expected to be ignored.
   auto msg1 = new_pb_message(2, 1, raftpb::message_type::MSG_APP);
@@ -1264,30 +1221,22 @@ TEST_F(raft_test_suit, old_messages) {
   msg1.mutable_entries()->Swap(&entries1);
   nt.send({msg1});
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 3},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
         {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
   // commit a new entry
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
   {
-    std::vector<test_case> tests{
+    std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 4},
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
         {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
     };
-    for (const auto &iter : tests) {
-      ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_));
-      ASSERT_EQ(iter.expected_term, iter.raft_handle->term_);
-      ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index());
-    }
+    check_raft_node_after_send_msg(tests);
   }
 
   auto entries2 = create_entries(0, {0, 1, 2, 3, 3});
@@ -1924,3 +1873,382 @@ TEST_F(raft_test_suit, raft_frees_read_only_mem) {
   ASSERT_EQ(0, sm.read_only_.pending_read_index().size());
   ASSERT_FALSE(sm.read_only_.pending_read_index().contains(ctx));
 }
+
+// TestMsgAppRespWaitReset verifies the resume behavior of a leader
+// MsgAppResp.
+TEST_F(raft_test_suit, msg_app_resp_wait_reset) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1, 2, 3})});
+  auto &mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto sm = new_test_raft(1, 5, 1, std::move(storage_proxy));
+  sm.become_candidate();
+  sm.become_leader();
+  ASSERT_EQ(0, sm.raft_log_handle_.committed());
+
+  // Run n1 which includes sending a message like the below
+  // one to n2, but also appending to its own log.
+  next_ents(sm, mm_storage);
+  ASSERT_EQ(0, sm.raft_log_handle_.committed());
+
+  // Node 2 acks the first entry, making it committed.
+  // ACK Leader 选举触发的 EMPTY Entry
+  sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_APP_RESP, .from = 2, .index = 1}));
+  ASSERT_EQ(1, sm.raft_log_handle_.committed());
+
+  // Also consume the MsgApp messages that update Commit on the followers.
+  sm.read_messages();
+
+  // A new command is now proposed on node 1.
+  sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .entries = {{}}}));
+  // 没有收到 MSG_APP_RESP 消息,commit 没有变化
+  ASSERT_EQ(1, sm.raft_log_handle_.committed());
+
+  // The command is broadcast to all nodes not in the wait state.
+  // Node 2 left the wait state due to its MsgAppResp, but node 3 is still waiting.
+  // 虽然有了新的 MSG_PROP 消息, 但这里 leader 并没有向 Node 3 发送 MSG_APP 消息, 因为 Node 3 没有回复 MSG_APP_RESP
+  auto msgs = sm.read_messages();
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(2, msgs[0].to());
+  // 各个成员节点状态没有变化, term 也不会变化
+  ASSERT_EQ(1, msgs[0].term());
+  ASSERT_EQ(1, msgs[0].entries_size());
+  ASSERT_EQ(2, msgs[0].entries(0).index());
+  // 没有收到 MSG_APP_RESP 消息,commit 没有变化
+  ASSERT_EQ(1, sm.raft_log_handle_.committed());
+
+  // Now Node 3 acks the first entry. This releases the wait and entry 2 is sent.
+  sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_APP_RESP, .from = 3, .index = 1}));
+  // Node 3 确认以后, leader 向 Node 3 发送了新的 MSG_APP 消息
+  msgs = sm.read_messages();
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(3, msgs[0].to());
+  // 各个成员节点状态没有变化, term 也不会变化
+  ASSERT_EQ(1, msgs[0].term());
+  ASSERT_EQ(1, msgs[0].entries_size());
+  ASSERT_EQ(2, msgs[0].entries(0).index());
+  // 收到 Node 3 的 MSG_APP_RESP 消息, 但是 index 1 已经确认, 所以 commit 不会发生变化
+  ASSERT_EQ(1, sm.raft_log_handle_.committed());
+}
+
+static void test_recv_msg_vote(raftpb::message_type msg_type) {
+  // 测试用例结构体 - 明确指定字段顺序
+  struct test_case {
+    state_type state;
+    std::uint64_t index;
+    std::uint64_t log_term;
+    std::uint64_t vote_for;
+    bool wreject;
+  };
+
+  std::vector<test_case> tests{
+      {.state = state_type::FOLLOWER, .index = 0, .log_term = 0, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 0, .log_term = 1, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 0, .log_term = 2, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 0, .log_term = 3, .vote_for = NONE, .wreject = false},
+
+      {.state = state_type::FOLLOWER, .index = 1, .log_term = 0, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 1, .log_term = 1, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 1, .log_term = 2, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 1, .log_term = 3, .vote_for = NONE, .wreject = false},
+
+      {.state = state_type::FOLLOWER, .index = 2, .log_term = 0, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 2, .log_term = 1, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 2, .log_term = 2, .vote_for = NONE, .wreject = false},
+      {.state = state_type::FOLLOWER, .index = 2, .log_term = 3, .vote_for = NONE, .wreject = false},
+
+      {.state = state_type::FOLLOWER, .index = 3, .log_term = 0, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 3, .log_term = 1, .vote_for = NONE, .wreject = true},
+      {.state = state_type::FOLLOWER, .index = 3, .log_term = 2, .vote_for = NONE, .wreject = false},
+      {.state = state_type::FOLLOWER, .index = 3, .log_term = 3, .vote_for = NONE, .wreject = false},
+
+      {.state = state_type::FOLLOWER, .index = 3, .log_term = 2, .vote_for = 2, .wreject = false},
+      {.state = state_type::FOLLOWER, .index = 3, .log_term = 2, .vote_for = 1, .wreject = true},
+
+      {.state = state_type::LEADER, .index = 3, .log_term = 3, .vote_for = 1, .wreject = true},
+      {.state = state_type::PRE_CANDIDATE, .index = 3, .log_term = 3, .vote_for = 1, .wreject = true},
+      {.state = state_type::CANDIDATE, .index = 3, .log_term = 3, .vote_for = 1, .wreject = true},
+  };
+
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+    auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1})})));
+    switch (tt.state) {
+      case state_type::FOLLOWER:
+        sm.step_func_ = step_follower;
+        break;
+      case state_type::CANDIDATE:
+      case state_type::PRE_CANDIDATE:
+        sm.step_func_ = step_candidate;
+        break;
+      case state_type::LEADER:
+        sm.step_func_ = step_leader;
+        break;
+    }
+    sm.vote_id_ = tt.vote_for;
+    auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+    auto &mm_storage = *mm_storage_ptr;
+    mm_storage.append(create_entries(0, {0, 2, 2}));
+    pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+    auto raft_log = new_raft_log(std::move(storage_proxy));
+    sm.raft_log_handle_ = std::move(*raft_log);
+
+    // raft.Term is greater than or equal to raft.raftLog.lastTerm. In this
+    // test we're only testing MsgVote responses when the campaigning node
+    // has a different raft log compared to the recipient node.
+    // Additionally we're verifying behaviour when the recipient node has
+    // already given out its vote for its current term. We're not testing
+    // what the recipient node does when receiving a message with a
+    // different term number, so we simply initialize both term numbers to
+    // be the same.
+    auto term = std::max(sm.raft_log_handle_.last_entry_id().term, tt.log_term);
+    sm.term_ = term;
+    sm.step(convert_test_pb_message(
+        {.msg_type = msg_type, .from = 2, .term = term, .log_term = tt.log_term, .index = tt.index}));
+
+    auto msgs = sm.read_messages();
+    ASSERT_EQ(1, msgs.size());
+    ASSERT_EQ(magic_enum::enum_name(lepton::pb::vote_resp_msg_type(msg_type)), magic_enum::enum_name(msgs[0].type()));
+    ASSERT_EQ(tt.wreject, msgs[0].reject()) << fmt::format("#{}", i);
+  }
+}
+
+TEST_F(raft_test_suit, recv_msg_vote) { test_recv_msg_vote(raftpb::message_type::MSG_VOTE); }
+
+TEST_F(raft_test_suit, recv_msg_pre_vote) { test_recv_msg_vote(raftpb::message_type::MSG_PRE_VOTE); }
+
+TEST_F(raft_test_suit, state_transition) {
+  struct test_case {
+    state_type from_state;
+    state_type to_state;
+    bool wallow;
+    std::uint64_t wterm;
+    std::uint64_t wlead;
+  };
+  std::vector<test_case> tests = {
+      {.from_state = state_type::FOLLOWER, .to_state = state_type::FOLLOWER, .wallow = true, .wterm = 1, .wlead = NONE},
+      {.from_state = state_type::FOLLOWER,
+       .to_state = state_type::PRE_CANDIDATE,
+       .wallow = true,
+       .wterm = 0,
+       .wlead = NONE},
+      {.from_state = state_type::FOLLOWER,
+       .to_state = state_type::CANDIDATE,
+       .wallow = true,
+       .wterm = 1,
+       .wlead = NONE},
+      {.from_state = state_type::FOLLOWER, .to_state = state_type::LEADER, .wallow = false, .wterm = 0, .wlead = NONE},
+
+      {.from_state = state_type::PRE_CANDIDATE,
+       .to_state = state_type::FOLLOWER,
+       .wallow = true,
+       .wterm = 0,
+       .wlead = NONE},
+      {.from_state = state_type::PRE_CANDIDATE,
+       .to_state = state_type::PRE_CANDIDATE,
+       .wallow = true,
+       .wterm = 0,
+       .wlead = NONE},
+      {.from_state = state_type::PRE_CANDIDATE,
+       .to_state = state_type::CANDIDATE,
+       .wallow = true,
+       .wterm = 1,
+       .wlead = NONE},
+      {.from_state = state_type::PRE_CANDIDATE, .to_state = state_type::LEADER, .wallow = true, .wterm = 0, .wlead = 1},
+
+      {.from_state = state_type::CANDIDATE,
+       .to_state = state_type::FOLLOWER,
+       .wallow = true,
+       .wterm = 0,
+       .wlead = NONE},
+      {.from_state = state_type::CANDIDATE,
+       .to_state = state_type::PRE_CANDIDATE,
+       .wallow = true,
+       .wterm = 0,
+       .wlead = NONE},
+      {.from_state = state_type::CANDIDATE,
+       .to_state = state_type::CANDIDATE,
+       .wallow = true,
+       .wterm = 1,
+       .wlead = NONE},
+      {.from_state = state_type::CANDIDATE, .to_state = state_type::LEADER, .wallow = true, .wterm = 0, .wlead = 1},
+
+      {.from_state = state_type::LEADER, .to_state = state_type::FOLLOWER, .wallow = true, .wterm = 1, .wlead = NONE},
+      {.from_state = state_type::LEADER,
+       .to_state = state_type::PRE_CANDIDATE,
+       .wallow = false,
+       .wterm = 0,
+       .wlead = NONE},
+      {.from_state = state_type::LEADER, .to_state = state_type::CANDIDATE, .wallow = false, .wterm = 0, .wlead = NONE},
+      {.from_state = state_type::LEADER, .to_state = state_type::LEADER, .wallow = true, .wterm = 0, .wlead = 1},
+  };
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+    auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1})})));
+    sm.state_type_ = tt.from_state;
+    switch (tt.to_state) {
+      case state_type::FOLLOWER:
+        sm.become_follower(tt.wterm, tt.wlead);
+        break;
+      case state_type::CANDIDATE:
+        if (!tt.wallow) {
+          ASSERT_DEATH(sm.become_candidate(), "");
+        } else {
+          sm.become_candidate();
+        }
+        break;
+      case state_type::PRE_CANDIDATE:
+        if (!tt.wallow) {
+          ASSERT_DEATH(sm.become_pre_candidate(), "");
+        } else {
+          sm.become_pre_candidate();
+        }
+        break;
+      case state_type::LEADER:
+        if (!tt.wallow) {
+          ASSERT_DEATH(sm.become_leader(), "");
+        } else {
+          sm.become_leader();
+        }
+        break;
+    }
+    ASSERT_EQ(tt.wterm, sm.term_) << fmt::format("#{}", i);
+    ASSERT_EQ(tt.wlead, sm.lead_) << fmt::format("#{}", i);
+  }
+}
+
+TEST_F(raft_test_suit, all_server_stepdown) {
+  struct test_case {
+    state_type state;      // 初始状态
+    state_type wstate;     // 期望结果状态
+    std::uint64_t wterm;   // 期望结果任期
+    std::uint64_t windex;  // 期望结果索引
+  };
+
+  std::vector<test_case> tests = {
+      {.state = state_type::FOLLOWER, .wstate = state_type::FOLLOWER, .wterm = 3, .windex = 0},
+      {.state = state_type::PRE_CANDIDATE, .wstate = state_type::FOLLOWER, .wterm = 3, .windex = 0},
+      {.state = state_type::CANDIDATE, .wstate = state_type::FOLLOWER, .wterm = 3, .windex = 0},
+      {.state = state_type::LEADER, .wstate = state_type::FOLLOWER, .wterm = 3, .windex = 1},
+  };
+  std::vector<raftpb::message_type> tmsg_types{raftpb::message_type::MSG_VOTE, raftpb::message_type::MSG_APP};
+  std::uint64_t tterm = 3;
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+    auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1, 2, 3})});
+    pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+    auto sm = new_test_raft(1, 10, 1, std::move(storage_proxy));
+
+    switch (tt.state) {
+      case state_type::FOLLOWER:
+        sm.become_follower(tt.wterm, NONE);
+        break;
+      case state_type::CANDIDATE:
+        sm.become_candidate();
+        break;
+      case state_type::PRE_CANDIDATE:
+        sm.become_pre_candidate();
+        break;
+      case state_type::LEADER:
+        sm.become_candidate();
+        sm.become_leader();
+        break;
+    }
+    for (std::size_t j = 0; j < tmsg_types.size(); ++j) {
+      auto msg_type = tmsg_types[j];
+      sm.step(convert_test_pb_message({.msg_type = msg_type, .from = 2, .term = tterm, .log_term = tterm}));
+      ASSERT_EQ(magic_enum::enum_name(tt.wstate), magic_enum::enum_name(sm.state_type_)) << fmt::format("#{}.{}", i, j);
+      ASSERT_EQ(tt.wterm, sm.term_) << fmt::format("#{}.{}", i, j);
+      ASSERT_EQ(tt.windex, sm.raft_log_handle_.last_index()) << fmt::format("#{}.{}", i, j);
+      ASSERT_EQ(tt.windex, sm.raft_log_handle_.all_entries().size()) << fmt::format("#{}.{}", i, j);
+
+      std::uint64_t wlead = 2;
+      if (msg_type == raftpb::message_type::MSG_VOTE) {
+        wlead = NONE;
+      }
+      ASSERT_EQ(wlead, sm.lead_) << fmt::format("#{}.{}", i, j);
+    }
+  }
+}
+
+// testCandidateResetTerm tests when a candidate receives a
+// MsgHeartbeat or MsgApp from leader, "Step" resets the term
+// with leader's and reverts back to follower.
+static void test_candidate_reset_term(raftpb::message_type mt) {
+  auto a = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  auto b = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  auto c = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{a});
+  peers.emplace_back(state_machine_builer_pair{b});
+  peers.emplace_back(state_machine_builer_pair{c});
+  auto nt = new_network(std::move(peers));
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // isolate 3 and increase term in rest
+  nt.isolate(3);
+  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // trigger campaign in isolated c
+  c.reset_randomized_election_timeout();
+  for (int i = 0; i < c.randomized_election_timeout_; ++i) {
+    c.tick_func_();
+  }
+  c.advance_messages_after_append();
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.recover();
+
+  // leader sends to isolated candidate
+  // and expects candidate to revert to follower
+  nt.send({convert_test_pb_message({.msg_type = mt, .from = 1, .to = 3, .term = a.term_})});
+  // follower c term is reset with leader's
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+TEST_F(raft_test_suit, candidate_reset_term_msg_heartbeat) {
+  test_candidate_reset_term(raftpb::message_type::MSG_HEARTBEAT);
+}
+
+TEST_F(raft_test_suit, candidate_reset_term_msg_app) { test_candidate_reset_term(raftpb::message_type::MSG_APP); }

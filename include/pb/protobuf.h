@@ -11,7 +11,7 @@ entry_encoding_size ent_size(const repeated_entry& entries);
 entry_encoding_size ent_size(const pb::span_entry& entries);
 
 // payloadsSize is the size of the payloads of the provided entries.
-entry_payload_size payloads_size(const raftpb::entry &entry);
+entry_payload_size payloads_size(const raftpb::entry& entry);
 entry_payload_size payloads_size(const repeated_entry& entries);
 
 entry_id pb_entry_id(const raftpb::entry* const entry_ptr);
@@ -39,7 +39,7 @@ bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs);
 bool is_empty_hard_state(const raftpb::hard_state& hs);
 
 // voteResponseType maps vote and prevote message types to their corresponding responses.
-raftpb::message_type vote_response_type(raftpb::message_type type);
+raftpb::message_type vote_resp_msg_type(raftpb::message_type type);
 
 }  // namespace pb
 

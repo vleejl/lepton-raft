@@ -10,9 +10,15 @@
 namespace lepton {
 
 // first index + 1 是因为第一个 entry 是 dummy entry
-auto memory_storage::_first_index() const { return ents_[0].index() + 1; }
+auto memory_storage::_first_index() const {
+  assert(!ents_.empty());
+  return ents_[0].index() + 1;
+}
 
-auto memory_storage::_last_index() const { return ents_[0].index() + static_cast<std::uint64_t>(ents_.size()) - 1; }
+auto memory_storage::_last_index() const {
+  assert(!ents_.empty());
+  return ents_[0].index() + static_cast<std::uint64_t>(ents_.size()) - 1;
+}
 
 memory_storage::memory_storage() {
   // When starting from scratch populate the list with a dummy entry at term
@@ -44,6 +50,7 @@ memory_storage::memory_storage() {
   entry->set_term(0);
   entry->set_index(0);
   entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+  assert(!ents_.empty());
 }
 
 leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> memory_storage::initial_state() const {
