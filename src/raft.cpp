@@ -670,17 +670,17 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
       r.handle_append_entries(std::move(m));
       break;
     }
-    case raftpb::MSG_VOTE_RESP:
+    case raftpb::MSG_VOTE_RESP: {
+      if (r.state_type_ == state_type::CANDIDATE) {
+        post_vote_resp_func();
+      }
+      break;
+    }
     case raftpb::MSG_PRE_VOTE_RESP: {
       if (r.state_type_ == state_type::PRE_CANDIDATE) {
         if (msg_type == raftpb::MSG_PRE_VOTE_RESP) {
           post_vote_resp_func();
         }
-      } else if (r.state_type_ == state_type::CANDIDATE) {
-        post_vote_resp_func();
-      } else {
-        LEPTON_CRITICAL("{} [term {}] ignoring message from {} in state {}", r.id_, r.term_, m.from(),
-                        magic_enum::enum_name(r.state_type_));
       }
       break;
     }

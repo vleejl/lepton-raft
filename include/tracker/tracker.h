@@ -162,6 +162,8 @@ class progress_tracker {
 
 #ifdef LEPTON_TEST
   config& mutable_config_view() { return config_; }
+
+  auto votes_size() const { return votes_.size(); }
 #endif
 
   const progress_map& progress_map_view() const { return progress_map_; }

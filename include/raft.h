@@ -285,6 +285,7 @@ class raft {
   //
   // Messages in this list have the type MsgAppResp, MsgVoteResp, or
   // MsgPreVoteResp. See the comment in raft.send for details.
+  // 强制要求某些响应消息（如日志复制确认、投票）必须在相关状态持久化到磁盘后才能发送，从根本上避免了因节点崩溃导致的状态不一致问题。
   pb::repeated_message msgs_after_append_;
 
   // the leader id

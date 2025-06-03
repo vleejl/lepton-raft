@@ -2252,3 +2252,104 @@ TEST_F(raft_test_suit, candidate_reset_term_msg_heartbeat) {
 }
 
 TEST_F(raft_test_suit, candidate_reset_term_msg_app) { test_candidate_reset_term(raftpb::message_type::MSG_APP); }
+
+// The following three tests exercise the behavior of a (pre-)candidate when its
+// own self-vote is delivered back to itself after the peer has already learned
+// that it has lost the election. The self-vote should be ignored in these cases.
+// 在 node 1 即使开始进入选举 (pre)candidate 状态时，如果此时收到了来自其他节点的消息得知已经有节点赢得选举
+// 则 node 1 会忽略 self vote 消息
+static void test_candidate_self_vote_after_lost_election(bool pre_vote) {
+  auto sm_cfg =
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  sm_cfg.pre_vote = pre_vote;
+  auto sm = new_test_raft(std::move(sm_cfg));
+  ASSERT_EQ(pre_vote, sm.pre_vote_);
+  ASSERT_EQ(0, sm.trk_.votes_size());
+
+  // n1 calls an election.
+  sm.step({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  ASSERT_EQ(0, sm.trk_.votes_size());
+  auto steps = sm.take_messages_after_append();
+  ASSERT_EQ(1, steps.size());
+  if (pre_vote) {
+    ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_PRE_VOTE_RESP), magic_enum::enum_name(steps[0].type()));
+    ASSERT_EQ(magic_enum::enum_name(lepton::state_type::PRE_CANDIDATE), magic_enum::enum_name(sm.state_type_));
+  } else {
+    ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_VOTE_RESP), magic_enum::enum_name(steps[0].type()));
+    ASSERT_EQ(magic_enum::enum_name(lepton::state_type::CANDIDATE), magic_enum::enum_name(sm.state_type_));
+  }
+
+  // n1 hears that n2 already won the election before it has had a
+  // change to sync its vote to disk and account for its self-vote.
+  // Becomes a follower.
+  sm.step({convert_test_pb_message(
+      {.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 2, .to = 1, .term = sm.term_})});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER), magic_enum::enum_name(sm.state_type_));
+  ASSERT_EQ(0, sm.trk_.votes_size());
+
+  // n1 remains a follower even after its self-vote is delivered.
+  sm.step_or_send(std::move(steps));
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER), magic_enum::enum_name(sm.state_type_));
+  ASSERT_EQ(0, sm.trk_.votes_size());
+
+  // Its self-vote does not make its way to its ProgressTracker.
+  const auto [gr, rj, res] = sm.trk_.tally_votes();
+  ASSERT_EQ(0, gr);
+}
+
+TEST_F(raft_test_suit, candidate_self_vote_after_lost_election) { test_candidate_self_vote_after_lost_election(false); }
+
+TEST_F(raft_test_suit, candidate_self_vote_after_lost_election_pre_vote) {
+  test_candidate_self_vote_after_lost_election(true);
+}
+
+// 验证当节点在 PreCandidate 阶段发送给自己的预投票请求（MsgPreVote） 被延迟处理（直到节点已转变为 Candidate 后）时：
+// 延迟的自我预投票响应不会破坏状态机一致性
+// 自我投票仅在正式投票阶段计数
+// 状态转换（Candidate → Leader）严格依赖正式投票的法定人数
+TEST_F(raft_test_suit, candidate_delivers_pre_candidate_self_vote_after_becoming_candidate) {
+  auto sm_cfg =
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  sm_cfg.pre_vote = true;
+  auto sm = new_test_raft(std::move(sm_cfg));
+  ASSERT_EQ(true, sm.pre_vote_);
+
+  // n1 calls an election.
+  sm.step({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  auto steps = sm.take_messages_after_append();
+  ASSERT_EQ(1, steps.size());
+  ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_PRE_VOTE_RESP), magic_enum::enum_name(steps[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::PRE_CANDIDATE), magic_enum::enum_name(sm.state_type_));
+
+  // n1 receives pre-candidate votes from both other peers before
+  // voting for itself. n1 becomes a candidate.
+  // NB: pre-vote messages carry the local term + 1.
+  sm.step({convert_test_pb_message(
+      {.msg_type = raftpb::message_type::MSG_PRE_VOTE_RESP, .from = 2, .to = 1, .term = sm.term_ + 1})});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::PRE_CANDIDATE), magic_enum::enum_name(sm.state_type_));
+  sm.step({convert_test_pb_message(
+      {.msg_type = raftpb::message_type::MSG_PRE_VOTE_RESP, .from = 3, .to = 1, .term = sm.term_ + 1})});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::CANDIDATE), magic_enum::enum_name(sm.state_type_));
+  ASSERT_EQ(0, sm.trk_.votes_size());
+
+  // n1 remains a candidate even after its delayed pre-vote self-vote is delivered.
+  // 延迟收到了来自自己的 MSG_PRE_VOTE_RESP, 不影响状态机一致性
+  sm.step_or_send(std::move(steps));
+  ASSERT_EQ(0, sm.trk_.votes_size());
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::CANDIDATE), magic_enum::enum_name(sm.state_type_));
+  // Its pre-vote self-vote does not make its way to its ProgressTracker.
+  const auto [gr, rj, res] = sm.trk_.tally_votes();
+  ASSERT_EQ(0, gr);
+
+  steps = sm.take_messages_after_append();
+
+  // A single vote from n2 does not move n1 to the leader.
+  sm.step({convert_test_pb_message(
+      {.msg_type = raftpb::message_type::MSG_VOTE_RESP, .from = 2, .to = 1, .term = sm.term_})});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::CANDIDATE), magic_enum::enum_name(sm.state_type_));
+
+  // n1 becomes the leader once its self-vote is received because now
+  // quorum is reached.
+  sm.step_or_send(std::move(steps));
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(sm.state_type_));
+}
