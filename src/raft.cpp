@@ -644,7 +644,7 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
     switch (res) {
       case quorum::vote_result::VOTE_WON:
         if (r.state_type_ == state_type::PRE_CANDIDATE) {
-          r.campaign(campaign_type::CAMPAIGN_ELECTION);
+          r.campaign(campaign_type::ELECTION);
         } else {
           r.become_leader();
           r.bcast_append();
@@ -799,7 +799,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
       // Leadership transfers never use pre-vote even if r.preVote is true; we
       // know we are not recovering from a partition so there is no need for the
       // extra round trip.
-      r.hup(campaign_type::CAMPAIGN_TRANSFER);
+      r.hup(campaign_type::TRANSFER);
       break;
     }
     case raftpb::MSG_READ_INDEX: {
@@ -1299,9 +1299,9 @@ void raft::tick_heartbeat() {
 }
 
 void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
-  step_func_ = step_follower;
+  step_func_ = &step_follower;
   reset(term);
-  tick_func_ = [this]() { tick_election(); };
+  tick_func_ = &raft::tick_election;
   lead_ = lead;
   state_type_ = state_type::FOLLOWER;
 }
@@ -1316,7 +1316,7 @@ void raft::become_candidate() {
   // r.Term or change r.Vote.
   step_func_ = step_candidate;
   reset(term_ + 1);
-  tick_func_ = [this]() { tick_election(); };
+  tick_func_ = &raft::tick_election;
   vote_id_ = id_;
   state_type_ = state_type::CANDIDATE;
   SPDLOG_INFO("{} [term {}] became candidate", id_, term_);
@@ -1334,7 +1334,7 @@ void raft::become_pre_candidate() {
   // r.Term or change r.Vote.
   step_func_ = step_candidate;
   trk_.reset_votes();
-  tick_func_ = [this]() { tick_election(); };
+  tick_func_ = &raft::tick_election;
   lead_ = NONE;
   state_type_ = state_type::PRE_CANDIDATE;
   SPDLOG_INFO("{} [term {}] became pre-candidate", id_, term_);
@@ -1347,7 +1347,7 @@ void raft::become_leader() {
   }
   step_func_ = step_leader;
   reset(term_);
-  tick_func_ = [this]() { tick_heartbeat(); };
+  tick_func_ = &raft::tick_heartbeat;
   lead_ = id_;
   state_type_ = state_type::LEADER;
   // Followers enter replicate mode when they've been successfully probed
@@ -1452,7 +1452,7 @@ void raft::campaign(campaign_type t) {
   }
   std::uint64_t term = 0;
   raftpb::message_type vote_msg_type;
-  if (t == campaign_type::CAMPAIGN_PRE_ELECTION) {
+  if (t == campaign_type::PRE_ELECTION) {
     become_pre_candidate();
     vote_msg_type = raftpb::message_type::MSG_PRE_VOTE;
     // PreVote RPCs are sent for the next term before we've incremented r.Term.
@@ -1482,7 +1482,7 @@ void raft::campaign(campaign_type t) {
     SPDLOG_INFO("{} [logterm: {}, index: {}] sent {} [logterm: {}, index: {}] to {}", id_, last.term, last.index,
                 magic_enum::enum_name(vote_msg_type), term, last.index, id);
     std::string ctx;
-    if (t == campaign_type::CAMPAIGN_TRANSFER) {
+    if (t == campaign_type::TRANSFER) {
       ctx = magic_enum::enum_name(t);
     }
     m.set_type(vote_msg_type);
@@ -1514,11 +1514,11 @@ leaf::result<void> raft::step(raftpb::message&& m) {
     SPDLOG_TRACE("{} [term {}] received local message: {}", id_, term_, m.DebugString());
   } else if (m.term() > term_) {
     if ((m.type() == raftpb::message_type::MSG_VOTE) || (m.type() == raftpb::message_type::MSG_PRE_VOTE)) {
-      auto force = m.context() == magic_enum::enum_name(campaign_type::CAMPAIGN_TRANSFER);
+      auto force = m.context() == magic_enum::enum_name(campaign_type::TRANSFER);
       // 当前节点是否在租约期内（即 Leader 有效期内）
-      auto inLease = check_quorum_ && (lead_ != NONE) && (election_elapsed_ < election_timeout_);
+      auto in_lease = check_quorum_ && (lead_ != NONE) && (election_elapsed_ < election_timeout_);
       // 若在租约期内且非强制转移，忽略投票请求，防止无效选举
-      if (!force && inLease) {
+      if (!force && in_lease) {
         // If a server receives a RequestVote request within the minimum election timeout
         // of hearing from a current leader, it does not update its term or grant its vote
         auto last = raft_log_handle_.last_entry_id();
@@ -1629,9 +1629,9 @@ leaf::result<void> raft::step(raftpb::message&& m) {
   switch (m.type()) {
     case raftpb::message_type::MSG_HUP: {
       if (pre_vote_) {
-        hup(campaign_type::CAMPAIGN_PRE_ELECTION);
+        hup(campaign_type::PRE_ELECTION);
       } else {
-        hup(campaign_type::CAMPAIGN_ELECTION);
+        hup(campaign_type::ELECTION);
       }
       break;
     }
@@ -1726,6 +1726,11 @@ leaf::result<void> raft::step(raftpb::message&& m) {
     }
   }
   return {};
+}
+
+void raft::tick() {
+  assert(tick_func_ != nullptr);
+  (this->*tick_func_)();
 }
 
 void raft::handle_append_entries(raftpb::message&& message) {

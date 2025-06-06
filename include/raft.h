@@ -18,14 +18,14 @@
 namespace lepton {
 
 enum class campaign_type {
-  CAMPAIGN_PRE_ELECTION,
-  CAMPAIGN_ELECTION,
-  CAMPAIGN_TRANSFER,  // 强制领导者转移
+  PRE_ELECTION,
+  ELECTION,
+  TRANSFER,  // 强制领导者转移
 };
 
 class raft;
 
-using tick_func = std::function<void()>;
+using tick_func = void (raft::*)();
 using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
 leaf::result<raft> new_raft(config&&);
 void release_pending_read_index_message(raft& r);
@@ -225,6 +225,8 @@ class raft {
   raft(raft&&) = default;
 
   leaf::result<void> step(raftpb::message&& m);
+
+  void tick();
 
 // 为了方便单元测试 修改私有成员函数作用域
 #ifdef LEPTON_TEST

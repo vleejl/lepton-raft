@@ -70,3 +70,16 @@ TEST_F(proxy_test_suit, proxy_lifetime) {
   p->advance_messages_after_append();
   test_proxy_lifetime(std::move(p));
 }
+
+PRO_DEF_FREE_DISPATCH(FreeToString, std::to_string, ToString);
+
+// clang-format off
+struct Stringable : pro::facade_builder
+    ::add_convention<FreeToString, std::string()>
+    ::build {};
+// clang-format on
+
+TEST_F(proxy_test_suit, PRO_DEF_FREE_DISPATCH_verify) {
+  pro::proxy<Stringable> p = pro::make_proxy<Stringable>(123);
+  std::cout << ToString(*p) << "\n";  // Prints "123"
+}

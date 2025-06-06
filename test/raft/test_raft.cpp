@@ -539,7 +539,7 @@ TEST_F(raft_test_suit, test_learner_election_timeout) {
   // n2 is learner. Learner should not start election even when times out.
   set_randomized_election_timeout(n2, n2.election_timeout_);
   for (int i = 0; i < n2.election_timeout_; ++i) {
-    n2.tick_func_();
+    n2.tick();
   }
 
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER), magic_enum::enum_name(n2.state_type_));
@@ -567,7 +567,7 @@ TEST_F(raft_test_suit, test_learner_promotion) {
   // n1 should become leader
   set_randomized_election_timeout(n1, n1.election_timeout_);
   for (int i = 0; i < n1.election_timeout_; ++i) {
-    n1.tick_func_();
+    n1.tick();
   }
   n1.advance_messages_after_append();
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(n1.state_type_));
@@ -587,7 +587,7 @@ TEST_F(raft_test_suit, test_learner_promotion) {
   // n2 start election, should become leader
   set_randomized_election_timeout(n2, n2.election_timeout_);
   for (int i = 0; i < n2.election_timeout_; ++i) {
-    n2.tick_func_();
+    n2.tick();
   }
   n2.advance_messages_after_append();
   nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_BEAT)});
@@ -874,7 +874,7 @@ TEST_F(raft_test_suit, learner_log_replication) {
 
   set_randomized_election_timeout(n1, n1.election_timeout_);
   for (auto i = 0; i < n1.election_timeout_; ++i) {
-    n1.tick_func_();
+    n1.tick();
   }
   n1.advance_messages_after_append();
   // raft leader(node 1) 因为触发leader election，会发送一个 empty_ent，所以 commit 变为1；
@@ -2219,7 +2219,7 @@ static void test_candidate_reset_term(raftpb::message_type mt) {
   // trigger campaign in isolated c
   c.reset_randomized_election_timeout();
   for (int i = 0; i < c.randomized_election_timeout_; ++i) {
-    c.tick_func_();
+    c.tick();
   }
   c.advance_messages_after_append();
   {
@@ -2352,4 +2352,138 @@ TEST_F(raft_test_suit, candidate_delivers_pre_candidate_self_vote_after_becoming
   // quorum is reached.
   sm.step_or_send(std::move(steps));
   ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(sm.state_type_));
+}
+
+// 验证 Leader 在任期变更后对延迟的自我日志确认消息（MsgAppResp）的处理机制，
+// 确保在发生任期变更时不会错误处理旧的自我确认消息。
+TEST_F(raft_test_suit, leader_msg_app_self_ack_after_term_change) {
+  auto sm = new_test_raft(1, 5, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  sm.become_candidate();
+  sm.become_leader();
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(sm.state_type_));
+  ASSERT_EQ(0, sm.raft_log_handle_.committed());
+
+  // n1 proposes a write.
+  auto prop_msg = new_pb_message(1, 1, raftpb::MSG_PROP);
+  prop_msg.add_entries()->set_data("somedata");
+  sm.step(std::move(prop_msg));
+  ASSERT_EQ(0, sm.raft_log_handle_.committed());
+  auto steps = sm.take_messages_after_append();
+
+  // n1 hears that n2 is the new leader.
+  // 收到更高任期的心跳，退位为 Follower
+  sm.step({convert_test_pb_message(
+      {.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 2, .to = 1, .term = sm.term_ + 1})});
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER), magic_enum::enum_name(sm.state_type_));
+  ASSERT_EQ(0, sm.raft_log_handle_.committed());
+
+  // n1 advances, ignoring its earlier self-ack of its MsgApp. The
+  // corresponding MsgAppResp is ignored because it carries an earlier term.
+  sm.step_or_send(std::move(steps));
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER), magic_enum::enum_name(sm.state_type_));
+  ASSERT_EQ(0, sm.raft_log_handle_.committed());
+}
+
+// Leader 在启用 checkQuorum 机制时，当持续收到法定节点的心跳响应时不会错误退位
+TEST_F(raft_test_suit, leader_stepdown_when_quorum_active) {
+  auto sm_cfg =
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  sm_cfg.check_quorum = true;
+  auto sm = new_test_raft(std::move(sm_cfg));
+  ASSERT_EQ(true, sm.check_quorum_);
+
+  sm.become_candidate();
+  sm.become_leader();
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(sm.state_type_));
+
+  for (int i = 0; i < sm.election_timeout_ + 1; ++i) {
+    sm.step(
+        {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2, .term = sm.term_})});
+    sm.tick();
+  }
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(sm.state_type_));
+}
+
+// 与用例 leader_stepdown_when_quorum_active 验证的场景类似，开启 quorum
+// 后必须得收到来自法定节点的心跳消息，否则会退化成follower
+TEST_F(raft_test_suit, leader_stepdown_when_quorum_lost) {
+  auto sm_cfg =
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+  sm_cfg.check_quorum = true;
+  auto sm = new_test_raft(std::move(sm_cfg));
+  ASSERT_EQ(true, sm.check_quorum_);
+
+  sm.become_candidate();
+  sm.become_leader();
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(sm.state_type_));
+
+  for (int i = 0; i < sm.election_timeout_ + 1; ++i) {
+    sm.tick();
+  }
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER), magic_enum::enum_name(sm.state_type_));
+}
+
+// 验证在启用了严格法定人数检查的环境中：
+// ​​新领导者不会轻易当选​​（需满足超时条件）。
+// ​​旧领导者失效后，新领导者能按预期取代​​（避免双主问题）。
+// Raft 的 ​​electionTimeout 机制​​协同 checkQuorum 共同保障系统一致性。
+TEST_F(raft_test_suit, leader_superseding_with_check_quorum) {
+  // ========================== init ==========================
+  std::vector<state_machine_builer_pair> peers;
+  auto append_raft_node_func = [&](std::uint64_t id) {
+    auto sm_cfg =
+        new_test_config(id, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
+    sm_cfg.check_quorum = true;
+    auto sm = new_test_raft(std::move(sm_cfg));
+    ASSERT_EQ(true, sm.check_quorum_);
+    peers.emplace_back(state_machine_builer_pair{std::make_unique<lepton::raft>(std::move(sm))});
+  };
+  append_raft_node_func(1);
+  append_raft_node_func(2);
+  append_raft_node_func(3);
+  auto nt = new_network(std::move(peers));
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 1);
+
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  // Peer b rejected c's vote since its electionElapsed had not reached to electionTimeout
+  // ​​节点 b 拒绝投票​​：因为 b 的选举计时器 (electionElapsed) 尚未达到超时（10 <
+  // 11）。b 认为当前领导者 a 仍可能活跃（checkQuorum 机制）。
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Letting b's electionElapsed reach to electionTimeout
+  // 让 b 的选举计时器超时（再等 10 tick）s
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 3, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 3, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
 }
