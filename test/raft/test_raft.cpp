@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <functional>
 #include <memory>
 #include <source_location>
 #include <string>
@@ -195,6 +197,47 @@ static state_machine_builer_pair voted_with_config(std::function<void(lepton::co
   r->reset(term);
   auto raft_handle = std::make_unique<lepton::raft>(std::move(r.value()));
   return state_machine_builer_pair{std::move(raft_handle)};
+}
+
+void raft_config_quorum_hook(lepton::config &cfg) { cfg.check_quorum = true; }
+
+void raft_config_pre_vote(lepton::config &cfg) { cfg.pre_vote = true; }
+
+void raft_config_read_only_lease_based(lepton::config &cfg) {
+  cfg.read_only_opt = lepton::read_only_option::READ_ONLY_LEASE_BASED;
+}
+
+void raft_quorum_hook(lepton::raft &sm) { ASSERT_TRUE(sm.check_quorum_); }
+
+void raft_pre_vote_hook(lepton::raft &sm) { ASSERT_TRUE(sm.pre_vote_); }
+
+void raft_read_only_lease_based_hook(lepton::raft &sm) {
+  ASSERT_EQ(lepton::read_only_option::READ_ONLY_LEASE_BASED, sm.read_only_.read_only_opt());
+}
+
+void raft_become_follower_hook(lepton::raft &sm) { sm.become_follower(1, NONE); }
+
+static network init_network(std::vector<std::uint64_t> &&ids,
+                            std::vector<std::function<void(lepton::config &cfg)>> raft_config_hook,
+                            std::vector<std::function<void(lepton::raft &sm)>> raft_hook) {
+  std::vector<state_machine_builer_pair> peers;
+  auto append_raft_node_func = [&](std::uint64_t id, std::vector<std::uint64_t> peer_ds) {
+    auto sm_cfg = new_test_config(
+        id, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers(std::move(peer_ds))}})));
+    sm_cfg.check_quorum = true;
+    for (auto func : raft_config_hook) {
+      func(sm_cfg);
+    }
+    auto sm = new_test_raft(std::move(sm_cfg));
+    for (auto func : raft_hook) {
+      func(sm);
+    }
+    peers.emplace_back(state_machine_builer_pair{std::make_unique<lepton::raft>(std::move(sm))});
+  };
+  for (auto id : ids) {
+    append_raft_node_func(id, ids);
+  }
+  return new_network(std::move(peers));
 }
 
 TEST_F(raft_test_suit, progress_leader) {
@@ -2428,20 +2471,7 @@ TEST_F(raft_test_suit, leader_stepdown_when_quorum_lost) {
 // ​​旧领导者失效后，新领导者能按预期取代​​（避免双主问题）。
 // Raft 的 ​​electionTimeout 机制​​协同 checkQuorum 共同保障系统一致性。
 TEST_F(raft_test_suit, leader_superseding_with_check_quorum) {
-  // ========================== init ==========================
-  std::vector<state_machine_builer_pair> peers;
-  auto append_raft_node_func = [&](std::uint64_t id) {
-    auto sm_cfg =
-        new_test_config(id, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
-    sm_cfg.check_quorum = true;
-    auto sm = new_test_raft(std::move(sm_cfg));
-    ASSERT_EQ(true, sm.check_quorum_);
-    peers.emplace_back(state_machine_builer_pair{std::make_unique<lepton::raft>(std::move(sm))});
-  };
-  append_raft_node_func(1);
-  append_raft_node_func(2);
-  append_raft_node_func(3);
-  auto nt = new_network(std::move(peers));
+  auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook}, {raft_quorum_hook});
   set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 1);
 
   for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
@@ -2486,4 +2516,621 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum) {
     };
     check_raft_node_after_send_msg(tests);
   }
+}
+
+// lepton raft add test suit
+// 在 leader_superseding_with_check_quorum 用例的基础上开启pre_vote，避免新的leader选举后term过大
+TEST_F(raft_test_suit, leader_superseding_with_check_quorum_and_pre_vote) {
+  auto nt =
+      init_network({1, 2, 3}, {raft_config_quorum_hook, raft_config_pre_vote}, {raft_quorum_hook, raft_pre_vote_hook});
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 1);
+
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  // Peer b rejected c's vote since its electionElapsed had not reached to electionTimeout
+  // ​​节点 b 拒绝投票​​：因为 b 的选举计时器 (electionElapsed) 尚未达到超时（10 <
+  // 11）。b 认为当前领导者 a 仍可能活跃（checkQuorum 机制）。
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::PRE_CANDIDATE, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Letting b's electionElapsed reach to electionTimeout
+  // 让 b 的选举计时器超时（再等 10 tick）s
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 2, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+TEST_F(raft_test_suit, leader_election_with_check_quorum) {
+  auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook}, {raft_quorum_hook});
+
+  set_randomized_election_timeout(*nt.peers.at(1).raft_handle, nt.peers.at(1).raft_handle->election_timeout_ + 1);
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 2);
+
+  // Immediately after creation, votes are cast regardless of the
+  // election timeout.
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // need to reset randomizedElectionTimeout larger than electionTimeout again,
+  // because the value might be reset to electionTimeout since the last state changes
+  set_randomized_election_timeout(*nt.peers.at(1).raft_handle, nt.peers.at(1).raft_handle->election_timeout_ + 1);
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 2);
+  // 将 node 1 和 node 2 的 election_elapsed_ 设置为超时
+  for (int i = 0; i < nt.peers.at(1).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(1).raft_handle);
+    nt.peers.at(1).raft_handle->tick();
+  }
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  // 由于 node 1 和 node 2 超时，所以 node 3 的选举会成功，term 和 log index 会变为2
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 2, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+// lepton raft add test suit
+TEST_F(raft_test_suit, leader_election_with_check_quorum_and_pre_vote) {
+  auto nt =
+      init_network({1, 2, 3}, {raft_config_quorum_hook, raft_config_pre_vote}, {raft_quorum_hook, raft_pre_vote_hook});
+
+  set_randomized_election_timeout(*nt.peers.at(1).raft_handle, nt.peers.at(1).raft_handle->election_timeout_ + 1);
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 2);
+
+  // Immediately after creation, votes are cast regardless of the
+  // election timeout.
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // need to reset randomizedElectionTimeout larger than electionTimeout again,
+  // because the value might be reset to electionTimeout since the last state changes
+  set_randomized_election_timeout(*nt.peers.at(1).raft_handle, nt.peers.at(1).raft_handle->election_timeout_ + 1);
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 2);
+  for (int i = 0; i < nt.peers.at(1).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(1).raft_handle);
+    nt.peers.at(1).raft_handle->tick();
+  }
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  // 因为也触发了 node 1的超时，node 1给 node 2 和 node 3 发送了heartbeat消息，所以node 3停止选举
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+// TestFreeStuckCandidateWithCheckQuorum ensures that a candidate with a higher term
+// can disrupt the leader even if the leader still "officially" holds the lease, The
+// leader is expected to step down and adopt the candidate's term
+// 高 term 的 candidate 如何强制低 term 的 leader 下台，特别是在启用 checkQuorum 的场景下
+// 测试目的, 验证当集群出现网络分区时：
+//    高 term candidate 能否强制低 term leader 下台
+//    checkQuorum 机制如何影响领导权转移
+//    节点如何正确处理 term 冲突
+TEST_F(raft_test_suit, free_stuck_candidate_with_check_quorum) {
+  auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook}, {raft_quorum_hook});
+
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 1);
+
+  // 这里对 node 2 设置超时没有什么用，由于当前没有leader，所以在收到投票消息后会选举成功
+  // for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+  //   ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+  //   nt.peers.at(2).raft_handle->tick();
+  // }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // 网络隔离
+  nt.isolate(1);
+
+  // 由于 node 2 election_elapsed_ 为 0，所以忽略了来自 node 3 的投票消息
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Vote again for safety
+  // 由于 node 2 election_elapsed_ 为 0，所以再一次忽略了来自 node 3 的投票消息
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 3, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.recover();
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 1})});
+  // Disrupt the leader so that the stuck peer is freed
+  // 由于发现在发送了heartbeat心跳消息以后，term比当前leader的大，所以当前leader要降级
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 3, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 3, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 4, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 4, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 4, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+// 想验证当节点被移除出集群后，它的行为是否符合预期
+TEST_F(raft_test_suit, non_promotable_voter_with_check_quorum) {
+  // ========================== init ==========================
+  std::vector<state_machine_builer_pair> peers;
+  auto append_raft_node_func = [&](std::uint64_t id, std::vector<std::uint64_t> &&peer_ids) {
+    auto sm_cfg = new_test_config(
+        id, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers(std::move(peer_ids))}})));
+    sm_cfg.check_quorum = true;
+    auto sm = new_test_raft(std::move(sm_cfg));
+    ASSERT_EQ(true, sm.check_quorum_);
+    peers.emplace_back(state_machine_builer_pair{std::make_unique<lepton::raft>(std::move(sm))});
+  };
+  append_raft_node_func(1, {1, 2});
+  append_raft_node_func(2, {1});
+  ASSERT_FALSE(peers[1].raft_handle->promotable());
+  // new_network 会尝试重新初始化progress tracker，导致已经移除的 node 2 被重新添加回来
+  auto nt = new_network(std::move(peers));
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 1);
+  // Need to remove 2 again to make it a non-promotable node since newNetwork overwritten some internal states
+  raftpb::conf_change cc1;
+  cc1.set_node_id(2);
+  cc1.set_type(raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE);
+  nt.peers.at(2).raft_handle->apply_conf_change(lepton::pb::conf_change_as_v2(std::move(cc1)));
+  ASSERT_FALSE(nt.peers.at(2).raft_handle->promotable());
+
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  // 虽然已经从node 2 中移除了这个节点本身，但是由于没有真正的从网络中移除该节点，且node 1视角下 node 2
+  // 仍然参与投票，所以此时node 2 任然会参与选举
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(1, nt.peers.at(2).raft_handle->lead_);
+}
+
+// TestDisruptiveFollower tests isolated follower,
+// with slow network incoming from leader, election times out
+// to become a candidate with an increased term. Then, the
+// candiate's response to late leader heartbeat forces the leader
+// to step down.
+TEST_F(raft_test_suit, disruptive_follower) {
+  auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook}, {raft_quorum_hook, raft_become_follower_hook});
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // etcd server "advanceTicksForElection" on restart;
+  // this is to expedite campaign trigger when given larger
+  // election timeouts (e.g. multi-datacenter deploy)
+  // Or leader messages are being delayed while ticks elapse
+  set_randomized_election_timeout(*nt.peers.at(3).raft_handle, nt.peers.at(3).raft_handle->election_timeout_ + 2);
+  for (int i = 0; i < nt.peers.at(3).raft_handle->randomized_election_timeout_ - 1; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(3).raft_handle);
+    nt.peers.at(3).raft_handle->tick();
+  }
+
+  // ideally, before last election tick elapses,
+  // the follower n3 receives "pb.MsgApp" or "pb.MsgHeartbeat"
+  // from leader n1, and then resets its "electionElapsed"
+  // however, last tick may elapse before receiving any
+  // messages from leader, thus triggering campaign
+  nt.peers.at(3).raft_handle->tick();
+
+  // n1 is still leader yet
+  // while its heartbeat to candidate n3 is being delayed
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 3, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // while outgoing vote requests are still queued in n3,
+  // leader heartbeat finally arrives at candidate n3
+  // however, due to delayed network from leader, leader
+  // heartbeat was sent with lower term than candidate's
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 2})});
+
+  // then candidate n3 responds with "pb.MsgAppResp" of higher term
+  // and leader steps down from a message with higher term
+  // this is to disrupt the current leader, so that candidate
+  // with higher term can be freed with following election
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 3, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 3, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+// TestDisruptiveFollowerPreVote tests isolated follower,
+// with slow network incoming from leader, election times out
+// to become a pre-candidate with less log than current leader.
+// Then pre-vote phase prevents this isolated node from forcing
+// current leader to step down, thus less disruptions.
+TEST_F(raft_test_suit, disruptive_follower_pre_vote) {
+  auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook}, {raft_quorum_hook, raft_become_follower_hook});
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.isolate(3);
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 4},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 4},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  auto modify_pre_vote_func = [&](std::uint64_t id) {
+    bool *pre_vote = const_cast<bool *>(&nt.peers.at(id).raft_handle->pre_vote_);
+    *pre_vote = true;
+    ASSERT_TRUE(nt.peers.at(id).raft_handle->pre_vote_);
+  };
+  modify_pre_vote_func(1);
+  modify_pre_vote_func(2);
+  modify_pre_vote_func(3);
+  nt.recover();
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 4},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 4},
+        {nt.peers.at(3).raft_handle, lepton::state_type::PRE_CANDIDATE, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // delayed leader heartbeat does not force current leader to step down
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 2})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 4},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 4},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 4},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+TEST_F(raft_test_suit, read_only_option_safe) {
+  auto nt = init_network({1, 2, 3}, {}, {});
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 2);
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  struct test_case {
+    raft *raft_handle;
+    int proposals;
+    std::uint64_t wri;
+    std::string wctx;
+  };
+  std::vector<test_case> test_cases{
+      {nt.peers.at(1).raft_handle, 10, 11, "ctx1"}, {nt.peers.at(2).raft_handle, 10, 21, "ctx2"},
+      {nt.peers.at(3).raft_handle, 10, 31, "ctx3"}, {nt.peers.at(1).raft_handle, 10, 41, "ctx4"},
+      {nt.peers.at(2).raft_handle, 10, 51, "ctx5"}, {nt.peers.at(3).raft_handle, 10, 61, "ctx6"},
+  };
+  for (std::size_t i = 0; i < test_cases.size(); ++i) {
+    auto &tt = test_cases[i];
+    for (int j = 0; j < tt.proposals; ++j) {
+      nt.send(
+          {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+    }
+    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::message_type::MSG_READ_INDEX, tt.wctx)});
+
+    auto &r = *tt.raft_handle;
+    ASSERT_FALSE(r.read_states_.empty());
+    const auto &rs = r.read_states_[0];
+    ASSERT_EQ(tt.wri, rs.index);
+    ASSERT_EQ(tt.wctx, rs.request_ctx);
+    r.read_states_.clear();
+  }
+}
+
+TEST_F(raft_test_suit, read_only_with_learner) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1}), with_learners({2})});
+  auto &mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto a = new_test_learner_raft(1, 10, 1, std::move(storage_proxy));
+  auto b = new_test_learner_raft(
+      2, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1}), with_learners({2})}})));
+
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{std::make_unique<lepton::raft>(std::move(a))});
+  peers.emplace_back(state_machine_builer_pair{std::make_unique<lepton::raft>(std::move(b))});
+  auto nt = new_network(std::move(peers));
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 1);
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  struct test_case {
+    raft *raft_handle;
+    int proposals;
+    std::uint64_t wri;
+    std::string wctx;
+  };
+  std::vector<test_case> test_cases{
+      {nt.peers.at(1).raft_handle, 10, 11, "ctx1"},
+      {nt.peers.at(2).raft_handle, 10, 21, "ctx2"},
+      {nt.peers.at(1).raft_handle, 10, 31, "ctx3"},
+      {nt.peers.at(2).raft_handle, 10, 41, "ctx4"},
+  };
+  for (std::size_t i = 0; i < test_cases.size(); ++i) {
+    auto &tt = test_cases[i];
+    for (int j = 0; j < tt.proposals; ++j) {
+      nt.send(
+          {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+      next_ents(*nt.peers.at(1).raft_handle, mm_storage);
+    }
+    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::message_type::MSG_READ_INDEX, tt.wctx)});
+
+    auto &r = *tt.raft_handle;
+    ASSERT_FALSE(r.read_states_.empty());
+    const auto &rs = r.read_states_[0];
+    ASSERT_EQ(tt.wri, rs.index);
+    ASSERT_EQ(tt.wctx, rs.request_ctx);
+    r.read_states_.clear();
+  }
+}
+
+TEST_F(raft_test_suit, read_only_option_lease) {
+  auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook, raft_config_read_only_lease_based},
+                         {raft_quorum_hook, raft_read_only_lease_based_hook});
+  set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 1);
+  for (int i = 0; i < nt.peers.at(2).raft_handle->election_timeout_; ++i) {
+    ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
+    nt.peers.at(2).raft_handle->tick();
+  }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  struct test_case {
+    raft *raft_handle;
+    int proposals;
+    std::uint64_t wri;
+    std::string wctx;
+  };
+  std::vector<test_case> test_cases{
+      {nt.peers.at(1).raft_handle, 10, 11, "ctx1"}, {nt.peers.at(2).raft_handle, 10, 21, "ctx2"},
+      {nt.peers.at(3).raft_handle, 10, 31, "ctx3"}, {nt.peers.at(1).raft_handle, 10, 41, "ctx4"},
+      {nt.peers.at(2).raft_handle, 10, 51, "ctx5"}, {nt.peers.at(3).raft_handle, 10, 61, "ctx6"},
+  };
+  for (std::size_t i = 0; i < test_cases.size(); ++i) {
+    auto &tt = test_cases[i];
+    for (int j = 0; j < tt.proposals; ++j) {
+      nt.send(
+          {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+    }
+    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::message_type::MSG_READ_INDEX, tt.wctx)});
+
+    auto &r = *tt.raft_handle;
+    ASSERT_FALSE(r.read_states_.empty());
+    const auto &rs = r.read_states_[0];
+    ASSERT_EQ(tt.wri, rs.index);
+    ASSERT_EQ(tt.wctx, rs.request_ctx);
+    r.read_states_.clear();
+  }
+}
+
+// TestReadOnlyForNewLeader ensures that a leader only accepts MsgReadIndex message
+// when it commits at least one log entry at it term.
+TEST_F(raft_test_suit, read_only_for_new_leader) {
+  struct node_config {
+    std::uint64_t id;
+    std::uint64_t committed;
+    std::uint64_t applied;
+    std::uint64_t compact_index;
+  };
+
+  std::vector<node_config> node_configs = {{1, 1, 1, 0}, {2, 2, 2, 2}, {3, 2, 2, 2}};
+
+  std::vector<state_machine_builer_pair> peers;
+  for (const auto &c : node_configs) {
+    auto ms = new_test_memory_storage({with_peers({1, 2, 3})});
+    ASSERT_TRUE(ms.append(create_entries(1, {1, 1})));
+    raftpb::hard_state hard_state;
+    hard_state.set_term(1);
+    hard_state.set_commit(c.committed);
+    ms.set_hard_state(std::move(hard_state));
+    if (c.compact_index != 0) {
+      ms.compact(c.compact_index);
+    }
+    auto cfg = new_test_config(c.id, 10, 1, pro::make_proxy<storage_builer>(std::move(ms)));
+    cfg.applied_index = c.applied;
+    auto r = new_raft(std::move(cfg));
+    assert(r);
+    peers.emplace_back(state_machine_builer_pair{std::make_unique<lepton::raft>(std::move(r.value()))});
+  }
+  auto nt = new_network(std::move(peers));
+
+  // Drop MsgApp to forbid peer a to commit any log entry at its term after it becomes leader.
+  nt.ignore(raftpb::message_type::MSG_APP);
+  // Force peer a to become leader.
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    // 只 有leader 自己收到了选举成功后生成的 Empty MSG_APP
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Ensure peer a drops read only request.
+  std::uint64_t windex = 4;
+  std::string wctx{"ctx"};
+  auto &sm = *nt.peers.at(1).raft_handle;
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_READ_INDEX, wctx)});
+  ASSERT_TRUE(sm.read_states_.empty());
+
+  nt.recover();
+
+  // Force peer a to commit a log entry at its term
+  for (int i = 0; i < sm.heartbeat_timeout_; ++i) {
+    sm.tick();
+  }
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 4},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 4},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 4},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  auto last_log_term = sm.raft_log_handle_.zero_term_on_err_compacted(sm.raft_log_handle_.committed());
+  ASSERT_EQ(sm.term_, last_log_term);
+
+  // Ensure peer a processed postponed read only request after it committed an entry at its term.
+  ASSERT_EQ(1, sm.read_states_.size());
+  const auto &rs1 = sm.read_states_[0];
+  ASSERT_EQ(windex, rs1.index);
+  ASSERT_EQ(wctx, rs1.request_ctx);
+
+  // Ensure peer a accepts read only request after it committed an entry at its term.
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_READ_INDEX, wctx)});
+  ASSERT_EQ(2, sm.read_states_.size());
+  const auto &rs2 = sm.read_states_[1];
+  ASSERT_EQ(windex, rs2.index);
+  ASSERT_EQ(wctx, rs2.request_ctx);
 }

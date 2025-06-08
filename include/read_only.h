@@ -5,7 +5,6 @@
 
 #include <cassert>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -52,7 +51,7 @@ class read_only {
     return pending_read_index_;
   }
 
-  const std::vector<std::string_view>& read_index_queue() const { return read_index_queue_; }
+  const auto& read_index_queue() const { return read_index_queue_; }
 
   // addRequest adds a read only request into readonly struct.
   // `index` is the commit index of the raft state machine when it received
@@ -61,8 +60,11 @@ class read_only {
   void add_request(std::uint64_t index, raftpb::message&& m) {
     assert(!m.entries().empty());
     const std::string& s = m.entries().rbegin()->data();
-    pending_read_index_.try_emplace(s, std::move(m), index);
+    if (pending_read_index_.contains(s)) {
+      return;
+    }
     read_index_queue_.push_back(s);
+    pending_read_index_.try_emplace(read_index_queue_.back(), std::move(m), index);
   }
 
   // recvAck notifies the readonly struct that the raft state machine received
@@ -76,11 +78,12 @@ class read_only {
   // ​​更新确认状态​​：记录哪个节点（id）已确认某个只读请求（由 context 标识）。
   // ​​返回当前确认状态​​：提供当前已确认的节点列表，供后续判断是否满足
   // ​​多数派（quorum）​​ 条件。
-  std::optional<std::reference_wrapper<const std::unordered_map<uint64_t, bool>>> recv_ack(std::uint64_t id,
-                                                                                           const std::string& context) {
+  std::reference_wrapper<const std::unordered_map<uint64_t, bool>> recv_ack(std::uint64_t id,
+                                                                            const std::string& context) {
     auto iter = pending_read_index_.find(context);
     if (iter == pending_read_index_.end()) {
-      return std::nullopt;  // 未找到时返回空 optional
+      static const std::unordered_map<uint64_t, bool> empty_map;
+      return empty_map;  // 未找到时返回空 optional
     }
     iter->second.acks[id] = true;
     // 找到时返回包装后的引用
@@ -111,7 +114,6 @@ class read_only {
     }
 
     if (found) {
-      read_index_queue_.erase(read_index_queue_.begin(), read_index_queue_.begin() + i);
       std::vector<read_index_status> rss;
       rss.reserve(rss_keys.size());
       for (auto& iter : rss_keys) {
@@ -127,6 +129,7 @@ class read_only {
           LEPTON_CRITICAL("key:{} not exist in pending_read_index", iter);
         }
       }
+      read_index_queue_.erase(read_index_queue_.begin(), read_index_queue_.begin() + i);
       return rss;
     }
     return {};
@@ -145,7 +148,7 @@ class read_only {
   // field
   read_only_option option_;
   std::unordered_map<std::string_view, read_index_status> pending_read_index_;
-  std::vector<std::string_view> read_index_queue_;
+  std::deque<std::string> read_index_queue_;
 };
 }  // namespace lepton
 

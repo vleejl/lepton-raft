@@ -538,9 +538,8 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
         return {};
       }
 
-      auto ack_result_ref = r.read_only_.recv_ack(msg_from, m.context());
-      assert(ack_result_ref);
-      auto vote_result = r.trk_.config_view().voters.vote_result_statistics(ack_result_ref->get());
+      auto ack_result = r.read_only_.recv_ack(msg_from, m.context());
+      auto vote_result = r.trk_.config_view().voters.vote_result_statistics(ack_result);
       if (vote_result != quorum::vote_result::VOTE_WON) {
         return {};
       }
@@ -816,7 +815,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
         SPDLOG_INFO("{} invalid format of MsgReadIndexResp from {}", r.id_, m.from());
         return {};
       }
-      r.read_states_.emplace_back(read_state{m.entries(0).index(), m.entries(0).data()});
+      r.read_states_.emplace_back(read_state{m.index(), m.entries(0).data()});
       break;
     }
     case raftpb::MSG_FORGET_LEADER: {  // 强制 Follower 忘记当前
@@ -1903,7 +1902,9 @@ bool raft::restore(raftpb::snapshot&& snapshot) {
 
 bool raft::promotable() {
   auto pr_iter = trk_.progress_map_view().view().find(id_);
-  assert(pr_iter != trk_.progress_map_view().view().end());
+  if (pr_iter == trk_.progress_map_view().view().end()) {
+    return false;
+  }
   auto& pr = pr_iter->second;
   return !pr.is_learner() && !raft_log_handle_.has_next_or_in_progress_snapshot();
 }
@@ -2037,8 +2038,7 @@ bool raft::committed_entry_in_current_term() const {
 
 raftpb::message raft::response_to_read_index_req(raftpb::message&& req, std::uint64_t read_index) {
   if (req.from() == NONE || req.from() == id_) {
-    auto data = req.mutable_entries(0)->release_data();
-    read_states_.emplace_back(read_state{read_index, std::move(*data)});
+    read_states_.emplace_back(read_state{read_index, std::move(*req.mutable_entries(0)->mutable_data())});
     return {};
   }
   raftpb::message resp;

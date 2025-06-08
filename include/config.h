@@ -16,14 +16,17 @@ constexpr std::uint64_t NO_LIMIT = UINT64_MAX;
 enum class read_only_option : int {
   // ReadOnlySafe guarantees the linearizability of the read only request by
   // communicating with the quorum. It is the default and suggested option.
+  // 通过与 quorum（法定多数）通信确认当前 leader 身份仍然有效，从而保证线性一致性。
   READ_ONLY_SAFE,
 
   // ReadOnlyLeaseBased ensures linearizability of the read only request by
   // relying on the leader lease. It can be affected by clock drift.
   // If the clock drift is unbounded, leader might keep the lease longer than it
   // should (clock can move backward/pause without any bound). ReadIndex is not
-  // safe
-  // in that case.
+  // safe in that case.
+  // 借助 leader lease（领导者租约） 确保一致性；
+  // 依赖于本地的系统时钟；
+  // 可能受时钟漂移影响，存在潜在一致性风险。
   READ_ONLY_LEASE_BASED
 };
 
