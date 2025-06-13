@@ -10,6 +10,7 @@
 #include <memory>
 #include <source_location>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -3133,4 +3134,203 @@ TEST_F(raft_test_suit, read_only_for_new_leader) {
   const auto &rs2 = sm.read_states_[1];
   ASSERT_EQ(windex, rs2.index);
   ASSERT_EQ(wctx, rs2.request_ctx);
+}
+
+TEST_F(raft_test_suit, leader_app_resp) {
+  struct test_case {
+    uint64_t index;       // Message index received
+    bool reject;          // Was the message rejected?
+    uint64_t wmatch;      // Expected match index after processing
+    uint64_t wnext;       // Expected next index after processing
+    int wmsgNum;          // Expected number of messages generated
+    uint64_t windex;      // Expected message index in response
+    uint64_t wcommitted;  // Expected committed index
+  };
+  // initial progress: match = 0; next = 3
+  std::vector<test_case> test_cases = {
+      // stale response; no replies generated
+      // ​​过时拒绝响应​​场景
+      // 1. 不更新进度状态
+      // 2. 不发送任何消息（避免无用重试）
+      {3, true, 0, 3, 0, 0, 0},
+      // denied resp; leader does not commit; decrease next and send probing msg
+      // ​​有效拒绝响应​​
+      // 1. 降低Next索引至2
+      // 2. 发送单条探测消息（索引1）准备重同步
+      {2, true, 0, 2, 1, 1, 0},
+      // accept resp; leader commits; broadcast with commit index
+      // ​​成功接受响应​​
+      // 1. 提升Match=2，Next=41. 提升Match=2，Next=4
+      // 2. 发送2条MsgApp（广播提交）
+      // 3. 提交索引更新至2
+      {2, false, 2, 4, 2, 2, 2},
+      // Follower is StateProbing at 0, it sends MsgAppResp for 0 (which
+      // matches the pr.Match) so it is moved to StateReplicate and as many
+      // entries as possible are sent to it (1, 2, and 3). Correspondingly the
+      // Next is then 4 (an Entry at 4 does not exist, indicating the follower
+      // will be up to date should it process the emitted MsgApp).
+      // ​​状态转换边界​​
+      // 1. 保持Match=0但Next跳至4
+      // 2. 发送单消息包含索引1-3
+      // 3. 验证状态机转换逻辑
+      {0, false, 0, 4, 1, 0, 0},
+  };
+  for (std::size_t i = 0; i < test_cases.size(); ++i) {
+    auto &tt = test_cases[i];
+    // index  term
+    // 0      0
+    // 1      1
+    // 2      1
+    auto mm_storage = new_test_memory_storage({with_peers({1, 2, 3})});
+    ASSERT_TRUE(mm_storage.append(create_entries(0, {0, 1, 1})));
+    auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(std::move(mm_storage)));
+    sm.become_candidate();
+    sm.become_leader();
+    sm.read_messages();
+    auto msg = convert_test_pb_message(
+        {.msg_type = raftpb::message_type::MSG_APP_RESP, .from = 2, .term = sm.term_, .index = tt.index});
+    msg.set_reject(tt.reject);
+    msg.set_reject_hint(tt.index);
+    ASSERT_TRUE(sm.step(std::move(msg)));
+
+    auto &p = sm.trk_.progress_map_view().view().at(2);
+    ASSERT_EQ(tt.wmatch, p.match());
+    ASSERT_EQ(tt.wnext, p.next());
+
+    auto msgs = sm.read_messages();
+    ASSERT_EQ(tt.wmsgNum, msgs.size());
+    for (auto &iter_msg : msgs) {
+      ASSERT_EQ(tt.windex, iter_msg.index()) << iter_msg.DebugString();
+      ASSERT_EQ(tt.wcommitted, iter_msg.commit()) << iter_msg.DebugString();
+    }
+  }
+}
+
+// TestBcastBeat is when the leader receives a heartbeat tick, it should
+// send a MsgHeartbeat with m.Index = 0, m.LogTerm=0 and empty entries.
+TEST_F(raft_test_suit, bcast_beat) {
+  constexpr std::uint64_t offset = 1000;
+  // make a state machine with log.offset = 1000
+  raftpb::snapshot s = create_snapshot(offset, 1);
+  s.mutable_metadata()->mutable_conf_state()->add_voters(1);
+  s.mutable_metadata()->mutable_conf_state()->add_voters(2);
+  s.mutable_metadata()->mutable_conf_state()->add_voters(3);
+  lepton::memory_storage ms;
+  ms.apply_snapshot(std::move(s));
+  auto storage = pro::make_proxy<storage_builer, memory_storage>(std::move(ms));
+  auto sm = new_test_raft(1, 10, 1, std::move(storage));
+  sm.term_ = 1;
+  sm.become_candidate();
+  sm.become_leader();
+  for (std::uint64_t i = 0; i < 10; ++i) {
+    lepton::pb::repeated_entry entries;
+    auto entry = entries.Add();
+    entry->set_index(i + 1);
+    must_append_entry(sm, std::move(entries));
+  }
+  sm.advance_messages_after_append();
+
+  // slow follower
+  sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_match(5);
+  sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(6);
+
+  // normal follower
+  sm.trk_.progress_map_mutable_view().mutable_view().at(3).set_match(sm.raft_log_handle_.last_index());
+  sm.trk_.progress_map_mutable_view().mutable_view().at(3).set_next(sm.raft_log_handle_.last_index() + 1);
+
+  sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_BEAT}));
+  auto msgs = sm.read_messages();
+  ASSERT_EQ(2, msgs.size());
+
+  std::unordered_map<std::uint64_t, std::uint64_t> want_commit_map = {
+      {2, std::min(sm.raft_log_handle_.committed(), sm.trk_.progress_map_view().view().at(2).match())},
+      {3, std::min(sm.raft_log_handle_.committed(), sm.trk_.progress_map_view().view().at(3).match())},
+  };
+  for (auto &iter_msg : msgs) {
+    ASSERT_EQ(raftpb::message_type::MSG_HEARTBEAT, iter_msg.type());
+    ASSERT_EQ(0, iter_msg.index());
+    ASSERT_EQ(0, iter_msg.log_term());
+
+    auto iter_commit = want_commit_map.find(iter_msg.to());
+    ASSERT_NE(iter_commit, want_commit_map.end());
+    ASSERT_EQ(iter_commit->second, iter_msg.commit());
+    want_commit_map.erase(iter_commit);
+    ASSERT_EQ(0, iter_msg.entries_size());
+  }
+}
+
+// TestRecvMsgBeat tests the output of the state machine when receiving MsgBeat
+TEST_F(raft_test_suit, recv_msg_beat) {
+  struct test_case {
+    lepton::state_type state;
+    int wmsg;
+  };
+  std::vector<test_case> tests = {
+      {.state = lepton::state_type::LEADER, .wmsg = 2},
+      // candidate and follower should ignore MsgBeat
+      {.state = lepton::state_type::CANDIDATE, .wmsg = 0},
+      {.state = lepton::state_type::CANDIDATE, .wmsg = 0},
+  };
+
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+    auto mm_storage = new_test_memory_storage({with_peers({1, 2, 3})});
+    ASSERT_TRUE(mm_storage.append(create_entries(0, {0, 1, 1})));
+    auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(std::move(mm_storage)));
+    sm.term_ = 1;
+    sm.state_type_ = tt.state;
+    switch (tt.state) {
+      case state_type::FOLLOWER:
+        sm.step_func_ = step_follower;
+        break;
+      case state_type::CANDIDATE:
+      case state_type::PRE_CANDIDATE:
+        sm.step_func_ = step_candidate;
+        break;
+      case state_type::LEADER:
+        sm.step_func_ = step_leader;
+        break;
+    }
+
+    sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_BEAT, .from = 1, .to = 1}));
+    auto msgs = sm.read_messages();
+    ASSERT_EQ(tt.wmsg, msgs.size());
+    for (auto &iter_msg : msgs) {
+      ASSERT_EQ(raftpb::message_type::MSG_HEARTBEAT, iter_msg.type());
+      ASSERT_EQ(0, iter_msg.index());
+      ASSERT_EQ(0, iter_msg.log_term());
+    }
+  }
+}
+
+TEST_F(raft_test_suit, leader_increase_next) {
+  auto previous_ents = create_entries(1, {1, 2, 3});
+  struct test_case {
+    // progress
+    lepton::tracker::state_type state;
+    std::uint64_t next;
+
+    std::uint64_t wnext;
+  };
+  std::vector<test_case> tests = {
+      // state replicate, optimistically increase next
+      // previous entries + noop entry + propose + 1
+      {.state = lepton::tracker::state_type::STATE_REPLICATE, .next = 2, .wnext = 6},
+      // state probe, not optimistically increase next
+      {.state = lepton::tracker::state_type::STATE_PROBE, .next = 2, .wnext = 2},
+  };
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+    auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2})}})));
+    sm.raft_log_handle_.append(create_entries(1, {1, 2, 3}));
+    sm.become_candidate();
+    sm.become_leader();
+    sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_state(tt.state);
+    sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(tt.next);
+    auto prop_msg = new_pb_message(1, 1, raftpb::MSG_PROP);
+    prop_msg.add_entries()->set_data("somedata");
+    sm.step(std::move(prop_msg));
+
+    ASSERT_EQ(tt.wnext, sm.trk_.progress_map_view().view().at(2).next());
+  }
 }

@@ -24,9 +24,8 @@ memory_storage::memory_storage() {
   // When starting from scratch populate the list with a dummy entry at term
   // zero.
   // ​1. 解决日志索引从 1 开始的问题: 在 Raft
-  // 协议中，日志条目的索引（Index）从 1 开始​（而不是
-  // 0）。为了统一逻辑，MemoryStorage 的实现会在初始化时插入一个索引为 0 的
-  // dummy entry，使得实际的有效日志条目从索引 1 开始存储
+  // 协议中，日志条目的索引（Index）从 1 开始​（而不是0）。为了统一逻辑，MemoryStorage
+  // 的实现会在初始化时插入一个索引为 0 的 dummy entry，使得实际的有效日志条目从索引 1 开始存储
 
   // 2. 处理日志压缩（Compaction）:当 Raft
   // 生成快照（Snapshot）后，旧的日志条目会被删除（压缩）。此时，MemoryStorage
