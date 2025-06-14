@@ -107,16 +107,20 @@ class joint_config {
   // IDs returns a newly initialized map representing the set of voters present
   // in the joint configuration.
   std::vector<std::uint64_t> ids() const {
-    std::vector<std::uint64_t> ids;
-    ids.reserve(primary_config_.id_set_.size());
-    for (auto iter : primary_config_.id_set_) {
-      ids.push_back(iter);
+    size_t total_size = primary_config_.id_set_.size();
+    if (secondary_config_) {
+      total_size += secondary_config_->id_set_.size();
     }
-    if (secondary_config_ && !secondary_config_->empty()) {
-      for (auto iter : secondary_config_->id_set_) {
-        ids.push_back(iter);
-      }
-    }
+
+    std::vector<uint64_t> ids;
+    ids.reserve(total_size);
+
+    std::set_union(primary_config_.id_set_.begin(), primary_config_.id_set_.end(),
+                   // 相同begin/end作为空集
+                   secondary_config_ ? secondary_config_->id_set_.begin() : primary_config_.id_set_.end(),
+                   secondary_config_ ? secondary_config_->id_set_.end() : primary_config_.id_set_.end(),
+                   std::back_inserter(ids));
+
     return ids;
   }
 

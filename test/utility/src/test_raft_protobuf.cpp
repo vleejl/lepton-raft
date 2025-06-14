@@ -139,6 +139,14 @@ raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term) {
   return snapshot;
 }
 
+raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, std::vector<std::uint64_t> &&voters) {
+  raftpb::snapshot snapshot = create_snapshot(index, term);
+  for (auto voter : voters) {
+    snapshot.mutable_metadata()->mutable_conf_state()->add_voters(voter);
+  }
+  return snapshot;
+}
+
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, const std::string &data,
                                  std::optional<raftpb::conf_state> state) {
   raftpb::snapshot snapshot;

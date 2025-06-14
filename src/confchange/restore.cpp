@@ -113,9 +113,8 @@ changer::result restor(const raftpb::conf_state &cs, changer &&chg) {
     // example above, we'd get (1 2 3)&(2 3 4), i.e. the incoming operations
     // would be removing 2,3,4 and then adding in 1,2,3 while transitioning
     // into a joint state.
-    ops.push_back([&incoming](const changer &ch) -> changer::result {
-      auto span = absl::MakeSpan(incoming);
-      return ch.simple(span);
+    ops.push_back([&incoming, &cs](const changer &ch) -> changer::result {
+      return ch.enter_joint(cs.auto_leave(), absl::MakeSpan(incoming));
     });
   }
 

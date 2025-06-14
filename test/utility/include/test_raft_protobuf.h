@@ -38,6 +38,7 @@ bool operator==(const absl::Span<const raftpb::entry *const> &lhs, const absl::S
 bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
 
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term);
+raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, std::vector<std::uint64_t> &&voters);
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, const std::string &data,
                                  std::optional<raftpb::conf_state> state);
 #endif  // _LEPTON_TEST_RAFT_PROTOBUF_H_

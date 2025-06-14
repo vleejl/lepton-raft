@@ -1891,7 +1891,7 @@ bool raft::restore(raftpb::snapshot&& snapshot) {
         LEPTON_CRITICAL("unable to restore config {}: {}", cs.DebugString(), err.message);
         return new_error(err);
       });
-  assert(!restore_result);
+  assert(restore_result);
   auto [cfg, trk] = std::move(*restore_result);
   pb::assert_conf_states_equivalent(cs, this->switch_to_config(std::move(cfg), std::move(trk)));
   auto last = raft_log_handle_.last_entry_id();
@@ -1906,7 +1906,13 @@ bool raft::promotable() {
     return false;
   }
   auto& pr = pr_iter->second;
-  return !pr.is_learner() && !raft_log_handle_.has_next_or_in_progress_snapshot();
+  if (pr.is_learner()) {
+    return false;
+  }
+  if (raft_log_handle_.has_next_or_in_progress_snapshot()) {
+    return false;
+  }
+  return true;
 }
 
 raftpb::conf_state raft::apply_conf_change(raftpb::conf_change_v2&& cc) {

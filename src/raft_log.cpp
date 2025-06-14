@@ -365,7 +365,7 @@ bool raft_log::maybe_commit(const pb::entry_id& at) {
 }
 
 void raft_log::restore(raftpb::snapshot&& snapshot) {
-  SPDLOG_INFO("log [%s] starts to restore snapshot [index: {}, term: {}]", string(), snapshot.metadata().index(),
+  SPDLOG_INFO("log [{}] starts to restore snapshot [index: {}, term: {}]", string(), snapshot.metadata().index(),
               snapshot.metadata().term());
   committed_ = snapshot.metadata().index();
   unstable_.restore(std::move(snapshot));

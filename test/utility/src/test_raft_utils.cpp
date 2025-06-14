@@ -1,5 +1,7 @@
 #include "test_raft_utils.h"
 
+#include <gtest/gtest.h>
+
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -17,6 +19,8 @@
 #include "storage.h"
 #include "test_utility_data.h"
 #include "tracker.h"
+
+using namespace lepton;
 
 static test_memory_storage_options with_peers(lepton::pb::repeated_uint64 &&peers) {
   // / 将右值 peers 移动构造到堆内存，并用 shared_ptr 管理 auto data =
@@ -39,7 +43,7 @@ test_memory_storage_options with_peers(std::vector<std::uint64_t> &&peers) {
   return with_peers(std::move(repeated_uint64));
 }
 
-static test_memory_storage_options with_learners(lepton::pb::repeated_uint64 &&learners) {
+test_memory_storage_options with_learners(lepton::pb::repeated_uint64 &&learners) {
   // / 将右值 peers 移动构造到堆内存，并用 shared_ptr 管理 auto data =
   auto data = std::make_shared<lepton::pb::repeated_uint64>(std::move(learners));
 
@@ -202,4 +206,184 @@ std::vector<raftpb::message> network::filter(const lepton::pb::repeated_message 
     mm.push_back(raftpb::message{msg});
   }
   return mm;
+}
+
+memory_storage new_test_memory_storage(std::vector<test_memory_storage_options> &&options) {
+  memory_storage ms;
+  for (auto &option : options) {
+    option(ms);
+  }
+  return ms;
+}
+
+void check_raft_node_after_send_msg(const std::vector<test_expected_raft_status> &tests, std::source_location loc) {
+  int test_case_idx = -1;
+  for (const auto &iter : tests) {
+    test_case_idx++;
+    ASSERT_EQ(magic_enum::enum_name(iter.expected_state), magic_enum::enum_name(iter.raft_handle->state_type_))
+        << fmt::format("#{} [{}:{}][{}]\n", test_case_idx, loc.file_name(), loc.line(), loc.function_name());
+    ASSERT_EQ(iter.expected_term, iter.raft_handle->term_)
+        << fmt::format("#{} [{}:{}][{}]\n", test_case_idx, loc.file_name(), loc.line(), loc.function_name());
+    ASSERT_EQ(iter.last_index, iter.raft_handle->raft_log_handle_.last_index())
+        << fmt::format("#{} [{}:{}][{}]\n", test_case_idx, loc.file_name(), loc.line(), loc.function_name());
+  }
+}
+
+// nextEnts returns the appliable entries and updates the applied index.
+lepton::pb::repeated_entry next_ents(raft &r, memory_storage &s) {
+  lepton::pb::repeated_entry ents;
+  auto next_unstable_ents = r.raft_log_handle_.next_unstable_ents();
+  for (const auto &entry : next_unstable_ents) {
+    ents.Add()->CopyFrom(*entry);
+  }
+  // Append unstable entries.
+  s.append(std::move(ents));
+  r.raft_log_handle_.stable_to(r.raft_log_handle_.last_entry_id());
+
+  // Run post-append steps.
+  r.advance_messages_after_append();
+
+  // Return committed entries.
+  auto next_committed_ents = r.raft_log_handle_.next_committed_ents(true);
+  r.raft_log_handle_.applied_to(r.raft_log_handle_.committed(), 0);
+  return next_committed_ents;
+}
+
+void must_append_entry(raft &r, lepton::pb::repeated_entry &&ents) {
+  if (!r.append_entry(std::move(ents))) {
+    LEPTON_CRITICAL("entry unexpectedly dropped");
+  }
+}
+
+lepton::raft new_test_raft(lepton::config &&config) {
+  auto r = new_raft(std::move(config));
+  assert(r);
+  return std::move(r.value());
+}
+
+lepton::raft new_test_raft(std::uint64_t id, int election_tick, int heartbeat_tick,
+                           pro::proxy<storage_builer> &&storage) {
+  auto r = new_raft(new_test_config(id, election_tick, heartbeat_tick, std::move(storage)));
+  assert(r);
+  return std::move(r.value());
+}
+
+lepton::raft new_test_learner_raft(std::uint64_t id, int election_tick, int heartbeat_tick,
+                                   pro::proxy<storage_builer> &&storage) {
+  return new_test_raft(id, election_tick, heartbeat_tick, std::move(storage));
+}
+
+raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type) {
+  raftpb::message msg;
+  msg.set_from(from);
+  msg.set_to(to);
+  msg.set_type(type);
+  return msg;
+}
+
+raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type, std::string data) {
+  raftpb::message msg;
+  msg.set_from(from);
+  msg.set_to(to);
+  msg.set_type(type);
+  auto entry = msg.add_entries();
+  entry->set_data(data);
+  return msg;
+}
+
+raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type,
+                               lepton::pb::repeated_entry &&entries) {
+  raftpb::message msg;
+  msg.set_from(from);
+  msg.set_to(to);
+  msg.set_type(type);
+  msg.mutable_entries()->Swap(&entries);
+  return msg;
+}
+
+state_machine_builer_pair ents_with_config(std::function<void(lepton::config &)> config_func,
+                                           std::vector<std::uint64_t> &&term) {
+  memory_storage ms;
+  lepton::pb::repeated_entry entries;
+  for (std::size_t i = 0; i < term.size(); ++i) {
+    auto entry = entries.Add();
+    entry->set_index(i + 1);
+    entry->set_term(term[i]);
+  }
+  assert(ms.append(std::move(entries)));
+
+  auto storage = pro::make_proxy<storage_builer, memory_storage>(std::move(ms));
+  auto cfg = new_test_config(1, 5, 1, std::move(storage));
+  if (config_func != nullptr) {
+    config_func(cfg);
+  }
+  auto r = new_raft(std::move(cfg));
+  assert(r);
+  r->reset(term.back());
+  auto raft_handle = std::make_unique<lepton::raft>(std::move(r.value()));
+  return state_machine_builer_pair{std::move(raft_handle)};
+}
+
+// votedWithConfig creates a raft state machine with Vote and Term set
+// to the given value but no log entries (indicating that it voted in
+// the given term but has not received any logs).
+state_machine_builer_pair voted_with_config(std::function<void(lepton::config &)> config_func, std::uint64_t vote,
+                                            std::uint64_t term) {
+  memory_storage ms;
+  raftpb::hard_state hard_state;
+  hard_state.set_vote(vote);
+  hard_state.set_term(term);
+  ms.set_hard_state(std::move(hard_state));
+
+  auto storage = pro::make_proxy<storage_builer, memory_storage>(std::move(ms));
+  auto cfg = new_test_config(1, 5, 1, std::move(storage));
+  if (config_func != nullptr) {
+    config_func(cfg);
+  }
+  auto r = new_raft(std::move(cfg));
+  assert(r);
+  r->reset(term);
+  auto raft_handle = std::make_unique<lepton::raft>(std::move(r.value()));
+  return state_machine_builer_pair{std::move(raft_handle)};
+}
+
+void raft_config_quorum_hook(lepton::config &cfg) { cfg.check_quorum = true; }
+
+void raft_config_pre_vote(lepton::config &cfg) { cfg.pre_vote = true; }
+
+void raft_config_read_only_lease_based(lepton::config &cfg) {
+  cfg.read_only_opt = lepton::read_only_option::READ_ONLY_LEASE_BASED;
+}
+
+void raft_quorum_hook(lepton::raft &sm) { ASSERT_TRUE(sm.check_quorum_); }
+
+void raft_pre_vote_hook(lepton::raft &sm) { ASSERT_TRUE(sm.pre_vote_); }
+
+void raft_read_only_lease_based_hook(lepton::raft &sm) {
+  ASSERT_EQ(lepton::read_only_option::READ_ONLY_LEASE_BASED, sm.read_only_.read_only_opt());
+}
+
+void raft_become_follower_hook(lepton::raft &sm) { sm.become_follower(1, NONE); }
+
+network init_network(std::vector<std::uint64_t> &&ids,
+                     std::vector<std::function<void(lepton::config &cfg)>> raft_config_hook,
+                     std::vector<std::function<void(lepton::raft &sm)>> raft_hook) {
+  std::vector<state_machine_builer_pair> peers;
+  auto append_raft_node_func = [&](std::uint64_t id, std::vector<std::uint64_t> peer_ds) {
+    auto sm_cfg = new_test_config(
+        id, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers(std::move(peer_ds))}})));
+    sm_cfg.check_quorum = true;
+    for (auto func : raft_config_hook) {
+      func(sm_cfg);
+    }
+    auto sm = new_test_raft(std::move(sm_cfg));
+    for (auto func : raft_hook) {
+      func(sm);
+    }
+    peers.emplace_back(state_machine_builer_pair{std::make_unique<lepton::raft>(std::move(sm))});
+  };
+  for (auto id : ids) {
+    append_raft_node_func(id, ids);
+  }
+  return new_network(std::move(peers));
 }

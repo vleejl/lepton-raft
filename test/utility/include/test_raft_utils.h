@@ -138,4 +138,56 @@ network new_network_with_config(std::function<void(lepton::config &)> config_fun
 // A *stateMachine will get its k, id.
 // When using stateMachine, the address list is always [1, n].
 network new_network(std::vector<state_machine_builer_pair> &&peers);
+
+// 内存存储相关
+lepton::memory_storage new_test_memory_storage(std::vector<std::function<void(lepton::memory_storage &)>> &&options);
+std::function<void(lepton::memory_storage &)> with_learners(lepton::pb::repeated_uint64 &&learners);
+
+// 状态验证
+struct test_expected_raft_status {
+  lepton::raft *raft_handle;
+  lepton::state_type expected_state;
+  std::uint64_t expected_term;
+  std::uint64_t last_index;
+};
+
+void check_raft_node_after_send_msg(const std::vector<test_expected_raft_status> &tests,
+                                    std::source_location loc = std::source_location::current());
+
+// 日志操作
+lepton::pb::repeated_entry next_ents(lepton::raft &r, lepton::memory_storage &s);
+void must_append_entry(lepton::raft &r, lepton::pb::repeated_entry &&ents);
+
+// Raft 实例创建
+lepton::raft new_test_raft(lepton::config &&config);
+lepton::raft new_test_raft(std::uint64_t id, int election_tick, int heartbeat_tick,
+                           pro::proxy<lepton::storage_builer> &&storage);
+lepton::raft new_test_learner_raft(std::uint64_t id, int election_tick, int heartbeat_tick,
+                                   pro::proxy<lepton::storage_builer> &&storage);
+
+// 消息构造
+raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type);
+raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type, std::string data);
+raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type,
+                               lepton::pb::repeated_entry &&entries);
+
+// 特殊状态构造
+using config_hook = std::function<void(lepton::config &)>;
+state_machine_builer_pair ents_with_config(config_hook config_func, std::vector<std::uint64_t> &&term);
+state_machine_builer_pair voted_with_config(config_hook config_func, std::uint64_t vote, std::uint64_t term);
+
+// 配置钩子
+void raft_config_quorum_hook(lepton::config &cfg);
+void raft_config_pre_vote(lepton::config &cfg);
+void raft_config_read_only_lease_based(lepton::config &cfg);
+
+// Raft 钩子
+void raft_quorum_hook(lepton::raft &sm);
+void raft_pre_vote_hook(lepton::raft &sm);
+void raft_read_only_lease_based_hook(lepton::raft &sm);
+void raft_become_follower_hook(lepton::raft &sm);
+
+// 网络初始化
+network init_network(std::vector<std::uint64_t> &&ids, std::vector<config_hook> raft_config_hook = {},
+                     std::vector<std::function<void(lepton::raft &)>> raft_hook = {});
 #endif  // _LEPTON_TEST_RAFT_NETWORKING_H_
