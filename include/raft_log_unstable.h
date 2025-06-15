@@ -89,7 +89,7 @@ class unstable {
     return *snapshot_;
   }
 
-  bool has_pending_snapshot() const { return has_snapshot() && pb::is_empty_snap(*snapshot_); }
+  bool has_pending_snapshot() const { return has_snapshot() && !pb::is_empty_snap(*snapshot_); }
 
   // maybeFirstIndex returns the index of the first possible entry in entries
   // if it has a snapshot.

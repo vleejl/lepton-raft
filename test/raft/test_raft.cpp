@@ -3345,3 +3345,78 @@ TEST_F(raft_test_suit, test_restore_voter_to_learner) {
   ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
   ASSERT_TRUE(sm.is_learner_);
 }
+
+// TestRestoreLearnerPromotion checks that a learner can become to a follower after
+// restoring snapshot.
+TEST_F(raft_test_suit, test_restore_learner_promotion) {
+  auto sm = new_test_learner_raft(
+      3, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1, 2}), with_learners({3})})));
+  constexpr std::uint64_t snapshot_index = 11;
+  constexpr std::uint64_t snapshot_term = 11;
+  const std::vector<std::uint64_t> voter_nodes = {1, 2, 3};
+  auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
+  ASSERT_TRUE(sm.is_learner_);
+  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_FALSE(sm.is_learner_);
+}
+
+// TestLearnerReceiveSnapshot tests that a learner can receive a snpahost from leader
+TEST_F(raft_test_suit, test_learner_receive_snapshot) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1, 2, 3})});
+  auto &mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto n1 = new_test_learner_raft(1, 10, 1, std::move(storage_proxy));
+  auto n2 = new_test_learner_raft(
+      1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1}), with_learners({2})})));
+
+  constexpr std::uint64_t snapshot_index = 11;
+  constexpr std::uint64_t snapshot_term = 11;
+  const std::vector<std::uint64_t> voter_nodes = {1};
+  const std::vector<std::uint64_t> learner_nodes = {2};
+  auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
+  s.mutable_metadata()->mutable_conf_state()->add_learners(learner_nodes[0]);
+
+  ASSERT_TRUE(n1.restore(raftpb::snapshot{s}));
+  ASSERT_EQ(snapshot_index, n1.raft_log_handle_.last_index());
+  ASSERT_EQ(snapshot_index, n1.raft_log_handle_.committed());
+  auto term = n1.raft_log_handle_.term(snapshot_index);
+  ASSERT_TRUE(term.has_value());
+  ASSERT_EQ(term.value(), snapshot_term);
+
+  auto snap = n1.raft_log_handle_.next_unstable_snapshot();
+  ASSERT_TRUE(snap);
+  ASSERT_TRUE(mm_storage.apply_snapshot(raftpb::snapshot{*snap}));
+  n1.applied_snap(*snap);
+
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{n1});
+  peers.emplace_back(state_machine_builer_pair{n2});
+
+  auto nt = new_network(std::move(peers));
+  set_randomized_election_timeout(n1, n1.election_timeout_);
+  for (int i = 0; i < n1.election_timeout_; ++i) {
+    n1.tick();
+  }
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+  ASSERT_EQ(n1.raft_log_handle_.committed(), n2.raft_log_handle_.committed());
+}
+
+TEST_F(raft_test_suit, test_restore_ignore_snapshot) {
+  constexpr std::uint64_t commit = 1;
+  auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2})}})));
+  sm.raft_log_handle_.append(create_entries(1, {1, 1, 1}));
+  sm.raft_log_handle_.commit_to(commit);
+
+  constexpr std::uint64_t snapshot_term = 1;
+  const std::vector<std::uint64_t> voter_nodes = {1, 2};
+  auto s = create_snapshot(commit, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
+
+  // ignore snapshot
+  ASSERT_FALSE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_EQ(commit, sm.raft_log_handle_.committed());
+
+  // ignore snapshot and fast forward commit
+  s.mutable_metadata()->set_index(commit + 1);
+  ASSERT_FALSE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_EQ(commit + 1, sm.raft_log_handle_.committed());
+}

@@ -6,7 +6,6 @@
 
 #include "conf_state.h"
 #include "error.h"
-#include "fmt/format.h"
 #include "types.h"
 
 static raftpb::hard_state EMPTY_STATE;
@@ -49,12 +48,12 @@ entry_id pb_entry_id(const raftpb::entry* const entry_ptr) {
 
 bool is_empty_snap(const raftpb::snapshot& snap) {
   if (!snap.has_metadata()) {
-    return false;
+    return true;
   }
   if (!snap.metadata().has_index()) {
-    return false;
+    return true;
   }
-  return snap.metadata().index() != 0;
+  return snap.metadata().index() == 0;
 }
 
 // 高性能提取范围元素（需确保使用 Arena 分配）

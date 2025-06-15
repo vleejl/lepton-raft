@@ -1871,9 +1871,12 @@ bool raft::restore(raftpb::snapshot&& snapshot) {
 
   // Now go ahead and actually restore.
 
-  pb::entry_id entry_id{snapshot.metadata().index(), snapshot.metadata().term()};
+  pb::entry_id entry_id{.term = snapshot.metadata().term(), .index = snapshot.metadata().index()};
   if (raft_log_handle_.match_term(entry_id)) {
     // TODO(pav-kv): can print %+v of the id, but it will change the format.
+    auto last = raft_log_handle_.last_entry_id();
+    SPDLOG_INFO("{} [commit: {}, lastindex: {}, lastterm: {}] fast-forwarded commit to snapshot [index: {}, term: {}]",
+                id_, raft_log_handle_.committed(), last.index, last.term, entry_id.index, entry_id.term);
     raft_log_handle_.commit_to(snapshot.metadata().index());
     return false;
   }
