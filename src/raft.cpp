@@ -183,18 +183,22 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
         switch (e.type()) {
           case raftpb::ENTRY_CONF_CHANGE: {
             raftpb::conf_change ccc;
-            if (!ccc.ParseFromString(e.data())) {
-              LEPTON_CRITICAL("entry hex:{} conf change parse from string failed ", e.data());
-              assert(false);
+            if (e.has_data()) {
+              if (!ccc.ParseFromString(e.data())) {
+                LEPTON_CRITICAL("entry hex:{} conf change parse from string failed ", e.data());
+                assert(false);
+              }
             }
             cc.emplace(pb::conf_change_as_v2(std::move(ccc)));
             break;
           }
           case raftpb::ENTRY_CONF_CHANGE_V2: {
             raftpb::conf_change_v2 ccc;
-            if (!ccc.ParseFromString(e.data())) {
-              LEPTON_CRITICAL("entry hex:{} conf change v2 parse from string failed ", e.data());
-              assert(false);
+            if (e.has_data()) {
+              if (!ccc.ParseFromString(e.data())) {
+                LEPTON_CRITICAL("entry hex:{} conf change v2 parse from string failed ", e.data());
+                assert(false);
+              }
             }
             cc.emplace(std::move(ccc));
             break;

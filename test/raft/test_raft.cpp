@@ -3420,3 +3420,130 @@ TEST_F(raft_test_suit, test_restore_ignore_snapshot) {
   ASSERT_FALSE(sm.restore(raftpb::snapshot{s}));
   ASSERT_EQ(commit + 1, sm.raft_log_handle_.committed());
 }
+
+TEST_F(raft_test_suit, test_provide_snap) {
+  // restore the state machine from a snapshot so it has a compacted log and a snapshot
+  constexpr std::uint64_t snapshot_index = 11;
+  constexpr std::uint64_t snapshot_term = 11;
+  const std::vector<std::uint64_t> voter_nodes = {1, 2};
+  auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
+
+  auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
+  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+
+  sm.become_candidate();
+  sm.become_leader();
+
+  // force set the next of node 2, so that node 2 needs a snapshot
+  sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(sm.raft_log_handle_.first_index());
+  auto msg = convert_test_pb_message({.msg_type = raftpb::message_type::MSG_APP_RESP,
+                                      .from = 2,
+                                      .to = 1,
+                                      .index = sm.trk_.progress_map_view().view().at(2).next() - 1});
+  msg.set_reject(true);
+  sm.step(std::move(msg));
+
+  auto msgs = sm.read_messages();
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(raftpb::message_type::MSG_SNAP, msgs[0].type());
+}
+
+TEST_F(raft_test_suit, test_ignore_provide_snap) {
+  // restore the state machine from a snapshot so it has a compacted log and a snapshot
+  constexpr std::uint64_t snapshot_index = 11;
+  constexpr std::uint64_t snapshot_term = 11;
+  const std::vector<std::uint64_t> voter_nodes = {1, 2};
+  auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
+
+  auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
+  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+
+  sm.become_candidate();
+  sm.become_leader();
+
+  // force set the next of node 2, so that node 2 needs a snapshot
+  // change node 2 to be inactive, expect node 1 ignore sending snapshot to 2
+  sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(sm.raft_log_handle_.first_index() - 1);
+  sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_recent_active(false);
+  auto msg = convert_test_pb_message(
+      {.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{.data = "somedata"}}});
+  sm.step(std::move(msg));
+
+  auto msgs = sm.read_messages();
+  ASSERT_EQ(0, msgs.size());
+}
+
+TEST_F(raft_test_suit, test_restore_from_snap_msg) {
+  // no use
+}
+
+TEST_F(raft_test_suit, test_slow_node_restore) {
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{});
+  peers.emplace_back(state_machine_builer_pair{});
+  peers.emplace_back(state_machine_builer_pair{});
+  auto nt = new_network(std::move(peers));
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.isolate(3);
+  for (auto j = 0; j < 100; ++j) {
+    nt.send(
+        {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  }
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 101},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 101},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  auto &lead = *nt.peers.at(1).raft_handle;
+  next_ents(lead, *nt.storage.at(1).get());
+  raftpb::conf_state cs;
+  auto voter_nodes = lead.trk_.vote_nodes();
+  for (auto voter : voter_nodes) {
+    cs.add_voters(voter);
+  }
+  nt.storage.at(1)->create_snapshot(lead.raft_log_handle_.applied(), std::move(cs), "");
+  nt.storage.at(1)->compact(lead.raft_log_handle_.applied());
+
+  nt.recover();
+  // send heartbeats so that the leader can learn everyone is active.
+  // node 3 will only be considered as active when node 1 receives a reply from it.
+  do {
+    nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+  } while (!lead.trk_.progress_map_view().view().at(3).recent_active());
+  ASSERT_TRUE(lead.trk_.progress_map_view().view().at(3).recent_active());
+
+  // trigger a snapshot
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_SNAP, .from = 1, .to = 1, .entries = {{}}})});
+  auto &follower = *nt.peers.at(3).raft_handle;
+
+  // trigger a commit
+  ASSERT_EQ(lead.raft_log_handle_.committed(), follower.raft_log_handle_.committed());
+}
+
+// TestStepConfig tests that when raft step msgProp in EntryConfChange type,
+// it appends the entry to log and sets pendingConf to be true.
+TEST_F(raft_test_suit, test_step_config) {
+  // a raft that cannot make progress
+  auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2})}})));
+  r.become_candidate();
+  r.become_leader();
+  auto index = r.raft_log_handle_.last_index();
+  auto msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  auto entry = msg.add_entries();
+  entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
+  r.step(std::move(msg));
+  ASSERT_EQ(index + 1, r.raft_log_handle_.last_index());
+  ASSERT_EQ(index + 1, r.pending_conf_index_);
+}
