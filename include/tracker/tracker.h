@@ -251,7 +251,7 @@ class progress_tracker {
   }
 
   // VoterNodes returns a sorted slice of voters.
-  std::vector<std::uint64_t> vote_nodes() const { return config_.voters.ids(); }
+  std::vector<std::uint64_t> voter_nodes() const { return config_.voters.ids(); }
 
   std::vector<std::uint64_t> learner_nodes() const {
     if (config_.learners) {

@@ -7,6 +7,13 @@
 
 #include "raft.pb.h"
 
+raftpb::conf_change create_conf_change(std::uint64_t node_id, raftpb::conf_change_type type) {
+  raftpb::conf_change cc;
+  cc.set_node_id(node_id);
+  cc.set_type(type);
+  return cc;
+}
+
 raftpb::message convert_test_pb_message(test_pb::message &&m) {
   raftpb::message msg;
   msg.set_type(m.msg_type);
@@ -118,7 +125,7 @@ bool operator==(const absl::Span<const raftpb::entry *const> &lhs, const absl::S
   return true;
 }
 
-bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs) {
+bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs) {
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
@@ -130,6 +137,10 @@ bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeate
     }
   }
   return true;
+}
+
+bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs) {
+  return compare_repeated_entry(lhs, rhs);
 }
 
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term) {

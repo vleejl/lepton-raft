@@ -10,7 +10,6 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
-#include <source_location>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -415,13 +414,10 @@ TEST_F(raft_test_suit, test_learner_promotion) {
 
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
 
-  raftpb::conf_change cc1;
-  cc1.set_node_id(2);
-  cc1.set_type(raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
-  raftpb::conf_change cc2;
-  cc2.CopyFrom(cc1);
-  n1.apply_conf_change(lepton::pb::conf_change_as_v2(std::move(cc1)));
-  n2.apply_conf_change(lepton::pb::conf_change_as_v2(std::move(cc2)));
+  n1.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+  n2.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
   ASSERT_FALSE(n2.is_learner_);
 
   // n2 start election, should become leader
@@ -1358,10 +1354,8 @@ TEST_F(raft_test_suit, commit) {
     for (std::size_t j = 0; j < iter.matches.size(); ++j) {
       auto id = j + 1;
       if (id > 1) {
-        raftpb::conf_change cc;
-        cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
-        cc.set_node_id(id);
-        sm.apply_conf_change(lepton::pb::conf_change_as_v2(std::move(cc)));
+        sm.apply_conf_change(
+            lepton::pb::conf_change_as_v2(create_conf_change(id, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
       }
       auto &pr = sm.trk_.progress_map_mutable_view().mutable_view().at(id);
       pr.set_match(iter.matches[j]);
@@ -3262,7 +3256,7 @@ TEST_F(raft_test_suit, test_restore) {
   auto term = sm.raft_log_handle_.term(snapshot_index);
   ASSERT_TRUE(term.has_value());
   ASSERT_EQ(term.value(), snapshot_term);
-  ASSERT_EQ(voter_nodes, sm.trk_.vote_nodes());
+  ASSERT_EQ(voter_nodes, sm.trk_.voter_nodes());
 
   ASSERT_FALSE(sm.restore(create_snapshot(snapshot_index, snapshot_term, {1, 2, 3})));
   for (auto i = 0; i < sm.randomized_election_timeout_; ++i) {
@@ -3287,7 +3281,7 @@ TEST_F(raft_test_suit, test_restore_with_learner) {
   auto term = sm.raft_log_handle_.term(snapshot_index);
   ASSERT_TRUE(term.has_value());
   ASSERT_EQ(term.value(), snapshot_term);
-  ASSERT_EQ(voter_nodes, sm.trk_.vote_nodes());
+  ASSERT_EQ(voter_nodes, sm.trk_.voter_nodes());
   ASSERT_EQ(learner_nodes, sm.trk_.learner_nodes());
   for (auto voter : voter_nodes) {
     ASSERT_FALSE(sm.trk_.progress_map_view().view().at(voter).is_learner());
@@ -3316,7 +3310,7 @@ TEST_F(raft_test_suit, test_restore_with_voters_outgoing) {
   ASSERT_TRUE(term.has_value());
   ASSERT_EQ(term.value(), snapshot_term);
   std::vector<std::uint64_t> expect_voter_nodes = {1, 2, 3, 4};
-  ASSERT_EQ(expect_voter_nodes, sm.trk_.vote_nodes());
+  ASSERT_EQ(expect_voter_nodes, sm.trk_.voter_nodes());
   ASSERT_FALSE(sm.restore(create_snapshot(snapshot_index, snapshot_term, {1, 2, 3})));
   for (auto i = 0; i < sm.randomized_election_timeout_; ++i) {
     sm.tick();
@@ -3509,7 +3503,7 @@ TEST_F(raft_test_suit, test_slow_node_restore) {
   auto &lead = *nt.peers.at(1).raft_handle;
   next_ents(lead, *nt.storage.at(1).get());
   raftpb::conf_state cs;
-  auto voter_nodes = lead.trk_.vote_nodes();
+  auto voter_nodes = lead.trk_.voter_nodes();
   for (auto voter : voter_nodes) {
     cs.add_voters(voter);
   }
@@ -3546,4 +3540,147 @@ TEST_F(raft_test_suit, test_step_config) {
   r.step(std::move(msg));
   ASSERT_EQ(index + 1, r.raft_log_handle_.last_index());
   ASSERT_EQ(index + 1, r.pending_conf_index_);
+}
+
+// TestStepIgnoreConfig tests that if raft step the second msgProp in
+// EntryConfChange type when the first one is uncommitted, the node will set
+// the proposal to noop and keep its original state.
+TEST_F(raft_test_suit, test_step_ignore_config) {
+  // a raft that cannot make progress
+  auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2})}})));
+  r.become_candidate();
+  r.become_leader();
+  auto msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  auto entry = msg.add_entries();
+  entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
+  r.step(raftpb::message{msg});
+  auto index = r.raft_log_handle_.last_index();
+  auto pending_conf_index = r.pending_conf_index_;
+  r.step(raftpb::message{msg});
+
+  lepton::pb::repeated_entry wents;
+  auto new_entry = wents.Add();
+  new_entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+  new_entry->set_term(1);
+  new_entry->set_index(3);
+
+  auto ents = r.raft_log_handle_.entries(index + 1, lepton::NO_LIMIT);
+  ASSERT_TRUE(ents);
+  ASSERT_TRUE(compare_repeated_entry(wents, ents.value()));
+  // ASSERT_EQ(wents, ents.value());
+  ASSERT_EQ(pending_conf_index, r.pending_conf_index_);
+}
+
+// TestNewLeaderPendingConfig tests that new leader sets its pendingConfigIndex
+// based on uncommitted entries.
+TEST_F(raft_test_suit, test_new_leader_pending_config) {
+  struct test_case {
+    bool add_entry;
+    uint64_t wpending_index;
+  };
+
+  std::vector<test_case> test_cases = {{false, 0}, {true, 1}};
+  for (std::size_t i = 0; i < test_cases.size(); ++i) {
+    auto &tt = test_cases[i];
+    auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2})}})));
+    if (tt.add_entry) {
+      lepton::pb::repeated_entry ents;
+      auto new_entry = ents.Add();
+      new_entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+      must_append_entry(r, std::move(ents));
+      r.become_candidate();
+      r.become_leader();
+      ASSERT_EQ(tt.wpending_index, r.pending_conf_index_);
+    }
+  }
+}
+
+// TestAddNode tests that addNode could update nodes correctly.
+TEST_F(raft_test_suit, test_add_node) {
+  auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
+  r.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+  auto nodes = r.trk_.voter_nodes();
+  std::vector<std::uint64_t> expect_voter_nodes{1, 2};
+  ASSERT_EQ(expect_voter_nodes, nodes);
+}
+
+// TestAddLearner tests that addLearner could update nodes correctly.
+TEST_F(raft_test_suit, test_add_learner) {
+  auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
+  // Add new learner peer.
+  r.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(2, raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE)));
+  ASSERT_FALSE(r.is_learner_);
+  ASSERT_TRUE(r.trk_.progress_map_view().view().at(2).is_learner());
+
+  // Promote peer to voter.
+  r.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+  ASSERT_FALSE(r.is_learner_);
+  ASSERT_FALSE(r.trk_.progress_map_view().view().at(2).is_learner());
+
+  // Demote r.
+  r.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(1, raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE)));
+  ASSERT_TRUE(r.is_learner_);
+  ASSERT_TRUE(r.trk_.progress_map_view().view().at(1).is_learner());
+
+  // Promote r again.
+  r.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(1, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+  ASSERT_FALSE(r.is_learner_);
+  ASSERT_FALSE(r.trk_.progress_map_view().view().at(1).is_learner());
+}
+
+// TestAddNodeCheckQuorum tests that addNode does not trigger a leader election
+// immediately when checkQuorum is set.
+TEST_F(raft_test_suit, test_add_node_check_quorum) {
+  auto sm_cfg =
+      new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
+  sm_cfg.check_quorum = true;
+  auto r = new_test_raft(std::move(sm_cfg));
+  ASSERT_EQ(true, r.check_quorum_);
+
+  r.become_candidate();
+  r.become_leader();
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(r.state_type_));
+
+  for (int i = 0; i < r.election_timeout_ - 1; ++i) {
+    r.tick();
+  }
+
+  r.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+
+  // This tick will reach electionTimeout, which triggers a quorum check.
+  r.tick();
+
+  // Node 1 should still be the leader after a single tick.
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::LEADER), magic_enum::enum_name(r.state_type_));
+
+  // 新加入节点后，由于没有收到 node 2 的 response，所以 node 1 从 leader 变为 follower
+  // After another electionTimeout ticks without hearing from node 2,
+  // node 1 should step down.
+  for (int i = 0; i < r.election_timeout_; ++i) {
+    r.tick();
+  }
+  ASSERT_EQ(magic_enum::enum_name(lepton::state_type::FOLLOWER), magic_enum::enum_name(r.state_type_));
+}
+
+// TestRemoveNode tests that removeNode could update nodes and
+// removed list correctly.
+TEST_F(raft_test_suit, test_remove_node) {
+  auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2})}})));
+  // Add new learner peer.
+  r.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(2, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE)));
+  auto nodes = r.trk_.voter_nodes();
+  std::vector<std::uint64_t> expect_voter_nodes{1};
+  ASSERT_EQ(expect_voter_nodes, nodes);
+
+  // Removing the remaining voter will panic.
+  ASSERT_DEATH(r.apply_conf_change(lepton::pb::conf_change_as_v2(
+                   create_conf_change(1, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE))),
+               "");
 }

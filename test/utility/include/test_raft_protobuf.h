@@ -26,6 +26,7 @@ struct message {
 };
 }  // namespace test_pb
 
+raftpb::conf_change create_conf_change(std::uint64_t node_id, raftpb::conf_change_type type);
 raftpb::message convert_test_pb_message(test_pb::message &&);
 lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
 lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms);
@@ -35,6 +36,7 @@ lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, s
 
 bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs);
 bool operator==(const absl::Span<const raftpb::entry *const> &lhs, const absl::Span<const raftpb::entry *const> &rhs);
+bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
 bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
 
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term);

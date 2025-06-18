@@ -69,7 +69,7 @@ leaf::result<raft> new_raft(config&& c) {
   r.become_follower(r.term_, NONE);
 
   std::vector<std::string> node_strs;
-  for (const auto& n : r.trk_.vote_nodes()) {
+  for (const auto& n : r.trk_.voter_nodes()) {
     node_strs.push_back(fmt::format("{}", n));
   }
 
@@ -1465,7 +1465,7 @@ void raft::campaign(campaign_type t) {
     vote_msg_type = raftpb::message_type::MSG_VOTE;
     term = term_;
   }
-  auto ids = trk_.vote_nodes();
+  auto ids = trk_.voter_nodes();
   for (const auto& id : ids) {
     raftpb::message m;
     m.set_to(id);
@@ -2003,7 +2003,12 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progre
     // Otherwise, still probe the newly added replicas; there's no reason to
     // let them wait out a heartbeat interval (or the next incoming
     // proposal).
-    trk_.visit([&](std::uint64_t id, tracker::progress& p) { maybe_send_append(id, false /* sendIfEmpty */); });
+    trk_.visit([&](std::uint64_t id, tracker::progress& p) {
+      if (id_ == id) {
+        return;
+      }
+      maybe_send_append(id, false /* sendIfEmpty */);
+    });
   }
 
   // 若正在进行的 Leadership 转移目标（leadTransferee）被移除，则取消转移
