@@ -70,7 +70,7 @@ struct config {
   // Raft 节点的唯一标识符。每个 Raft
   // 节点（例如领导者、跟随者、候选者）都会有一个唯一的 id，通常是节点的
   // ID，用来区分不同的节点。
-  std::uint64_t id;
+  std::uint64_t id = 0;
 
   // ElectionTick is the number of Node.Tick invocations that must pass between
   // elections. That is, if a follower does not receive any message from the
@@ -78,11 +78,11 @@ struct config {
   // candidate and start an election. ElectionTick must be greater than
   // HeartbeatTick. We suggest ElectionTick = 10 * HeartbeatTick to avoid
   // unnecessary leader switching.
-  int election_tick;
+  int election_tick = 0;
   // HeartbeatTick is the number of Node.Tick invocations that must pass between
   // heartbeats. That is, a leader sends heartbeat messages to maintain its
   // leadership every HeartbeatTick ticks.
-  int heartbeat_tick;
+  int heartbeat_tick = 0;
 
   // Storage is the storage for raft. raft generates entries and states to be
   // stored in storage. raft reads the persisted entries and states out of
@@ -95,29 +95,29 @@ struct config {
   // smaller or equal to Applied. If Applied is unset when restarting, raft
   // might return previous applied entries. This is a very application
   // dependent configuration.
-  std::uint64_t applied_index;
+  std::uint64_t applied_index = 0;
 
   // MaxSizePerMsg limits the max byte size of each append message. Smaller
   // value lowers the raft recovery cost(initial probing and message lost
   // during normal operation). On the other side, it might affect the
   // throughput during normal replication. Note: math.MaxUint64 for unlimited,
   // 0 for at most one entry per message.
-  pb::entry_encoding_size max_size_per_msg;
+  pb::entry_encoding_size max_size_per_msg = 0;
 
   // MaxCommittedSizePerReady limits the size of the committed entries which
   // can be applied.
-  std::uint64_t max_committed_size_per_ready;
+  std::uint64_t max_committed_size_per_ready = 0;
   // MaxUncommittedEntriesSize limits the aggregate byte size of the
   // uncommitted entries that may be appended to a leader's log. Once this
   // limit is exceeded, proposals will begin to return ErrProposalDropped
   // errors. Note: 0 for no limit.
-  pb::entry_payload_size max_uncommitted_entries_size;
+  pb::entry_payload_size max_uncommitted_entries_size = 0;
   // MaxInflightMsgs limits the max number of in-flight append messages during
   // optimistic replication phase. The application transportation layer usually
   // has its own sending buffer over TCP/UDP. Setting MaxInflightMsgs to avoid
   // overflowing that sending buffer. TODO (xiangli): feedback to application to
   // limit the proposal rate?
-  std::size_t max_inflight_msgs;
+  std::size_t max_inflight_msgs = 0;
   // MaxInflightBytes limits the number of in-flight bytes in append messages.
   // Complements MaxInflightMsgs. Ignored if zero.
   //
@@ -127,16 +127,16 @@ struct config {
   // latency of 100ms to the leader and this setting is set to 1 MB, there is a
   // throughput limit of 10 MB/s for this group. With RTT of 400ms, this drops
   // to 2.5 MB/s. See Little's law to understand the maths behind.
-  std::uint64_t max_inflight_bytes;
+  std::uint64_t max_inflight_bytes = 0;
 
   // CheckQuorum specifies if the leader should check quorum activity. Leader
   // steps down when quorum is not active for an electionTimeout.
-  bool check_quorum;
+  bool check_quorum = false;
 
   // PreVote enables the Pre-Vote algorithm described in raft thesis section
   // 9.6. This prevents disruption when a node that has been partitioned away
   // rejoins the cluster.
-  bool pre_vote;
+  bool pre_vote = false;
 
   // ReadOnlyOption specifies how the read only request is processed.
   //
@@ -149,7 +149,7 @@ struct config {
   // should (clock can move backward/pause without any bound). ReadIndex is not
   // safe in that case. CheckQuorum MUST be enabled if ReadOnlyOption is
   // ReadOnlyLeaseBased.
-  read_only_option read_only_opt;
+  read_only_option read_only_opt = read_only_option::READ_ONLY_SAFE;
 
   // DisableProposalForwarding set to true means that followers will drop
   // proposals, rather than forwarding them to the leader. One use case for
@@ -159,7 +159,7 @@ struct config {
   // should be disabled to prevent a follower with an inaccurate hybrid
   // logical clock from assigning the timestamp and then forwarding the data
   // to the leader.
-  bool disable_proposal_forwarding;
+  bool disable_proposal_forwarding = false;
 
   // DisableConfChangeValidation turns off propose-time verification of
   // configuration changes against the currently active configuration of the
@@ -181,14 +181,14 @@ struct config {
   //
   // This option may be removed once false positives are no longer possible.
   // See: https://github.com/etcd-io/raft/issues/80
-  bool disable_conf_change_validation;
+  bool disable_conf_change_validation = false;
 
   // StepDownOnRemoval makes the leader step down when it is removed from the
   // group or demoted to a learner.
   //
   // This behavior will become unconditional in the future. See:
   // https://github.com/etcd-io/raft/issues/83
-  bool step_down_on_removal;
+  bool step_down_on_removal = false;
 
   leaf::result<void> validate() const;
 };

@@ -831,7 +831,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
         return {};
       }
       if (r.lead_ != NONE) {
-        SPDLOG_INFO("%x forgetting leader %x at term %d", r.id_, r.lead_, r.term_);
+        SPDLOG_INFO("{} forgetting leader {} at term {}", r.id_, r.lead_, r.term_);
         return {};
       }
       break;
@@ -1053,7 +1053,7 @@ bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
       },
       [&](const lepton::lepton_error& err) -> leaf::result<raftpb::snapshot> {
         if (err == storage_error::SNAPSHOT_TEMPORARILY_UNAVAILABLE) {
-          SPDLOG_DEBUG("{} failed to send snapshot to %x because snapshot is temporarily unavailable", id_, to);
+          SPDLOG_DEBUG("{} failed to send snapshot to {} because snapshot is temporarily unavailable", id_, to);
           return new_error(err);
         }
         LEPTON_CRITICAL(err.message);
@@ -1538,7 +1538,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       // Never change our term in response to a PreVote
       SPDLOG_TRACE("{} [term {}] ignored PreVote from {} [term: {}, index: {}]", id_, term_, m.from(), m.term(),
                    m.index());
-    } else if (m.type() == raftpb::message_type::MSG_PRE_VOTE_RESP && !m.reject()) {
+    } else if ((msg_type == raftpb::message_type::MSG_PRE_VOTE_RESP) && !m.reject()) {
       // We send pre-vote requests with a term in our future. If the
       // pre-vote is granted, we will increment our term when we get a
       // quorum. If it is not, the term comes from the node that
@@ -1596,9 +1596,10 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       // we drop messages with a lower term.
       // 若 Candidate 在低 Term 发起预投票，而当前节点已处于更高 Term，直接返回拒绝响应。Candidate 收到后会发现 Term
       // 落后，停止预投票流程，避免干扰集群。
-      auto last = raft_log_handle_.last_entry_id();
-      SPDLOG_INFO("{} [logterm: {}, index: {}, vote: {}] rejected {} from {} [logterm: {}, index: {}] at term %d", id_,
-                  last.term, last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.term(), m.index());
+      auto cand_last = raft_log_handle_.last_entry_id();
+      SPDLOG_INFO("{} [logterm: {}, index: {}, vote: {}] rejected {} from {} [logterm: {}, index: {}] at term {}", id_,
+                  cand_last.term, cand_last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.term(),
+                  m.index(), term_);
       raftpb::message resp;
       resp.set_to(m.from());
       resp.set_from(term_);

@@ -142,7 +142,7 @@ pb::repeated_entry raft_log::next_committed_ents(bool allow_unstable) {
   }
   auto max_size = max_applying_ents_size_ - applying_ents_size_;
   if (max_size <= 0) {
-    LEPTON_CRITICAL("applying entry size (%d-%d)=%d not positive", max_applying_ents_size_, applying_ents_size_,
+    LEPTON_CRITICAL("applying entry size ({}-{})={} not positive", max_applying_ents_size_, applying_ents_size_,
                     max_size);
   }
   auto entries = leaf::try_handle_some(
