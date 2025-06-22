@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
+#include <source_location>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -3855,6 +3856,8 @@ TEST_F(raft_test_suit, test_pre_campaign_while_leader) { test_campaign_while_lea
 
 // TestCommitAfterRemoveNode verifies that pending commands can become
 // committed when a config change reduces the quorum requirements.
+// 在Raft集群中，当一个配置变更（移除节点）被提交后，会改变集群的法定人数（quorum）要求，
+// 从而使得之前由于quorum不足而未能提交的条目（entries）能够被提交。
 TEST_F(raft_test_suit, test_commit_after_remove_node) {
   // Create a cluster with two nodes.
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1, 2})});
@@ -3865,4 +3868,654 @@ TEST_F(raft_test_suit, test_commit_after_remove_node) {
   r.become_leader();
 
   // Begin to remove the second node.
+  auto cc = create_conf_change(2, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE);
+  {
+    raftpb::message prop_msg;
+    prop_msg.set_type(raftpb::message_type::MSG_PROP);
+    auto entry = prop_msg.add_entries();
+    entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
+    entry->set_data(cc.SerializeAsString());
+    r.step(std::move(prop_msg));
+    // Stabilize the log and make sure nothing is committed yet.
+    ASSERT_TRUE(next_ents(r, mm_storage).empty());
+  }
+
+  auto cc_index = r.raft_log_handle_.last_index();
+
+  // While the config change is pending, make another proposal.
+  {
+    raftpb::message prop_msg;
+    prop_msg.set_type(raftpb::message_type::MSG_PROP);
+    auto entry = prop_msg.add_entries();
+    entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+    entry->set_data("hello");
+    r.step(std::move(prop_msg));
+    ASSERT_TRUE(next_ents(r, mm_storage).empty());
+  }
+
+  // Node 2 acknowledges the config change, committing it.
+  {
+    raftpb::message msg;
+    msg.set_from(2);
+    msg.set_type(raftpb::message_type::MSG_APP_RESP);
+    msg.set_index(cc_index);
+    r.step(std::move(msg));
+    auto ents = next_ents(r, mm_storage);
+    ASSERT_EQ(2, ents.size());
+    ASSERT_EQ(magic_enum::enum_name(raftpb::entry_type::ENTRY_NORMAL), magic_enum::enum_name(ents[0].type()));
+    ASSERT_TRUE(ents[0].data().empty());
+    ASSERT_EQ(magic_enum::enum_name(raftpb::entry_type::ENTRY_CONF_CHANGE), magic_enum::enum_name(ents[1].type()));
+  }
+
+  // Apply the config change. This reduces quorum requirements so the
+  // pending command can now commit.
+  r.apply_conf_change(lepton::pb::conf_change_as_v2(raftpb::conf_change{cc}));
+  auto ents = next_ents(r, mm_storage);
+  ASSERT_EQ(1, ents.size());
+  ASSERT_EQ(magic_enum::enum_name(raftpb::entry_type::ENTRY_NORMAL), magic_enum::enum_name(ents[0].type()));
+  ASSERT_EQ("hello", ents[0].data());
+}
+
+static void check_leader_transfer_state(lepton::raft &r, lepton::state_type state, std::uint64_t lead,
+                                        std::source_location loc = std::source_location::current()) {
+  ASSERT_EQ(magic_enum::enum_name(state), magic_enum::enum_name(r.state_type_))
+      << fmt::format("[{}:{}][{}]\n", loc.file_name(), loc.line(), loc.function_name());
+  ASSERT_EQ(lead, r.lead_) << fmt::format("[{}:{}][{}]\n", loc.file_name(), loc.line(), loc.function_name());
+  ASSERT_EQ(lepton::NONE, r.leader_transferee_)
+      << fmt::format("[{}:{}][{}]\n", loc.file_name(), loc.line(), loc.function_name());
+}
+
+// TestLeaderTransferToUpToDateNode verifies transferring should succeed
+// if the transferee has the most up-to-date log entries when transfer starts.
+TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(1, nt.peers.at(1).raft_handle->lead_);
+
+  // Transfer leadership to 2.
+  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2);
+
+  // After some log replication, transfer leadership back to 1.
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  nt.send({new_pb_message(1, 2, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 4},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1);
+}
+
+// TestLeaderTransferToUpToDateNodeFromFollower verifies transferring should succeed
+// if the transferee has the most up-to-date log entries when transfer starts.
+// Not like TestLeaderTransferToUpToDateNode, where the leader transfer message
+// is sent to the leader, in this test case every leader transfer message is sent
+// to the follower.
+TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node_from_follower) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(1, nt.peers.at(1).raft_handle->lead_);
+
+  // Transfer leadership to 2.
+  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2);
+
+  // After some log replication, transfer leadership back to 1.
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  nt.send({new_pb_message(1, 2, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 4},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1);
+}
+
+// TestLeaderTransferWithCheckQuorum ensures transferring leader still works
+// even the current leader is still under its leader lease
+TEST_F(raft_test_suit, test_leader_transfer_with_check_quorum) {
+  auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook}, {raft_quorum_hook});
+  for (std::uint64_t i = 1; i < 4; ++i) {
+    set_randomized_election_timeout(*nt.peers.at(i).raft_handle,
+                                    nt.peers.at(i).raft_handle->election_timeout_ + static_cast<int>(i));
+  }
+
+  // Letting peer 2 electionElapsed reach to timeout so that it can vote for peer 1
+  auto &r2 = *nt.peers.at(2).raft_handle;
+  for (int i = 0; i < r2.election_timeout_; ++i) {
+    r2.tick();
+  }
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Transfer leadership to 2.
+  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2);
+
+  // After some log replication, transfer leadership back to 1.
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  nt.send({new_pb_message(1, 2, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 3, 4},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 3, 4},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1);
+}
+
+TEST_F(raft_test_suit, test_leader_transfer_to_slow_follower) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.isolate(3);
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.recover();
+  ASSERT_EQ(1, nt.peers.at(1).raft_handle->trk_.progress_map_view().view().at(3).match());
+
+  // Transfer leadership to 3 when node 3 is lack of log.
+  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 2, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 3);
+}
+
+TEST_F(raft_test_suit, test_leader_transfer_after_snapshot) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.isolate(3);
+
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  auto &lead = *nt.peers.at(1).raft_handle;
+  next_ents(lead, *nt.storage.at(1));
+  raftpb::conf_state cs;
+  auto voter_nodes = lead.trk_.voter_nodes();
+  for (auto voter : voter_nodes) {
+    cs.add_voters(voter);
+  }
+  nt.storage.at(1)->create_snapshot(lead.raft_log_handle_.applied(), std::move(cs), "");
+  nt.storage.at(1)->compact(lead.raft_log_handle_.applied());
+
+  nt.recover();
+  ASSERT_EQ(1, nt.peers.at(1).raft_handle->trk_.progress_map_view().view().at(3).match());
+
+  raftpb::message filtered;
+  // Snapshot needs to be applied before sending MsgAppResp
+  nt.msg_hook = [&](const raftpb::message &m) {
+    if (m.type() != raftpb::message_type::MSG_APP_RESP) {
+      return true;
+    }
+    if (m.from() != 3) {
+      return true;
+    }
+    if (m.reject()) {
+      return true;
+    }
+    filtered.CopyFrom(m);
+    return false;
+  };
+  // Transfer leadership to 3 when node 3 is lack of snapshot.
+  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_NE(raftpb::message{}.DebugString(), filtered.DebugString());
+
+  // Apply snapshot and resume progress
+  auto &follower = *nt.peers.at(3).raft_handle;
+  auto snap = follower.raft_log_handle_.next_unstable_snapshot();
+  ASSERT_TRUE(snap);
+  nt.storage.at(3)->apply_snapshot(raftpb::snapshot{*snap});
+  follower.applied_snap(*snap);
+  nt.msg_hook = nullptr;
+  nt.send({std::move(filtered)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 2, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 3);
+}
+
+TEST_F(raft_test_suit, test_leader_transfer_to_self) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Transfer leadership to self, there will be noop.
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1);
+}
+
+TEST_F(raft_test_suit, test_leader_transfer_to_non_existing_node) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Transfer leadership to self, there will be noop.
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1);
+}
+
+TEST_F(raft_test_suit, test_leader_transfer_timeout) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.isolate(3);
+
+  auto &lead = *nt.peers.at(1).raft_handle;
+
+  // Transfer leadership to isolated node, wait for timeout.
+  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(3, lead.leader_transferee_);
+
+  for (auto i = 0; i < lead.heartbeat_timeout_; ++i) {
+    lead.tick();
+  }
+  ASSERT_EQ(3, lead.leader_transferee_);
+
+  for (auto i = 0; i < lead.election_timeout_ - lead.heartbeat_timeout_; ++i) {
+    lead.tick();
+  }
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1);
+}
+
+// 当 Leader 正在处理领导权转移（leader transfer）时，
+// 新的提案（proposal）会被正确拒绝​​。
+TEST_F(raft_test_suit, test_leader_transfer_ignore_proposal) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1, 2, 3})});
+  auto &mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto r = new_test_learner_raft(1, 10, 1, std::move(storage_proxy));
+
+  std::vector<state_machine_builer_pair> peers;
+  peers.emplace_back(state_machine_builer_pair{r});
+  peers.emplace_back(state_machine_builer_pair{});
+  peers.emplace_back(state_machine_builer_pair{});
+  auto nt = new_network(std::move(peers));
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.isolate(3);
+
+  auto &lead = *nt.peers.at(1).raft_handle;
+  next_ents(r, mm_storage);  // handle empty entry
+
+  // Transfer leadership to isolated node to let transfer pending, then send proposal.
+  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(3, lead.leader_transferee_);
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  auto err_code = EC_SUCCESS;
+  auto has_called_error = false;
+  auto step_resilt = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(lead.step(convert_test_pb_message(
+            {.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})));
+        return {};
+      },
+      [&](const lepton_error &e) -> leaf::result<void> {
+        has_called_error = true;
+        err_code = e.err_code;
+        return new_error(e);
+      });
+  ASSERT_TRUE(has_called_error);
+  ASSERT_EQ(err_code, lepton::logic_error::PROPOSAL_DROPPED);
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  ASSERT_EQ(1, nt.peers.at(1).raft_handle->trk_.progress_map_view().view().at(1).match());
+}
+
+TEST_F(raft_test_suit, test_leader_transfer_receive_higher_term_vote) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.isolate(3);
+
+  auto &lead = *nt.peers.at(1).raft_handle;
+
+  // Transfer leadership to isolated node to let transfer pending.
+  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(3, lead.leader_transferee_);
+
+  nt.send({convert_test_pb_message(
+      {.msg_type = raftpb::message_type::MSG_HUP, .from = 2, .to = 2, .term = 2, .index = 1})});
+  check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2);
+}
+
+TEST_F(raft_test_suit, test_leader_transfer_remove_node) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.ignore(raftpb::message_type::MSG_TIMEOUT_NOW);
+
+  auto &lead = *nt.peers.at(1).raft_handle;
+
+  // The leadTransferee is removed when leadship transferring.
+  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(3, lead.leader_transferee_);
+
+  lead.apply_conf_change(
+      lepton::pb::conf_change_as_v2(create_conf_change(3, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE)));
+  check_leader_transfer_state(lead, lepton::state_type::LEADER, 1);
+}
+
+TEST_F(raft_test_suit, test_leader_transfer_demote_node) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.ignore(raftpb::message_type::MSG_TIMEOUT_NOW);
+
+  auto &lead = *nt.peers.at(1).raft_handle;
+
+  // The leadTransferee is removed when leadship transferring.
+  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(3, lead.leader_transferee_);
+
+  raftpb::conf_change_v2 cc;
+  auto change1 = cc.add_changes();
+  change1->set_node_id(3);
+  change1->set_type(raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE);
+  auto change2 = cc.add_changes();
+  change2->set_node_id(3);
+  change2->set_type(raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE);
+  lead.apply_conf_change(std::move(cc));
+
+  // Make the Raft group commit the LeaveJoint entry.
+  lead.apply_conf_change(raftpb::conf_change_v2{});
+  check_leader_transfer_state(lead, lepton::state_type::LEADER, 1);
+}
+
+// TestLeaderTransferBack verifies leadership can transfer back to self when last transfer is pending.
+TEST_F(raft_test_suit, test_leader_transfer_back) {
+  auto nt = init_empty_network({1, 2, 3});
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.isolate(3);
+
+  auto &lead = *nt.peers.at(1).raft_handle;
+
+  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  ASSERT_EQ(3, lead.leader_transferee_);
+
+  // Transfer leadership back to self.
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  check_leader_transfer_state(lead, lepton::state_type::LEADER, 1);
 }

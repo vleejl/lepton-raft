@@ -190,4 +190,5 @@ void raft_become_follower_hook(lepton::raft &sm);
 // 网络初始化
 network init_network(std::vector<std::uint64_t> &&ids, std::vector<config_hook> raft_config_hook = {},
                      std::vector<std::function<void(lepton::raft &)>> raft_hook = {});
+network init_empty_network(std::vector<std::uint64_t> &&ids);
 #endif  // _LEPTON_TEST_RAFT_NETWORKING_H_
