@@ -1602,7 +1602,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
                   m.index(), term_);
       raftpb::message resp;
       resp.set_to(m.from());
-      resp.set_from(term_);
+      resp.set_term(term_);
       resp.set_type(raftpb::message_type::MSG_PRE_VOTE_RESP);
       resp.set_reject(true);
       send(std::move(resp));

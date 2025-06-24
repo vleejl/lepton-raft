@@ -372,7 +372,6 @@ network init_network(std::vector<std::uint64_t> &&ids,
   auto append_raft_node_func = [&](std::uint64_t id, std::vector<std::uint64_t> peer_ds) {
     auto sm_cfg = new_test_config(
         id, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers(std::move(peer_ds))}})));
-    sm_cfg.check_quorum = true;
     for (auto func : raft_config_hook) {
       func(sm_cfg);
     }

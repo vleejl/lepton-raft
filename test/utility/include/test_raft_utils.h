@@ -105,7 +105,7 @@ struct network {
 
   void cut(std::uint64_t from, std::uint64_t to) {
     drop(from, to, 2.0);  // always drop
-    drop(from, to, 2.0);  // always drop
+    drop(to, from, 2.0);  // always drop
   }
 
   void isolate(std::uint64_t id) {
