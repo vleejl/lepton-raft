@@ -35,7 +35,12 @@ lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, s
                                                           std::uint64_t term_to);
 
 bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs);
-bool operator==(const absl::Span<const raftpb::entry *const> &lhs, const absl::Span<const raftpb::entry *const> &rhs);
+bool operator==(const raftpb::entry &lhs, const raftpb::entry *const rhs);
+bool operator==(const raftpb::entry *const lhs, const raftpb::entry &rhs);
+bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::span_entry &rhs);
+bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::repeated_entry &rhs);
+bool compare_repeated_entry(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs);
+bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs);
 bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
 bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
 

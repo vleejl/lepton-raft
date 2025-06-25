@@ -6,6 +6,9 @@
 namespace lepton {
 namespace pb {
 
+pb::repeated_entry convert_span_entry(pb::span_entry span_entries);
+void convert_span_entry(pb::repeated_entry& entries, pb::span_entry span_entries);
+
 entry_encoding_size ent_size(const repeated_entry& entries);
 
 entry_encoding_size ent_size(const pb::span_entry& entries);

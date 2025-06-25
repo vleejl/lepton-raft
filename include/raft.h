@@ -345,8 +345,12 @@ class raft {
   // 是否启用预选举。在 Raft
   // 协议的扩展中，为了优化选举过程，增加了预选举机制。在预选举中，节点会在正式投票前先进行一次投票尝试，preVote
   // 表示是否启用这个机制。
-  const bool pre_vote_ = false;
 
+#ifdef LEPTON_TEST
+  bool pre_vote_ = false;
+#else
+  const bool pre_vote_ = false;
+#endif
   // 心跳超时的值。领导者节点定期发送心跳，防止其他节点启动选举。heartbeatTimeout
   // 控制心跳的超时设置。
   const int heartbeat_timeout_ = 0;

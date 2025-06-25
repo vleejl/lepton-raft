@@ -322,6 +322,7 @@ leaf::result<pb::repeated_entry> raft_log::entries(std::uint64_t i, std::uint64_
   return slice(i, last_index() + 1, max_size);
 }
 
+// 仅测试场景使用
 pb::repeated_entry raft_log::all_entries() {
   auto ents = leaf::try_handle_some(
       [&]() -> leaf::result<pb::repeated_entry> {
@@ -396,11 +397,10 @@ leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t
     ents = pb::limit_entry_size(ents, max_size);
     // NB: use the full slice expression to protect the unstable slice from
     // appends to the returned ents slice.
-    return ents;
+    return pb::convert_span_entry(ents);
   }
 
   const auto cut = std::min(hi, unstable_offset);
-  pb::repeated_entry ents;
 
   auto storage_entries = leaf::try_handle_some(
       [&]() -> leaf::result<pb::repeated_entry> {

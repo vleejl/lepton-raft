@@ -271,7 +271,7 @@ class unstable {
   // TODO(pavelkalinnikov): this, and similar []pb.Entry slices, may bubble up all
   // the way to the application code through Ready struct. Protect other slices
   // similarly, and document how the client can use them.
-  pb::repeated_entry slice(std::uint64_t lo, std::uint64_t hi) const {
+  pb::span_entry slice(std::uint64_t lo, std::uint64_t hi) const {
     must_check_out_of_bounds(lo, hi);
     if (lo == hi) {
       return {};
@@ -279,9 +279,9 @@ class unstable {
     // NB: use the full slice expression to limit what the caller can do with the
     // returned slice. For example, an append will reallocate and copy this slice
     // instead of corrupting the neighbouring u.entries.
-    auto start = static_cast<std::ptrdiff_t>(lo - offset_);
-    auto end = static_cast<std::ptrdiff_t>(hi - offset_);
-    return pb::repeated_entry(entries_.begin() + start, entries_.begin() + end);
+    auto start = static_cast<std::uint64_t>(lo - offset_);
+    auto end = static_cast<std::uint64_t>(hi - offset_);
+    return absl::MakeSpan(entries_.data() + start, end - start);
   }
 
  private:
@@ -295,6 +295,7 @@ class unstable {
   // Raft 节点在日志持久化过程中能够准确地定位到这些日志条目的位置。offset
   // 使得在写入存储时，Raft
   // 能够知道从哪个位置开始写入，避免了重复写入或覆盖已存在的日志。
+  // entries[i] has raft log position i+offset.
   std::uint64_t offset_ = 0;
 
   // if true, snapshot is being written to storage.

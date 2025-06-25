@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "conf_change.h"
 #include "config.h"
 #include "error.h"
@@ -3656,7 +3657,7 @@ TEST_F(raft_test_suit, test_step_ignore_config) {
 
   auto ents = r.raft_log_handle_.entries(index + 1, lepton::NO_LIMIT);
   ASSERT_TRUE(ents);
-  ASSERT_TRUE(compare_repeated_entry(wents, ents.value()));
+  ASSERT_TRUE(compare_repeated_entry(absl::MakeSpan(wents), ents.value()));
   // ASSERT_EQ(wents, ents.value());
   ASSERT_EQ(pending_conf_index, r.pending_conf_index_);
 }
@@ -4869,5 +4870,488 @@ TEST_F(raft_test_suit, test_learner_campaign) {
         {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
     };
     check_raft_node_after_send_msg(tests);
+  }
+}
+
+// simulate rolling update a cluster for Pre-Vote. cluster has 3 nodes [n1, n2, n3].
+// n1 is leader with term 2
+// n2 is follower with term 2
+// n3 is partitioned, with term 4 and less log, state is candidate
+static network new_pre_vote_migration_cluster() {
+  auto raft_config_pre_vote_func = [](lepton::config &cfg) {
+    if (cfg.id == 1 || cfg.id == 2) {
+      cfg.pre_vote = true;
+    }
+  };
+  auto raft_pre_vote_hook_func = [](lepton::raft &sm) {
+    if (sm.id_ == 1 || sm.id_ == 2) {
+      ASSERT_TRUE(sm.pre_vote_);
+    }
+  };
+  // We intentionally do not enable PreVote for n3, this is done so in order
+  // to simulate a rolling restart process where it's possible to have a mixed
+  // version cluster with replicas with PreVote enabled, and replicas without.
+  auto nt = init_network({1, 2, 3}, {raft_config_pre_vote_func}, {raft_pre_vote_hook_func});
+  nt.peers.at(1).raft_handle->become_follower(1, NONE);
+  nt.peers.at(2).raft_handle->become_follower(1, NONE);
+  nt.peers.at(3).raft_handle->become_follower(1, NONE);
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Cause a network partition to isolate n3.
+  nt.isolate(3);
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data")});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  assert(2 == nt.peers.at(1).raft_handle->raft_log_handle_.committed());
+
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 3, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::CANDIDATE, 4, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Enable prevote on n3, then recover the network
+  nt.peers.at(3).raft_handle->pre_vote_ = true;
+  nt.recover();
+  return nt;
+}
+
+TEST_F(raft_test_suit, test_pre_vote_migration_can_complete_election) {
+  auto nt = new_pre_vote_migration_cluster();
+
+  // n1 is leader with term 2
+  // n2 is follower with term 2
+  // n3 is pre-candidate with term 4, and less log
+
+  // simulate leader down
+  nt.isolate(1);
+
+  // Call for elections from both n2 and n3.
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::PRE_CANDIDATE, 4, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+  // node 2 收到来自 node 3 的 MSG_PRE_VOTE_RESP, term 比自己高会重置当前状态为follower ，并设置自己的 term 为 MSG的term
+  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 4, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::PRE_CANDIDATE, 4, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 4, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::PRE_CANDIDATE, 4, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 5, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 5, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+TEST_F(raft_test_suit, test_pre_vote_migration_with_free_stuck_pre_candidate) {
+  auto nt = new_pre_vote_migration_cluster();
+
+  // n1 is leader with term 2
+  // n2 is follower with term 2
+  // n3 is pre-candidate with term 4, and less log
+
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::PRE_CANDIDATE, 4, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Pre-Vote again for safety
+  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::PRE_CANDIDATE, 4, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Disrupt the leader so that the stuck peer is freed
+  // node 1 收到来自 node 3 的 MSG_HEARTBEAT_RESP, term 比自己高会重置当前状态为follower ，并设置自己的 term 为
+  // MSG的term
+  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT,
+                                    .from = 1,
+                                    .to = 3,
+                                    .term = nt.peers.at(1).raft_handle->term_})});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 4, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::PRE_CANDIDATE, 4, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+static void test_conf_change_check_before_campaign(bool v2) {
+  auto nt = init_empty_network({1, 2, 3});
+  auto &n1 = *nt.peers.at(1).raft_handle;
+  auto &n2 = *nt.peers.at(2).raft_handle;
+
+  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Begin to remove the third node.
+  raftpb::conf_change cc;
+  cc.set_type(raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE);
+  cc.set_node_id(2);
+  std::string cc_data;
+  raftpb::entry_type ty;
+  if (v2) {
+    auto ccv2 = lepton::pb::conf_change_as_v2(std::move(cc));
+    cc_data = ccv2.SerializeAsString();
+    ty = raftpb::entry_type::ENTRY_CONF_CHANGE_V2;
+  } else {
+    cc_data = cc.SerializeAsString();
+    ty = raftpb::entry_type::ENTRY_CONF_CHANGE;
+  }
+
+  // 进行配置变更。注意：这里仅完成提交，但没有 apply conf change
+  raftpb::message prop_msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  auto entry = prop_msg.add_entries();
+  entry->set_type(ty);
+  entry->set_data(cc_data);
+  nt.send({std::move(prop_msg)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 2},
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // 由于有未应用的配置变更，所以此时即使触发超时选举逻辑，node 2 也会选举失败
+  // Trigger campaign in node 2
+  for (auto i = 0; i < n2.randomized_election_timeout_; ++i) {
+    n2.tick();
+  }
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 2},
+        // It's still follower because committed conf change is not applied.
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // 由于有未应用的配置变更，所以此时即使触发超时选举逻辑，node 2 也会选举失败
+  // Transfer leadership to peer 2.
+  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 2},
+        // It's still follower because committed conf change is not applied.
+        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 2},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  // Abort transfer leader
+  for (auto i = 0; i < n1.election_timeout_; ++i) {
+    n1.tick();
+  }
+
+  // Advance apply
+  // 在 node2 上应用提交的条目; 但是此时 node 1 并不知道 node 2 已经应用完配置变更
+  next_ents(n2, *nt.storage.at(2));
+
+  // Transfer leadership to peer 2 again.
+  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+
+  next_ents(n1, *nt.storage.at(1));
+  // Trigger campaign in node 1
+  for (auto i = 0; i < n1.randomized_election_timeout_; ++i) {
+    n1.tick();
+  }
+  {
+    std::vector<test_expected_raft_status> tests{
+        {nt.peers.at(1).raft_handle, lepton::state_type::CANDIDATE, 3, 3},
+        {nt.peers.at(2).raft_handle, lepton::state_type::LEADER, 2, 3},
+        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 2, 3},
+    };
+    check_raft_node_after_send_msg(tests);
+  }
+}
+
+// TestConfChangeCheckBeforeCampaign tests if unapplied ConfChange is checked before campaign.
+TEST_F(raft_test_suit, test_conf_change_check_before_campaign) { test_conf_change_check_before_campaign(false); }
+
+// TestConfChangeV2CheckBeforeCampaign tests if unapplied ConfChangeV2 is checked before campaign.
+TEST_F(raft_test_suit, test_conf_change_v2_check_before_campaign) { test_conf_change_check_before_campaign(false); }
+
+TEST_F(raft_test_suit, test_fast_log_rejection) {
+  // 测试用例结构体定义
+  struct test_case {
+    std::string description;                  // 测试用例的描述
+    lepton::pb::repeated_entry leader_log;    // Leader 上的日志
+    lepton::pb::repeated_entry follower_log;  // Follower 上的日志
+    uint64_t follower_compact;                // Follower 日志被压缩的索引
+    uint64_t reject_hint_term;                // 拒绝响应中包含的任期
+    uint64_t reject_hint_index;               // 拒绝响应中包含的索引
+    uint64_t next_append_term;                // 拒绝后 Leader 的下个追加日志任期
+    uint64_t next_append_index;               // 拒绝后 Leader 的下个追加日志索引
+  };
+
+  // 测试用例数组
+  std::vector<test_case> tests = {
+      {.description = R"(/*
+         * 测试用例1: 
+         * This case tests that leader can find the conflict index quickly.
+         * Firstly leader appends (type=MsgApp,index=7,logTerm=4, entries=...);
+         * After rejected leader appends (type=MsgApp,index=3,logTerm=2).
+         */)",
+       .leader_log = create_entries(1, {1, 2, 2, 4, 4, 4, 4}),
+       .follower_log = create_entries(1, {1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3}),
+       .follower_compact = 0,
+       .reject_hint_term = 3,
+       .reject_hint_index = 7,
+       .next_append_term = 2,
+       .next_append_index = 3},
+      {.description = R"(/*
+           * 测试用例2:
+           * This case tests that leader can find the conflict index quickly.
+           * Firstly leader appends (type=MsgApp,index=8,logTerm=5, entries=...);
+           * After rejected leader appends (type=MsgApp,index=4,logTerm=3).
+           */)",
+       .leader_log = create_entries(1, {1, 2, 2, 3, 4, 4, 4, 5}),
+       .follower_log = create_entries(1, {1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3}),
+       .follower_compact = 0,
+       .reject_hint_term = 3,
+       .reject_hint_index = 8,
+       .next_append_term = 3,
+       .next_append_index = 4},
+      {.description = R"(/*
+         * 测试用例3:
+         * This case tests that follower can find the conflict index quickly.
+         * Firstly leader appends (type=MsgApp,index=4,logTerm=1, entries=...);
+         * After rejected leader appends (type=MsgApp,index=1,logTerm=1).
+         */)",
+       .leader_log = create_entries(1, {1, 1, 1, 1}),
+       .follower_log = create_entries(1, {1, 2, 2, 4}),
+       .follower_compact = 0,
+       .reject_hint_term = 1,
+       .reject_hint_index = 1,
+       .next_append_term = 1,
+       .next_append_index = 1},
+      {.description = R"(/*
+         * 测试用例4:
+         * This case is similar to the previous case. However, this time, the
+         * leader has a longer uncommitted log tail than the follower.
+         * Firstly leader appends (type=MsgApp,index=6,logTerm=1, entries=...);
+         * After rejected leader appends (type=MsgApp,index=1,logTerm=1).
+         */)",
+       .leader_log = create_entries(1, {1, 1, 1, 1, 1, 1}),
+       .follower_log = create_entries(1, {1, 2, 2, 4}),
+       .follower_compact = 0,
+       .reject_hint_term = 1,
+       .reject_hint_index = 1,
+       .next_append_term = 1,
+       .next_append_index = 1},
+      {.description = R"(/*
+         * 测试用例5:
+         * This case is similar to the previous case. However, this time, the
+         * follower has a longer uncommitted log tail than the leader.
+         * Firstly leader appends (type=MsgApp,index=4,logTerm=1, entries=...);
+         * After rejected leader appends (type=MsgApp,index=1,logTerm=1).
+         */)",
+       .leader_log = create_entries(1, {1, 1, 1, 1}),
+       .follower_log = create_entries(1, {1, 2, 2, 4, 4, 4}),
+       .follower_compact = 0,
+       .reject_hint_term = 1,
+       .reject_hint_index = 1,
+       .next_append_term = 1,
+       .next_append_index = 1},
+      {.description = R"(/*
+         * 测试用例6:
+         * An normal case that there are no log conflicts.
+         * Firstly leader appends (type=MsgApp,index=5,logTerm=5, entries=...);
+         * After rejected leader appends (type=MsgApp,index=4,logTerm=4).
+         */)",
+       .leader_log = create_entries(1, {1, 1, 1, 4, 5}),
+       .follower_log = create_entries(1, {1, 1, 1, 4}),
+       .follower_compact = 0,
+       .reject_hint_term = 4,
+       .reject_hint_index = 4,
+       .next_append_term = 4,
+       .next_append_index = 4},
+      {.description = R"(/*
+         * 测试用例7:
+         * Test case from example comment in stepLeader (on leader).
+         * Leader terms: [2, 5, 5, 5, 5, 5, 5, 5, 5]
+         * Follower terms: [2, 4, 4, 4, 4, 4]
+         */)",
+       .leader_log = create_entries(1, {2, 5, 5, 5, 5, 5, 5, 5, 5}),
+       .follower_log = create_entries(1, {2, 4, 4, 4, 4, 4}),
+       .follower_compact = 0,
+       .reject_hint_term = 4,
+       .reject_hint_index = 6,
+       .next_append_term = 2,
+       .next_append_index = 1},
+      {.description = R"(/*
+         * 测试用例8:
+         * Test case from example comment in handleAppendEntries (on follower).
+         * Leader terms: [2, 2, 2, 2, 2] (indexes 1-5)
+         * Follower terms: [2, 4, 4, 4, 4, 4, 4, 4] (indexes 1-8)
+         */)",
+       .leader_log = create_entries(1, {2, 2, 2, 2, 2}),
+       .follower_log = create_entries(1, {2, 4, 4, 4, 4, 4, 4, 4}),
+       .follower_compact = 0,
+       .reject_hint_term = 2,
+       .reject_hint_index = 1,
+       .next_append_term = 2,
+       .next_append_index = 1},
+      {.description = R"(/*
+         * 测试用例9:
+         * A case when a stale MsgApp from leader arrives after the corresponding
+         * log index got compacted.
+         * A stale (type=MsgApp,index=3,logTerm=3,entries=[(term=3,index=4)]) is
+         * delivered to a follower who has already compacted beyond log index 3. The
+         * MsgAppResp rejection will return same index=3, with logTerm=0. The leader
+         * will rollback by one entry, and send MsgApp with index=2,logTerm=1.
+         */)",
+       .leader_log = create_entries(1, {1, 1, 3}),
+       .follower_log = create_entries(1, {1, 1, 3, 3, 3}),
+       .follower_compact = 5,  // 索引 <=5 的条目已被压缩
+       .reject_hint_term = 0,
+       .reject_hint_index = 3,
+       .next_append_term = 1,
+       .next_append_index = 2},
+  };
+  for (std::size_t i = 0; i < tests.size(); ++i) {
+    auto &tt = tests[i];
+
+    auto s1_ptr = new_test_memory_storage_ptr({with_peers({1, 2, 3})});
+    auto &s1 = *s1_ptr;
+    pro::proxy<storage_builer> s1_proxy = s1_ptr.get();
+    auto leader_last = tt.leader_log[tt.leader_log.size() - 1];
+    raftpb::hard_state leader_hs;
+    auto leader_last_term = leader_last.term();
+    leader_hs.set_term(leader_last_term);
+    leader_hs.set_commit(leader_last.index());
+    s1.append(std::move(tt.leader_log));
+    auto n1 = new_test_learner_raft(1, 10, 1, std::move(s1_proxy));
+    n1.become_candidate();  // bumps Term to last.Term
+    n1.become_leader();
+
+    auto s2_ptr = new_test_memory_storage_ptr({with_peers({1, 2, 3})});
+    auto &s2 = *s2_ptr;
+    pro::proxy<storage_builer> s2_proxy = s2_ptr.get();
+    raftpb::hard_state follower_hs;
+    follower_hs.set_term(leader_last_term);
+    follower_hs.set_vote(1);
+    follower_hs.set_commit(0);  // 这里表示 s2 没有 commit 任何日志
+    s2.append(std::move(tt.follower_log));
+    auto n2 = new_test_learner_raft(2, 10, 1, std::move(s2_proxy));
+    if (tt.follower_compact != 0) {
+      // 在已经设置 commit 为0的情况下，仍然执行了compact
+      // 调用 Compact() 会裁剪掉 MemoryStorage 中 [1, followerCompact) 范围内的日志，只保留 followerCompact 开始之后的。
+      // 注意：一个节点永远不能 compact 未 commit 的日志 —— 这会造成状态机和日志不一致，是 Raft 的严重错误。
+      s2.compact(tt.follower_compact);
+      // NB: the state of n2 after this compaction isn't realistic because the
+      // commit index is still at 0. We do this to exercise a "doesn't happen"
+      // edge case behaviour, in case it still does happen in some other way.
+    }
+
+    ASSERT_TRUE(n2.step(new_pb_message(1, 2, raftpb::MSG_HEARTBEAT)));
+    auto msgs = n2.read_messages();
+    ASSERT_EQ(1, msgs.size());
+    ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_HEARTBEAT_RESP), magic_enum::enum_name(msgs[0].type()));
+
+    // 由于 commit 为 0， leader 会给 follower 发送 MSG_APP
+    ASSERT_TRUE(n1.step(raftpb::message{msgs[0]}));
+    msgs = n1.read_messages();
+    ASSERT_EQ(1, msgs.size());
+    ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+
+    ASSERT_TRUE(n2.step(raftpb::message{msgs[0]}));
+    msgs = n2.read_messages();
+    ASSERT_EQ(1, msgs.size());
+    ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_APP_RESP), magic_enum::enum_name(msgs[0].type()));
+    // 由于storage实际已经应用了日志，所以会 reject
+    ASSERT_TRUE(msgs[0].reject());
+    ASSERT_EQ(tt.reject_hint_term, msgs[0].log_term());
+    ASSERT_EQ(tt.reject_hint_index, msgs[0].reject_hint());
+
+    ASSERT_TRUE(n1.step(raftpb::message{msgs[0]}));
+    msgs = n1.read_messages();
+    ASSERT_EQ(1, msgs.size());
+    ASSERT_EQ(tt.next_append_term, msgs[0].log_term());
+    ASSERT_EQ(tt.next_append_index, msgs[0].index()) << fmt::format("#{}", i);
   }
 }

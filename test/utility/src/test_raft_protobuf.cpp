@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "raft.pb.h"
 
 raftpb::conf_change create_conf_change(std::uint64_t node_id, raftpb::conf_change_type type) {
@@ -111,7 +112,19 @@ bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs) {
   return true;
 }
 
-bool operator==(const absl::Span<const raftpb::entry *const> &lhs, const absl::Span<const raftpb::entry *const> &rhs) {
+bool operator==(const raftpb::entry &lhs, const raftpb::entry *const rhs) { return operator==(lhs, *rhs); }
+
+bool operator==(const raftpb::entry *const lhs, const raftpb::entry &rhs) { return operator==(*lhs, rhs); }
+
+bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::span_entry &rhs) {
+  return compare_repeated_entry(absl::MakeSpan(lhs), rhs);
+}
+
+bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::repeated_entry &rhs) {
+  return compare_repeated_entry(lhs, absl::MakeSpan(rhs));
+}
+
+bool compare_repeated_entry(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs) {
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
@@ -123,6 +136,10 @@ bool operator==(const absl::Span<const raftpb::entry *const> &lhs, const absl::S
     }
   }
   return true;
+}
+
+bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs) {
+  return compare_repeated_entry(lhs, rhs);
 }
 
 bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs) {

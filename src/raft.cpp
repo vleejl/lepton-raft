@@ -412,7 +412,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
           //    7, the rejection points it at the end of the follower's log
           //    which is at a higher log term than the actually committed
           //    log.
-          auto [next_probe_idx, _] = r.raft_log_handle_.find_conflict_by_term(m.index(), m.log_term());
+          auto [next_probe_idx, _] = r.raft_log_handle_.find_conflict_by_term(m.reject_hint(), m.log_term());
           next_probe = next_probe_idx;
         }
         if (pr.maybe_decr_to(m.index(), next_probe)) {
@@ -1414,7 +1414,7 @@ bool raft::has_unapplied_conf_change() const {
   // Scan all unapplied committed entries to find a config change. Paginate the
   // scan, to avoid a potentially unlimited memory spike.
   auto lo = raft_log_handle_.applied() + 1;
-  auto hi = raft_log_handle_.committed();
+  auto hi = raft_log_handle_.committed() + 1;
   // Reuse the maxApplyingEntsSize limit because it is used for similar purposes
   // (limiting the read of unapplied committed entries) when raft sends entries
   // via the Ready struct for application.

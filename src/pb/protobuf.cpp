@@ -13,6 +13,21 @@ static raftpb::hard_state EMPTY_STATE;
 namespace lepton {
 
 namespace pb {
+
+pb::repeated_entry convert_span_entry(pb::span_entry span_entries) {
+  pb::repeated_entry entries;
+  for (auto iter : span_entries) {
+    entries.Add()->CopyFrom(*iter);
+  }
+  return entries;
+}
+
+void convert_span_entry(pb::repeated_entry& entries, pb::span_entry span_entries) {
+  for (auto iter : span_entries) {
+    entries.Add()->CopyFrom(*iter);
+  }
+}
+
 entry_encoding_size ent_size(const repeated_entry& entries) {
   entry_encoding_size size = 0;
   for (const auto& entry : entries) {

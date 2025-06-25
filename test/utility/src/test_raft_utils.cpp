@@ -391,8 +391,6 @@ network init_empty_network(std::vector<std::uint64_t> &&ids) {
   std::vector<state_machine_builer_pair> peers;
   for (auto _ : ids) {
     peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
-    peers.emplace_back(state_machine_builer_pair{});
   }
   return new_network(std::move(peers));
 }
