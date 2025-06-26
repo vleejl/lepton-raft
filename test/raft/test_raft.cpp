@@ -1,5 +1,3 @@
-#include "test_raft.h"
-
 #include <gtest/gtest.h>
 #include <proxy.h>
 #include <raft.pb.h>
@@ -38,6 +36,17 @@
 #include "test_utility_data.h"
 #include "types.h"
 using namespace lepton;
+
+class raft_test_suit : public testing::Test {
+ protected:
+  static void SetUpTestSuite() { std::cout << "run before first case..." << std::endl; }
+
+  static void TearDownTestSuite() { std::cout << "run after last case..." << std::endl; }
+
+  virtual void SetUp() override { std::cout << "enter from SetUp" << std::endl; }
+
+  virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
+};
 
 TEST_F(raft_test_suit, progress_leader) {
   auto storage = pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1, 2})}));
