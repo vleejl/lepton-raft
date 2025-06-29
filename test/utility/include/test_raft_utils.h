@@ -26,7 +26,7 @@ lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbea
 // by system, in some test scenario we need to fill in some expected value to
 // ensure the certainty
 void set_randomized_election_timeout(lepton::raft &r, int election_timeout);
-
+std::vector<std::uint64_t> ids_by_size(std::size_t size);
 struct black_hole {
   lepton::leaf::result<void> step(raftpb::message &&) { return {}; }
 
@@ -167,6 +167,7 @@ lepton::raft new_test_learner_raft(std::uint64_t id, int election_tick, int hear
 
 // 消息构造
 raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type);
+raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, std::uint64_t term, raftpb::message_type type);
 raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type, std::string data);
 raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type,
                                lepton::pb::repeated_entry &&entries);
@@ -191,4 +192,7 @@ void raft_become_follower_hook(lepton::raft &sm);
 network init_network(std::vector<std::uint64_t> &&ids, std::vector<config_hook> raft_config_hook = {},
                      std::vector<std::function<void(lepton::raft &)>> raft_hook = {});
 network init_empty_network(std::vector<std::uint64_t> &&ids);
+
+void emplace_nil_peer(std::vector<state_machine_builer_pair> &peers);
+void emplace_nop_stepper(std::vector<state_machine_builer_pair> &peers);
 #endif  // _LEPTON_TEST_RAFT_NETWORKING_H_

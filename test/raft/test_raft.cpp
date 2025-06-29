@@ -293,15 +293,6 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
 
 static void pre_vote_config(config &cfg) { cfg.pre_vote = true; }
 
-void emplace_nil_peer(std::vector<state_machine_builer_pair> &peers) {
-  peers.emplace_back(state_machine_builer_pair{});
-}
-
-void emplace_nop_stepper(std::vector<state_machine_builer_pair> &peers) {
-  emplace_nil_peer(peers);
-  peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
-}
-
 static void test_leader_election(bool pre_vote) {
   std::function<void(lepton::config &)> config_func;
   auto cand_state = lepton::state_type::CANDIDATE;

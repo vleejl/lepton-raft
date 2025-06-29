@@ -29,10 +29,12 @@ struct message {
 raftpb::conf_change create_conf_change(std::uint64_t node_id, raftpb::conf_change_type type);
 raftpb::message convert_test_pb_message(test_pb::message &&);
 lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
+raftpb::entry create_entry(std::uint64_t index, std::uint64_t term, std::string &&data);
 lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms);
 lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params);
 lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from,
                                                           std::uint64_t term_to);
+lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries);
 
 bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs);
 bool operator==(const raftpb::entry &lhs, const raftpb::entry *const rhs);
@@ -43,6 +45,8 @@ bool compare_repeated_entry(const lepton::pb::span_entry &lhs, const lepton::pb:
 bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs);
 bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
 bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
+bool compare_repeated_message(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs);
+bool operator==(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs);
 
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term);
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, std::vector<std::uint64_t> &&voters);

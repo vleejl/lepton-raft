@@ -83,7 +83,7 @@ void set_randomized_election_timeout(lepton::raft &r, int election_timeout) {
   r.randomized_election_timeout_ = election_timeout;
 }
 
-static std::vector<std::uint64_t> ids_by_size(std::size_t size) {
+std::vector<std::uint64_t> ids_by_size(std::size_t size) {
   std::vector<std::uint64_t> ids(size);
   for (std::size_t i = 0; i < size; ++i) {
     ids[i] = 1 + static_cast<std::uint64_t>(i);
@@ -281,6 +281,15 @@ raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::mes
   return msg;
 }
 
+raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, std::uint64_t term, raftpb::message_type type) {
+  raftpb::message msg;
+  msg.set_from(from);
+  msg.set_to(to);
+  msg.set_term(term);
+  msg.set_type(type);
+  return msg;
+}
+
 raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type, std::string data) {
   raftpb::message msg;
   msg.set_from(from);
@@ -393,4 +402,13 @@ network init_empty_network(std::vector<std::uint64_t> &&ids) {
     peers.emplace_back(state_machine_builer_pair{});
   }
   return new_network(std::move(peers));
+}
+
+void emplace_nil_peer(std::vector<state_machine_builer_pair> &peers) {
+  peers.emplace_back(state_machine_builer_pair{});
+}
+
+void emplace_nop_stepper(std::vector<state_machine_builer_pair> &peers) {
+  emplace_nil_peer(peers);
+  peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
 }

@@ -164,6 +164,8 @@ class progress_tracker {
   config& mutable_config_view() { return config_; }
 
   auto votes_size() const { return votes_.size(); }
+
+  const auto& votes_view() const { return votes_; }
 #endif
 
   const progress_map& progress_map_view() const { return progress_map_; }

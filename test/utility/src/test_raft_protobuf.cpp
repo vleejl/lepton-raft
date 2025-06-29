@@ -1,5 +1,6 @@
 #include "test_raft_protobuf.h"
 
+#include <cassert>
 #include <cstdio>
 #include <ostream>
 #include <string>
@@ -7,6 +8,7 @@
 
 #include "absl/types/span.h"
 #include "raft.pb.h"
+#include "spdlog/spdlog.h"
 
 raftpb::conf_change create_conf_change(std::uint64_t node_id, raftpb::conf_change_type type) {
   raftpb::conf_change cc;
@@ -49,7 +51,9 @@ raftpb::message convert_test_pb_message(test_pb::message &&m) {
     }
     entry->set_data(iter_entry.data);
   }
-  msg.set_context(m.ctx);
+  if (!m.ctx.empty()) {
+    msg.set_context(m.ctx);
+  }
   return msg;
 }
 
@@ -57,6 +61,14 @@ lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term) {
   auto entry = std::make_unique<raftpb::entry>();
   entry->set_index(index);
   entry->set_term(term);
+  return entry;
+}
+
+raftpb::entry create_entry(std::uint64_t index, std::uint64_t term, std::string &&data) {
+  raftpb::entry entry;
+  entry.set_index(index);
+  entry.set_term(term);
+  entry.set_data(data);
   return entry;
 }
 
@@ -91,6 +103,14 @@ lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t,
     entry->set_term(term);
   }
   return entries;
+}
+
+lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries) {
+  lepton::pb::repeated_entry resp_entries;
+  for (auto &entry : entries) {
+    resp_entries.Add(std::move(entry));
+  }
+  return resp_entries;
 }
 
 bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs) {
@@ -128,10 +148,15 @@ bool compare_repeated_entry(const lepton::pb::span_entry &lhs, const lepton::pb:
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
+    for (const auto &entry : rhs) {
+      SPDLOG_INFO(entry->DebugString());
+    }
     return false;
   }
   for (int i = 0; i < lhs_size; ++i) {
     if (*lhs[i] != *rhs[i]) {
+      SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i]->DebugString());
+      SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i]->DebugString());
       return false;
     }
   }
@@ -146,10 +171,15 @@ bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton:
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
+    for (const auto &entry : rhs) {
+      SPDLOG_INFO(entry.DebugString());
+    }
     return false;
   }
   for (int i = 0; i < lhs_size; ++i) {
     if (lhs[i] != rhs[i]) {
+      SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
+      SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
       return false;
     }
   }
@@ -158,6 +188,27 @@ bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton:
 
 bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs) {
   return compare_repeated_entry(lhs, rhs);
+}
+
+bool compare_repeated_message(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs) {
+  const auto lhs_size = lhs.size();
+  const auto rhs_size = rhs.size();
+  if (lhs_size != rhs_size) {
+    assert(lhs_size == rhs_size);
+    return false;
+  }
+  for (int i = 0; i < lhs_size; ++i) {
+    if (lhs[i].DebugString() != rhs[i].DebugString()) {
+      SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
+      SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
+      return false;
+    }
+  }
+  return true;
+}
+
+bool operator==(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs) {
+  compare_repeated_message(lhs, rhs);
 }
 
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term) {

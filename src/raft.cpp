@@ -1100,7 +1100,9 @@ void raft::send_heartbeat(std::uint64_t id, std::string&& ctx) {
   m.set_to(id);
   m.set_type(raftpb::message_type::MSG_HEARTBEAT);
   m.set_commit(commit);
-  *m.mutable_context() = std::move(ctx);
+  if (!ctx.empty()) {
+    *m.mutable_context() = std::move(ctx);
+  }
   send(std::move(m));
   pr_iter->second.sent_commit(commit);
 }
@@ -1491,7 +1493,9 @@ void raft::campaign(campaign_type t) {
     m.set_type(vote_msg_type);
     m.set_index(last.index);
     m.set_log_term(last.term);
-    *m.mutable_context() = std::move(ctx);
+    if (!ctx.empty()) {
+      *m.mutable_context() = std::move(ctx);
+    }
     send(std::move(m));
   }
 }
@@ -1755,7 +1759,8 @@ void raft::handle_append_entries(raftpb::message&& message) {
   // 尝试本地追加日志
   if (auto m_last_index = raft_log_handle_.maybe_append(std::move(log_slice), message.commit());
       m_last_index) {  // 本地追加日志成功： 返回最新日志索引 mlastIndex，发送 MsgAppResp 确认。
-    resp_msg.set_index(m_last_index.value());
+    auto last_index = m_last_index.value();
+    resp_msg.set_index(last_index);
     send(std::move(resp_msg));
     return;
   }
