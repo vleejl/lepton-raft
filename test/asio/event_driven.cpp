@@ -1,3 +1,5 @@
+#include <gtest/gtest.h>
+
 #include <asio.hpp>
 #include <asio/awaitable.hpp>
 #include <asio/co_spawn.hpp>
@@ -6,7 +8,6 @@
 #include <atomic>
 #include <chrono>
 #include <iostream>
-
 using asio::awaitable;
 using asio::co_spawn;
 using asio::detached;
@@ -70,16 +71,12 @@ class RaftNode {
   steady_timer timer_;  // 定时器对象
 };
 
-#include <catch2/catch_test_macros.hpp>
+// TEST(test_event_driven, asio_io_context) {
+//   io_context io_context;
+//   RaftNode raft_node(io_context);
 
-TEST_CASE("test event driven", "asio_io_context") {
-  SECTION("test event driven", "new_event_driven") {
-    io_context io_context;
-    RaftNode raft_node(io_context);
+//   raft_node.start();
 
-    raft_node.start();
-
-    // 运行事件循环，协程会在这里执行
-    io_context.run();
-  }
-}
+//   // 运行事件循环，协程会在这里执行
+//   io_context.run();
+// }

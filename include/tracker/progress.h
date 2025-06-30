@@ -243,7 +243,7 @@ class progress {
       case state_type::STATE_PROBE:
         return msg_app_flow_paused_;
       case state_type::STATE_REPLICATE:
-        return inflights_.full();
+        return msg_app_flow_paused_;
       case state_type::STATE_SNAPSHOT:
         return true;
       default:

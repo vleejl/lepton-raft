@@ -6,9 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
-#include <functional>
 #include <memory>
-#include <source_location>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -16,7 +14,6 @@
 #include <vector>
 
 #include "absl/types/span.h"
-#include "conf_change.h"
 #include "config.h"
 #include "error.h"
 #include "fmt/base.h"
@@ -32,9 +29,7 @@
 #include "storage.h"
 #include "test_diff.h"
 #include "test_raft_protobuf.h"
-#include "test_raft_state_machine.h"
 #include "test_raft_utils.h"
-#include "test_utility_data.h"
 #include "types.h"
 using namespace lepton;
 
