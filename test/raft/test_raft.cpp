@@ -31,7 +31,6 @@
 #include "storage.h"
 #include "test_diff.h"
 #include "test_raft_protobuf.h"
-#include "test_raft_state_machine.h"
 #include "test_raft_utils.h"
 #include "test_utility_data.h"
 #include "types.h"

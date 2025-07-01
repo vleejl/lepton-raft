@@ -66,6 +66,8 @@ class progress {
 
   auto next() const { return next_; }
 
+  auto pending_snapshot() const { return pending_snapshot_; }
+
   auto is_learner() const { return is_learner_; }
 
   auto set_recent_active(bool active) { recent_active_ = active; }
