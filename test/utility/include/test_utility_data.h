@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-#include "error.h"
+#include "lepton_error.h"
 
 template <typename T>
 lepton::leaf::result<std::uint64_t> safe_stoull(

@@ -2,9 +2,9 @@
 
 #include <google/protobuf/util/message_differencer.h>
 
-#include "error.h"
 #include "fmt/format.h"
 #include "leaf.hpp"
+#include "lepton_error.h"
 #include "magic_enum.hpp"
 #include "raft.pb.h"
 using google::protobuf::util::MessageDifferencer;

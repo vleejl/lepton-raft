@@ -2,6 +2,9 @@
 #define _LEPTON_PB_H_
 #include <raft.pb.h>
 
+#include <magic_enum/magic_enum.hpp>
+
+#include "log.h"
 #include "types.h"
 namespace lepton {
 namespace pb {
@@ -43,6 +46,64 @@ bool is_empty_hard_state(const raftpb::hard_state& hs);
 
 // voteResponseType maps vote and prevote message types to their corresponding responses.
 raftpb::message_type vote_resp_msg_type(raftpb::message_type type);
+
+constexpr bool is_local_msg(raftpb::message_type type);
+
+constexpr bool is_response_msg(raftpb::message_type type);
+
+// 辅助函数：创建并显式初始化的数组
+template <size_t N>
+constexpr auto create_initialized_array() {
+  std::array<bool, N> arr = {};
+  for (auto& b : arr) {
+    b = false;  // 显式初始化为false
+  }
+  return arr;
+}
+
+inline constexpr auto __is_local_msg = []() {
+  auto arr = create_initialized_array<RAFTPB_MESSAGE_COUNT>();
+  arr[raftpb::MSG_HUP] = true;
+  arr[raftpb::MSG_BEAT] = true;
+  arr[raftpb::MSG_UNREACHABLE] = true;
+  arr[raftpb::MSG_SNAP_STATUS] = true;
+  arr[raftpb::MSG_CHECK_QUORUM] = true;
+  arr[raftpb::MSG_STORAGE_APPEND] = true;
+  arr[raftpb::MSG_STORAGE_APPEND_RESP] = true;
+  arr[raftpb::MSG_STORAGE_APPLY] = true;
+  arr[raftpb::MSG_STORAGE_APPLY_RESP] = true;
+  return arr;
+}();
+
+constexpr bool is_local_msg(raftpb::message_type type) {
+  if (type < 0 || type >= RAFTPB_MESSAGE_COUNT) {
+    LEPTON_CRITICAL("invalid message type: {}", magic_enum::enum_name(type));
+  }
+  return __is_local_msg[static_cast<std::size_t>(type)];
+}
+
+// 响应消息映射表 - 显式初始化
+inline constexpr auto __is_response_msg = []() {
+  auto arr = create_initialized_array<RAFTPB_MESSAGE_COUNT>();
+  arr[raftpb::MSG_APP_RESP] = true;
+  arr[raftpb::MSG_VOTE_RESP] = true;
+  arr[raftpb::MSG_HEARTBEAT_RESP] = true;
+  arr[raftpb::MSG_UNREACHABLE] = true;
+  arr[raftpb::MSG_READ_INDEX_RESP] = true;
+  arr[raftpb::MSG_PRE_VOTE_RESP] = true;
+  arr[raftpb::MSG_STORAGE_APPEND_RESP] = true;
+  arr[raftpb::MSG_STORAGE_APPLY_RESP] = true;
+  return arr;
+}();
+
+constexpr bool is_response_msg(raftpb::message_type type) {
+  if (type < 0 || type >= RAFTPB_MESSAGE_COUNT) {
+    LEPTON_CRITICAL("invalid message type: {}", magic_enum::enum_name(type));
+  }
+  return __is_response_msg[static_cast<std::size_t>(type)];
+}
+
+inline constexpr bool is_local_msg_target(uint64_t id) { return id == LOCAL_APPEND_THREAD || id == LOCAL_APPLY_THREAD; }
 
 }  // namespace pb
 

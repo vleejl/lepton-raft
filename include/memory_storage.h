@@ -3,7 +3,7 @@
 #include <mutex>
 #include <optional>
 
-#include "error.h"
+#include "lepton_error.h"
 #include "raft.pb.h"
 #include "types.h"
 #include "utility_macros.h"

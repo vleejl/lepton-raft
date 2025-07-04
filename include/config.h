@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "error.h"
+#include "lepton_error.h"
 #include "storage.h"
 #include "types.h"
 namespace lepton {
@@ -96,6 +96,42 @@ struct config {
   // might return previous applied entries. This is a very application
   // dependent configuration.
   std::uint64_t applied_index = 0;
+
+  // AsyncStorageWrites configures the raft node to write to its local storage
+  // (raft log and state machine) using a request/response message passing
+  // interface instead of the default Ready/Advance function call interface.
+  // Local storage messages can be pipelined and processed asynchronously
+  // (with respect to Ready iteration), facilitating reduced interference
+  // between Raft proposals and increased batching of log appends and state
+  // machine application. As a result, use of asynchronous storage writes can
+  // reduce end-to-end commit latency and increase maximum throughput.
+  //
+  // When true, the Ready.Message slice will include MsgStorageAppend and
+  // MsgStorageApply messages. The messages will target a LocalAppendThread
+  // and a LocalApplyThread, respectively. Messages to the same target must be
+  // reliably processed in order. In other words, they can't be dropped (like
+  // messages over the network) and those targeted at the same thread can't be
+  // reordered. Messages to different targets can be processed in any order.
+  //
+  // MsgStorageAppend carries Raft log entries to append, election votes /
+  // term changes / updated commit indexes to persist, and snapshots to apply.
+  // All writes performed in service of a MsgStorageAppend must be durable
+  // before response messages are delivered. However, if the MsgStorageAppend
+  // carries no response messages, durability is not required. The message
+  // assumes the role of the Entries, HardState, and Snapshot fields in Ready.
+  //
+  // MsgStorageApply carries committed entries to apply. Writes performed in
+  // service of a MsgStorageApply need not be durable before response messages
+  // are delivered. The message assumes the role of the CommittedEntries field
+  // in Ready.
+  //
+  // Local messages each carry one or more response messages which should be
+  // delivered after the corresponding storage write has been completed. These
+  // responses may target the same node or may target other nodes. The storage
+  // threads are not responsible for understanding the response messages, only
+  // for delivering them to the correct target after performing the storage
+  // write.
+  bool async_storage_writes;
 
   // MaxSizePerMsg limits the max byte size of each append message. Smaller
   // value lowers the raft recovery cost(initial probing and message lost

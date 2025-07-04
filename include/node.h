@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "channel.h"
-#include "error.h"
+#include "lepton_error.h"
 #include "read_only.h"
 #include "state.h"
 #include "utility_macros.h"

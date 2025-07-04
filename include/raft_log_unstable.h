@@ -11,7 +11,7 @@
 #include <optional>
 #include <utility>
 
-#include "error.h"
+#include "lepton_error.h"
 #include "log.h"
 #include "protobuf.h"
 #include "spdlog/spdlog.h"
@@ -97,7 +97,7 @@ class unstable {
     if (has_snapshot()) {
       return snapshot_->metadata().index() + 1;
     }
-    return new_error(encoding_error::NULL_POINTER, "snapshot is null");
+    return new_error(logic_error::NULL_POINTER, "snapshot is null");
   }
 
   // maybeLastIndex returns the last index if it has at least one
@@ -109,7 +109,7 @@ class unstable {
     if (has_snapshot()) {
       return snapshot_->metadata().index();
     }
-    return new_error(encoding_error::NULL_POINTER, "entries and snapshot both null ptr");
+    return new_error(logic_error::NULL_POINTER, "entries and snapshot both null ptr");
   }
 
   // maybeTerm returns the term of the entry at index i, if there
@@ -119,7 +119,7 @@ class unstable {
       if ((has_snapshot()) && (snapshot_->metadata().index() == i)) {
         return snapshot_->metadata().term();
       }
-      return new_error(encoding_error::NULL_POINTER, "snapshot is null ptr");
+      return new_error(logic_error::NULL_POINTER, "snapshot is null ptr");
     }
 
     auto result = maybe_last_index();
@@ -128,7 +128,7 @@ class unstable {
     }
 
     if (i > result.value()) {
-      return new_error(encoding_error::OUT_OF_BOUNDS, "args is invalid");
+      return new_error(logic_error::OUT_OF_BOUNDS, "args is invalid");
     }
     return entries_[static_cast<int>(i - offset_)].term();
   }

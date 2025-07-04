@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "config.h"
-#include "error.h"
+#include "lepton_error.h"
 #include "utility_macros.h"
 namespace lepton {
 

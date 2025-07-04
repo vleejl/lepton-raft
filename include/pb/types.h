@@ -6,6 +6,19 @@
 
 namespace lepton {
 namespace pb {
+
+// LocalAppendThread is a reference to a local thread that saves unstable
+// log entries and snapshots to stable storage. The identifier is used as a
+// target for MsgStorageAppend messages when AsyncStorageWrites is enabled.
+constexpr auto LOCAL_APPEND_THREAD = std::numeric_limits<std::uint64_t>::max();
+
+// LocalApplyThread is a reference to a local thread that applies committed
+// log entries to the local state machine. The identifier is used as a
+// target for MsgStorageApply messages when AsyncStorageWrites is enabled.
+constexpr auto LOCAL_APPLY_THREAD = std::numeric_limits<std::uint64_t>::max() - 1;
+
+constexpr int RAFTPB_MESSAGE_COUNT = raftpb::message_type::MSG_FORGET_LEADER + 1;
+
 // entryEncodingSize represents the protocol buffer encoding size of one or more
 // entries.
 using entry_encoding_size = std::uint64_t;

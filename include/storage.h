@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-#include "error.h"
+#include "lepton_error.h"
 #include "types.h"
 namespace lepton {
 

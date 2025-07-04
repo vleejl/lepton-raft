@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "config.h"
-#include "error.h"
+#include "lepton_error.h"
 #include "progress.h"
 #include "quorum.h"
 #include "raft_log.h"
@@ -52,10 +52,6 @@ class raft {
   friend leaf::result<void> step_follower(raft& r, raftpb::message&& m);
 
   bool has_leader() const { return lead_ != NONE; }
-
-  soft_state get_soft_state() const { return soft_state{lead_, state_type_}; }
-
-  raftpb::hard_state get_hard_state() const;
 
   // send schedules persisting state to a stable storage and AFTER that
   // sending the message (as part of next Ready message processing).
@@ -147,8 +143,6 @@ class raft {
   // which is true when its own id is in progress list.
   bool promotable();
 
-  raftpb::conf_state apply_conf_change(raftpb::conf_change_v2&& cc);
-
   // switchToConfig reconfigures this node to use the provided configuration. It
   // updates the in-memory state and, when necessary, carries out additional
   // actions such as reacting to the removal of nodes or changed quorum
@@ -223,6 +217,12 @@ class raft {
         disable_proposal_forwarding_(disable_proposal_forwarding),
         step_down_on_removal_(step_down_on_removal) {}
   raft(raft&&) = default;
+
+  lepton::soft_state soft_state() const { return lepton::soft_state{lead_, state_type_}; }
+
+  raftpb::hard_state hard_state() const;
+
+  raftpb::conf_state apply_conf_change(raftpb::conf_change_v2&& cc);
 
   leaf::result<void> step(raftpb::message&& m);
 

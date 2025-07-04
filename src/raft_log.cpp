@@ -8,8 +8,8 @@
 
 #include "absl/types/span.h"
 #include "config.h"
-#include "error.h"
 #include "leaf.hpp"
+#include "lepton_error.h"
 #include "log.h"
 #include "protobuf.h"
 #include "raft.pb.h"
@@ -492,7 +492,7 @@ std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
 leaf::result<raft_log> new_raft_log_with_size(pro::proxy<storage_builer>&& storage,
                                               pb::entry_encoding_size max_applying_ents_size) {
   if (!storage.has_value()) {
-    return new_error(encoding_error::NULL_POINTER, "storage must not be nil");
+    return new_error(logic_error::NULL_POINTER, "storage must not be nil");
   }
 
   BOOST_LEAF_AUTO(first_index, storage->first_index());

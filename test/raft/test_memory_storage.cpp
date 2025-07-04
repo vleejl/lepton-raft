@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "config.h"
-#include "error.h"
 #include "leaf.hpp"
+#include "lepton_error.h"
 #include "memory_storage.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_data.h"

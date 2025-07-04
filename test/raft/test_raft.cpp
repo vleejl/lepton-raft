@@ -17,10 +17,10 @@
 #include "absl/types/span.h"
 #include "conf_change.h"
 #include "config.h"
-#include "error.h"
 #include "fmt/base.h"
 #include "fmt/format.h"
 #include "gtest/gtest.h"
+#include "lepton_error.h"
 #include "magic_enum.hpp"
 #include "memory_storage.h"
 #include "protobuf.h"
@@ -237,7 +237,7 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
         return new_error(e);
       });
   ASSERT_TRUE(has_called_error);
-  ASSERT_EQ(err_code, lepton::logic_error::PROPOSAL_DROPPED);
+  ASSERT_EQ(err_code, lepton::raft_error::PROPOSAL_DROPPED);
 
   // Read messages and reduce the uncommitted size as if we had committed
   // these entries.
@@ -272,7 +272,7 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
         return new_error(e);
       });
   ASSERT_TRUE(has_called_error);
-  ASSERT_EQ(err_code, lepton::logic_error::PROPOSAL_DROPPED);
+  ASSERT_EQ(err_code, lepton::raft_error::PROPOSAL_DROPPED);
 
   // But we can always append an entry with no Data. This is used both for the
   // leader's first empty entry and for auto-transitioning out of joint config
@@ -4359,7 +4359,7 @@ TEST_F(raft_test_suit, test_leader_transfer_ignore_proposal) {
         return new_error(e);
       });
   ASSERT_TRUE(has_called_error);
-  ASSERT_EQ(err_code, lepton::logic_error::PROPOSAL_DROPPED);
+  ASSERT_EQ(err_code, lepton::raft_error::PROPOSAL_DROPPED);
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},

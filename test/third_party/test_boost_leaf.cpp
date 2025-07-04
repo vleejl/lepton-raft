@@ -5,7 +5,7 @@
 #include <leaf.hpp>
 #include <stdexcept>
 
-#include "error.h"
+#include "lepton_error.h"
 using namespace lepton;
 // 模拟存储类
 class Storage {
@@ -15,7 +15,7 @@ class Storage {
       return new_error(storage_error::COMPACTED, "Compacted error");
     }
     if (i == 0) {
-      return new_error(system_error::UNKNOWN_ERROR);
+      return new_error(logic_error::INVALID_PARAM);
     }
     return static_cast<std::uint64_t>(i);
   }

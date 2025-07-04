@@ -51,7 +51,6 @@ enum message_type {
 
   // ================== 快照与状态同步 ==================
   MSG_SNAP             = 7;  // Leader→Follower的快照传输（场景：Follower日志严重落后，发送角色：Leader，接收角色：Follower）
-  MSG_SNAP_STATUS      = 11; // Follower→Leader的快照状态报告（场景：快照传输成功/失败，发送角色：Follower，接收角色：Leader）
 
   // ================== 心跳与存活检测 ==================
   MSG_HEARTBEAT        = 8;  // Leader→Follower的心跳（场景：维持领导权，发送角色：Leader，接收角色：Follower）
@@ -59,6 +58,9 @@ enum message_type {
 
   // ================== 网络与系统控制 ==================
   MSG_UNREACHABLE      = 10; // 标记节点不可达（场景：网络优化，发送角色：通信层，接收角色：Leader调整重试策略）
+  // ================== 快照与状态同步 ==================
+  MSG_SNAP_STATUS      = 11; // Follower→Leader的快照状态报告（场景：快照传输成功/失败，发送角色：Follower，接收角色：Leader）
+  // ================== 网络与系统控制 ==================
   MSG_CHECK_QUORUM     = 12; // Leader的多数派存活检查（场景：防止网络分区脑裂，发送角色：Leader定时器，接收角色：Leader自身处理）
 
   // ================== 领导权转移 ==================

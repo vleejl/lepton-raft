@@ -2,7 +2,7 @@
 #define _LEPTON_CONF_STATE_H_
 #include <raft.pb.h>
 
-#include "error.h"
+#include "lepton_error.h"
 
 namespace lepton {
 

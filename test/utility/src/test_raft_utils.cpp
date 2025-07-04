@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-#include "error.h"
+#include "lepton_error.h"
 #include "log.h"
 #include "memory_storage.h"
 #include "progress.h"

@@ -8,8 +8,8 @@
 #include <limits>
 #include <map>
 
-#include "error.h"
 #include "fmt/format.h"
+#include "lepton_error.h"
 #include "utility_macros.h"
 namespace lepton {
 namespace quorum {

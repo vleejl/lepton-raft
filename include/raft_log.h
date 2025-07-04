@@ -5,7 +5,7 @@
 #include <raft.pb.h>
 
 #include "config.h"
-#include "error.h"
+#include "lepton_error.h"
 #include "raft_log_unstable.h"
 #include "storage.h"
 #include "types.h"

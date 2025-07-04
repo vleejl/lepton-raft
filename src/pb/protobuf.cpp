@@ -5,7 +5,8 @@
 #include <magic_enum.hpp>
 
 #include "conf_state.h"
-#include "error.h"
+#include "lepton_error.h"
+#include "raft.pb.h"
 #include "types.h"
 
 static raftpb::hard_state EMPTY_STATE;

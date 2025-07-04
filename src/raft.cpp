@@ -10,10 +10,10 @@
 #include "conf_change.h"
 #include "confchange.h"
 #include "config.h"
-#include "error.h"
 #include "fmt/format.h"
 #include "inflights.h"
 #include "leaf.hpp"
+#include "lepton_error.h"
 #include "log.h"
 #include "magic_enum.hpp"
 #include "progress.h"
@@ -165,7 +165,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
         // If we are not currently a member of the range (i.e. this node
         // was removed from the configuration while serving as leader),
         // drop any new proposals.
-        return new_error(logic_error::PROPOSAL_DROPPED);
+        return new_error(raft_error::PROPOSAL_DROPPED);
       }
       // 若正在进行领导权转移（leadTransferee 非空），拒绝新提案，避免状态混乱。
       if (r.leader_transferee_ != NONE) {
@@ -173,7 +173,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
             "{} [term {}] transfer leadership to {} is in progress; dropping "
             "proposal",
             r.id_, r.term_, r.leader_transferee_);
-        return new_error(logic_error::PROPOSAL_DROPPED);
+        return new_error(raft_error::PROPOSAL_DROPPED);
       }
 
       // 配置变更（ConfChange）处理
@@ -240,7 +240,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
       pb::repeated_entry entries;
       m.mutable_entries()->Swap(&entries);
       if (!r.append_entry(std::move(entries))) {
-        return new_error(logic_error::PROPOSAL_DROPPED);
+        return new_error(raft_error::PROPOSAL_DROPPED);
       }
       r.bcast_append();
       return {};
@@ -560,7 +560,8 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
     }
     case raftpb::MSG_SNAP_STATUS: {  // 用于管理快照发送后的节点状态转换和流量控制
       if (pr.state() != tracker::state_type::STATE_SNAPSHOT) {
-        SPDLOG_DEBUG("{} [term {}] ignoring MsgSnapStatus from {} in state {}", r.id_, r.term_, msg_from, pr.state());
+        SPDLOG_DEBUG("{} [term {}] ignoring MsgSnapStatus from {} in state {}", r.id_, r.term_, msg_from,
+                     magic_enum::enum_name(pr.state()));
         return {};
       }
       if (!m.reject()) {
@@ -631,7 +632,8 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
       break;
     }
     default:
-      SPDLOG_DEBUG("{} [term {}] ignoring message from {} in state {}", r.id_, r.term_, msg_from, pr.state());
+      SPDLOG_DEBUG("{} [term {}] ignoring message from {} in state {}", r.id_, r.term_, msg_from,
+                   magic_enum::enum_name(pr.state()));
       break;
   }
   return {};
@@ -666,7 +668,7 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
   switch (msg_type) {
     case raftpb::MSG_PROP: {
       SPDLOG_INFO("{} no leader at term {}; dropping proposal", r.id_, r.term_);
-      return new_error(logic_error::PROPOSAL_DROPPED);
+      return new_error(raft_error::PROPOSAL_DROPPED);
     }
     case raftpb::MSG_APP: {
       r.become_follower(m.term(), m.from());  // always m.Term == r.Term
@@ -746,7 +748,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
     case raftpb::MSG_PROP: {  // client request, 客户端提案
       if (r.lead_ == NONE) {  // 若 Follower 无 Leader（如网络分区），直接拒绝。
         SPDLOG_INFO("{} no leader at term {}; dropping proposal", r.id_, r.term_);
-        return new_error(logic_error::PROPOSAL_DROPPED);
+        return new_error(raft_error::PROPOSAL_DROPPED);
       } else if (r.disable_proposal_forwarding_) {
         // 若配置禁止转发（disableProposalForwarding），拒绝提案（避免脑裂时多
         // Leader 写入）。
@@ -754,7 +756,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
             "{} not forwarding to leader {} at term {}; dropping "
             "proposal",
             r.id_, r.lead_, r.term_);
-        return new_error(logic_error::PROPOSAL_DROPPED);
+        return new_error(raft_error::PROPOSAL_DROPPED);
       }
       m.set_to(r.lead_);
       r.send(std::move(m));
@@ -875,7 +877,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
   return {};
 }
 
-raftpb::hard_state raft::get_hard_state() const {
+raftpb::hard_state raft::hard_state() const {
   raftpb::hard_state hs;
   hs.set_term(term_);
   hs.set_vote(vote_id_);
@@ -1073,9 +1075,9 @@ bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
   auto first_index = raft_log_handle_.first_index();
   auto committed = raft_log_handle_.committed();
   SPDLOG_DEBUG("{} [firstindex: {}, commit: {}] sent snapshot[index: {}, term: {}] to {} [{}]", id_, first_index,
-               committed, sindex, sterm, to, pr);
+               committed, sindex, sterm, to, pr.string());
   pr.become_snapshot(sindex);
-  SPDLOG_DEBUG(("{} paused sending replication messages to {} [{}]", id_, to, pr));
+  SPDLOG_DEBUG("{} paused sending replication messages to {} [{}]", id_, to, pr.string());
 
   raftpb::message msg;
   msg.set_to(to);
@@ -1514,7 +1516,7 @@ std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::ui
 leaf::result<void> raft::step(raftpb::message&& m) {
   trace_receive_message(*this, m);
   auto msg_type = m.type();
-  SPDLOG_INFO("{} [term {}] ready step message: {} {}", id_, term_, magic_enum::enum_name(msg_type), m.DebugString());
+  SPDLOG_DEBUG("{} [term {}] ready step message: {} {}", id_, term_, magic_enum::enum_name(msg_type), m.DebugString());
   // Handle the message term, which may result in our stepping down to a follower.
   if (m.term() == 0) {
     // local message

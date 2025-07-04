@@ -2,7 +2,7 @@
 #define _LEPTON_TEST_RAFT_STATE_MACHINE_H_
 #include <proxy.h>
 
-#include "error.h"
+#include "lepton_error.h"
 #include "types.h"
 
 PRO_DEF_MEM_DISPATCH(state_machine_step, step);

@@ -5,7 +5,7 @@
 
 #include <tuple>
 
-#include "error.h"
+#include "lepton_error.h"
 #include "progress.h"
 #include "tracker.h"
 #include "utility_macros.h"
