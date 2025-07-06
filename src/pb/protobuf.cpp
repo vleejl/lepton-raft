@@ -13,6 +13,11 @@ static raftpb::hard_state EMPTY_STATE;
 
 namespace lepton {
 
+// 需要放在全局命名空间
+bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
+  return lhs.term() == rhs.term() && lhs.vote() == rhs.vote() && lhs.commit() == rhs.commit();
+}
+
 namespace pb {
 
 pb::repeated_entry convert_span_entry(pb::span_entry span_entries) {
@@ -150,10 +155,6 @@ void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::
         return new_error(err);
       });
   assert(result);
-}
-
-bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
-  return lhs.term() == rhs.term() && lhs.vote() == rhs.vote() && lhs.commit() == rhs.commit();
 }
 
 bool is_empty_hard_state(const raftpb::hard_state& hs) { return hs == EMPTY_STATE; }

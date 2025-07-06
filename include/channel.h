@@ -1,15 +1,11 @@
 #ifndef _LEPTON_CHANNEL_H_
 #define _LEPTON_CHANNEL_H_
-#include <raft.pb.h>
 
 #include <asio.hpp>
+#include <asio/awaitable.hpp>
+#include <asio/co_spawn.hpp>
 #include <asio/experimental/awaitable_operators.hpp>
 #include <asio/experimental/channel.hpp>
-#include <cstdint>
-#include <iostream>
-
-#include "asio/awaitable.hpp"
-#include "asio/co_spawn.hpp"
 using asio::as_tuple;
 using asio::awaitable;
 using asio::buffer;

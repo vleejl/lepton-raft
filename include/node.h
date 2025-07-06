@@ -9,9 +9,11 @@
 #include <vector>
 
 #include "channel.h"
+#include "conf_change.h"
 #include "lepton_error.h"
 #include "read_only.h"
 #include "state.h"
+#include "types.h"
 #include "utility_macros.h"
 // Node represents a node in a raft cluster.
 namespace lepton {
@@ -25,6 +27,8 @@ enum class snapshot_status : int {
 // All fields in Ready are read-only.
 struct ready {
   MOVABLE_BUT_NOT_COPYABLE(ready)
+  ready() = default;
+
   // The current volatile state of a Node.
   // SoftState will be nil if there is no update.
   // It is not required to consume or store SoftState.
@@ -33,7 +37,7 @@ struct ready {
   // State（如 Follower、Candidate、Leader）。
   // 由于 SoftState 不是持久化数据，因此不需要存储，只用于节点间的交互。
   // 如果没有更新，它会是 nil。
-  std::optional<soft_state> current_soft_state;
+  std::optional<lepton::soft_state> soft_state;
 
   // The current state of a Node to be saved to stable storage BEFORE
   // Messages are sent.
@@ -58,7 +62,7 @@ struct ready {
   // Messages are sent.
   // 需要在发送消息之前存储到稳定存储（如磁盘）的日志条目（未提交）。
   // 这些日志是新的，还没有被提交，但应该被存储。
-  std::vector<raftpb::entry> entries;
+  pb::repeated_entry entries;
 
   // Snapshot specifies the snapshot to be saved to stable storage.
   // 如果存在快照数据，需要存储到稳定存储。
@@ -70,7 +74,7 @@ struct ready {
   // store.
   // 已经提交的日志条目，需要应用到状态机（store/state-machine）。
   // 这些日志之前已经被存储到稳定存储，只是还没有执行。
-  std::vector<raftpb::entry> committed_entries;
+  pb::repeated_entry committed_entries;
 
   // Messages specifies outbound messages to be sent AFTER Entries are
   // committed to stable storage.
@@ -80,17 +84,18 @@ struct ready {
   // 需要发送到其他 Raft 节点的消息，但必须在日志条目（Entries）持久化后发送。
   // 如果其中包含 MsgSnap（快照消息），应用层必须在快照被接收或失败后调用
   // ReportSnapshot 进行反馈。
-  std::vector<raftpb::message> messages;
+  pb::repeated_message messages;
 
   // MustSync indicates whether the HardState and Entries must be synchronously
   // written to disk or if an asynchronous write is permissible.
   // 是否需要**同步写入（fsync）**到磁盘。
   // 如果 true，表示 HardState 和 Entries 必须同步写入（保证数据安全）。
   // 如果 false，可以异步写入，提高性能，但可能有数据丢失风险。
-  bool must_sync;
+  bool must_sync = false;
 };
 
 using ready_channel = channel<void(asio::error_code, ready)>;
+using ready_channel_ptr = ready_channel *;
 
 // Tick increments the internal logical clock for the Node by a single tick.
 // Election timeouts and heartbeat timeouts are in units of ticks. etcd-raft
@@ -160,7 +165,7 @@ PRO_DEF_MEM_DISPATCH(node_advance, advance);
 PRO_DEF_MEM_DISPATCH(node_apply_conf_change, apply_conf_change);
 
 // TransferLeadership attempts to transfer leadership to the given transferee.
-PRO_DEF_MEM_DISPATCH(node_transfter_leadership, transfter_leadership);
+PRO_DEF_MEM_DISPATCH(node_transfer_leadership, transfer_leadership);
 
 // ReadIndex request a read state. The read state will be set in the ready.
 // Read state has a read index. Once the application advances further than the
@@ -198,18 +203,18 @@ PRO_DEF_MEM_DISPATCH(node_stop, stop);
 struct node_builer : pro::facade_builder 
   ::add_convention<node_tick, void()> 
   ::add_convention<node_campaign, leaf::result<void>()>
-  ::add_convention<node_propose, leaf::result<void>(absl::Span<std::byte> data)>
-  ::add_convention<node_propose_conf_change, leaf::result<void>(const raftpb::conf_change_v2 &conf_change)>
-  ::add_convention<node_step, leaf::result<void>(raftpb::message msg)>
-  ::add_convention<node_ready, ready_channel()>
+  ::add_convention<node_propose, leaf::result<void>(std::string &&data)>
+  ::add_convention<node_propose_conf_change, leaf::result<void>(const pb::conf_change_var &cc)>
+  ::add_convention<node_step, leaf::result<void>(raftpb::message &&msg)>
+  ::add_convention<node_ready, ready_channel_ptr()>
   ::add_convention<node_advance, void()>
-  ::add_convention<node_apply_conf_change, std::unique_ptr<raftpb::conf_state>()>
-  ::add_convention<node_transfter_leadership, void(std::uint64_t leader_id, std::uint64_t transferee)>
-  ::add_convention<node_read_index, leaf::result<void>(absl::Span<std::byte> rctx)>
-  ::add_convention<node_status, raft_status()>
+  ::add_convention<node_apply_conf_change, raftpb::conf_state(raftpb::conf_change_v2 &&cc)>
+  ::add_convention<node_transfer_leadership, void(std::uint64_t leader_id, std::uint64_t transferee)>
+  ::add_convention<node_read_index, leaf::result<void>(std::string &&rctx)>
+  ::add_convention<node_status, status() const>
   ::add_convention<node_report_unreachable, void(std::uint64_t id)>
   ::add_convention<node_report_snapshot, void(std::uint64_t id, snapshot_status status)>
-  ::add_convention<node_advance, void()>
+  ::add_convention<node_stop, void()>
   ::build{};
 // clang-format on
 

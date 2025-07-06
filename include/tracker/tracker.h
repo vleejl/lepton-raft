@@ -218,28 +218,66 @@ class progress_tracker {
     return config_.voters.committed_index(pro::proxy_view<quorum::acked_indexer_builder>{&progress_map_});
   }
 
-  // using Visit invokes the supplied closure for all tracked progresses in stable order.
-  // 使用 const 引用而不是指针，是为了进一步降低内存风险
-  void visit(std::function<void(std::uint64_t id, progress& p)> f) {
-    size_t n = progress_map_.map_.size();
-
-    // 使用vector直接分配内存
-    std::vector<uint64_t> ids;
-    ids.reserve(n);  // 预先分配n个空间，避免多次分配
-
-    // 将 Progress 中的 ID 取出并填充到 ids 数组
-    for (const auto& entry : progress_map_.map_) {
-      ids.push_back(entry.first);
-    }
-
-    // 排序 ID
-    std::sort(ids.begin(), ids.end());
-
-    // 调用提供的函数（闭包）对每个元素进行处理
-    for (const auto id : ids) {
-      f(id, progress_map_.map_.at(id));
-    }
+  template <typename F>
+  requires std::invocable<F, uint64_t, progress&>
+  void visit(F&& f) {
+    auto& map = progress_map_.map_;
+    process_keys(map, [&](const auto& keys) {
+      for (auto id : keys) {
+        if (auto it = map.find(id); it != map.end()) {
+          std::forward<F>(f)(id, it->second);
+        }
+      }
+    });
   }
+
+  template <typename F>
+  requires std::invocable<F, uint64_t, const progress&>
+  void visit(F&& f) const {
+    const auto& map = progress_map_.map_;
+    process_keys(map, [&](const auto& keys) {
+      for (auto id : keys) {
+        if (auto it = map.find(id); it != map.end()) {
+          std::forward<F>(f)(id, it->second);
+        }
+      }
+    });
+  }
+
+  // 只访问 keys
+  template <typename F>
+  requires std::invocable<F, uint64_t>
+  void visit(F&& f) const {
+    const auto& map = progress_map_.map_;
+    process_keys(map, [&](const auto& keys) {
+      for (auto id : keys) {
+        std::forward<F>(f)(id);
+      }
+    });
+  }
+
+  // // using Visit invokes the supplied closure for all tracked progresses in stable order.
+  // // 使用 const 引用而不是指针，是为了进一步降低内存风险
+  // void visit(std::function<void(std::uint64_t id, progress& p)> f) {
+  //   size_t n = progress_map_.map_.size();
+
+  //   // 使用vector直接分配内存
+  //   std::vector<uint64_t> ids;
+  //   ids.reserve(n);  // 预先分配n个空间，避免多次分配
+
+  //   // 将 Progress 中的 ID 取出并填充到 ids 数组
+  //   for (const auto& entry : progress_map_.map_) {
+  //     ids.push_back(entry.first);
+  //   }
+
+  //   // 排序 ID
+  //   std::sort(ids.begin(), ids.end());
+
+  //   // 调用提供的函数（闭包）对每个元素进行处理
+  //   for (const auto id : ids) {
+  //     f(id, progress_map_.map_.at(id));
+  //   }
+  // }
 
   bool quorum_active() {
     std::unordered_map<std::uint64_t, bool> votes_;
@@ -287,6 +325,21 @@ class progress_tracker {
     }
     auto result = config_.voters.vote_result_statistics(votes_);
     return {granted, rejected, result};
+  }
+
+ private:
+  // 键处理通用逻辑
+  template <typename Map, typename F>
+  void process_keys(Map& map, F processor) const {
+    std::vector<uint64_t> keys;
+    keys.reserve(map.size());
+
+    for (const auto& [id, _] : map) {
+      keys.push_back(id);
+    }
+
+    std::sort(keys.begin(), keys.end());
+    processor(keys);
   }
 
  private:

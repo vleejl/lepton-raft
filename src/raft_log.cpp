@@ -126,7 +126,7 @@ std::tuple<std::uint64_t, std::uint64_t> raft_log::find_conflict_by_term(std::ui
   return {0, 0};
 }
 
-pb::repeated_entry raft_log::next_committed_ents(bool allow_unstable) {
+pb::repeated_entry raft_log::next_committed_ents(bool allow_unstable) const {
   if (applying_ents_paused_) {
     return {};
   }

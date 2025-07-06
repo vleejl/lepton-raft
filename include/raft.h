@@ -24,6 +24,7 @@ enum class campaign_type {
 };
 
 class raft;
+class raw_node;
 
 using tick_func = void (raft::*)();
 using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
@@ -44,6 +45,7 @@ class raft {
  private:
 #endif
   NOT_COPYABLE(raft)
+  friend class raw_node;
   friend leaf::result<raft> new_raft(config&&);
   friend void release_pending_read_index_message(raft& r);
   friend void send_msg_read_index_response(raft& r, raftpb::message&& m);
@@ -218,9 +220,32 @@ class raft {
         step_down_on_removal_(step_down_on_removal) {}
   raft(raft&&) = default;
 
+  auto id() const { return id_; }
+
+  auto term() const { return term_; }
+
+  const auto& msgs_after_append() const { return msgs_after_append_; }
+
+  const auto& raft_log_handle() const { return raft_log_handle_; }
+
   lepton::soft_state soft_state() const { return lepton::soft_state{lead_, state_type_}; }
 
   raftpb::hard_state hard_state() const;
+
+  // getStatus gets a copy of the current raft status.
+  basic_status get_basic_status() const;
+
+  // getStatus gets a copy of the current raft status.
+  status get_status() const;
+
+  void reset_read_states() { read_states_ = std::vector<read_state>{}; }
+
+  void reset_msgs() {
+    msgs_.Clear();
+    msgs_after_append_.Clear();
+  }
+
+  bool has_trk_progress(std::uint64_t id) const { return trk_.progress_map_view().view().contains(id); }
 
   raftpb::conf_state apply_conf_change(raftpb::conf_change_v2&& cc);
 
@@ -273,7 +298,6 @@ class raft {
   // 协议中的节点之间会交换消息（例如投票请求、心跳等）。该字段用于存储待发送的消息。
   // msgs contains the list of messages that should be sent out immediately to
   // other nodes.
-  //
   // Messages in this list must target other nodes.
   pb::repeated_message msgs_;
 

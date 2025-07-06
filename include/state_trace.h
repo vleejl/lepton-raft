@@ -10,6 +10,8 @@ class raft;
 
 void trace_init_state(raft& r);
 
+void trace_ready(raft& r);
+
 void trace_change_conf_event(raftpb::conf_change_v2& cc, raft& r);
 
 void trace_replicate(raft& r, const pb::repeated_entry& entries);

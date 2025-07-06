@@ -52,4 +52,38 @@ raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term);
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, std::vector<std::uint64_t> &&voters);
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, const std::string &data,
                                  std::optional<raftpb::conf_state> state);
+
+inline constexpr std::array<raftpb::message_type, 24> all_raftpb_message_types = {
+    raftpb::MSG_HUP,
+    raftpb::MSG_BEAT,
+    raftpb::MSG_PROP,
+    raftpb::MSG_APP,
+    raftpb::MSG_APP_RESP,
+    raftpb::MSG_VOTE,
+    raftpb::MSG_VOTE_RESP,
+    raftpb::MSG_SNAP,
+    raftpb::MSG_HEARTBEAT,
+    raftpb::MSG_HEARTBEAT_RESP,
+    raftpb::MSG_UNREACHABLE,
+    raftpb::MSG_SNAP_STATUS,
+    raftpb::MSG_CHECK_QUORUM,
+    raftpb::MSG_TRANSFER_LEADER,
+    raftpb::MSG_TIMEOUT_NOW,
+    raftpb::MSG_READ_INDEX,
+    raftpb::MSG_READ_INDEX_RESP,
+    raftpb::MSG_PRE_VOTE,
+    raftpb::MSG_PRE_VOTE_RESP,
+    raftpb::MSG_STORAGE_APPEND,
+    raftpb::MSG_STORAGE_APPEND_RESP,
+    raftpb::MSG_STORAGE_APPLY,
+    raftpb::MSG_STORAGE_APPLY_RESP,
+    raftpb::MSG_FORGET_LEADER,
+};
+
+// 确保数组大小等于枚举值的数量
+static_assert(all_raftpb_message_types.size() == 24, "AllMessageTypes size mismatch");
+
+// 确保数组索引与枚举值匹配
+static_assert(all_raftpb_message_types[0] == raftpb::MSG_HUP, "Index 0 mismatch");
+static_assert(all_raftpb_message_types[23] == raftpb::MSG_FORGET_LEADER, "Index 23 mismatch");
 #endif  // _LEPTON_TEST_RAFT_PROTOBUF_H_

@@ -834,6 +834,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
       }
       if (r.lead_ != NONE) {
         SPDLOG_INFO("{} forgetting leader {} at term {}", r.id_, r.lead_, r.term_);
+        r.lead_ = NONE;  // 清除当前 Leader ID
         return {};
       }
       break;
@@ -883,6 +884,24 @@ raftpb::hard_state raft::hard_state() const {
   hs.set_vote(vote_id_);
   hs.set_commit(raft_log_handle_.committed());
   return hs;
+}
+
+basic_status raft::get_basic_status() const {
+  return basic_status{
+      .id = id_,
+      .hard_state = hard_state(),
+      .soft_state = soft_state(),
+      .applied = raft_log_handle_.applied(),
+      .lead_transferee = leader_transferee_,
+  };
+}
+
+status raft::get_status() const {
+  return status{
+      .basic_status = get_basic_status(),
+      .config = trk_.config_view().clone(),
+      .progress = state_type_ == state_type::LEADER ? trk_.progress_map_view().clone() : tracker::progress_map{},
+  };
 }
 
 void raft::send(raftpb::message&& message) {
@@ -1122,7 +1141,7 @@ void raft::bcast_append() {
 void raft::bcast_heartbeat() { bcast_heartbeat_with_ctx(read_only_.last_pending_request_ctx()); }
 
 void raft::bcast_heartbeat_with_ctx(std::string&& ctx) {
-  trk_.visit([&](std::uint64_t id, tracker::progress&) {
+  trk_.visit([&](std::uint64_t id) {
     if (id == id_) {
       return;
     }
@@ -2011,7 +2030,7 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progre
     // Otherwise, still probe the newly added replicas; there's no reason to
     // let them wait out a heartbeat interval (or the next incoming
     // proposal).
-    trk_.visit([&](std::uint64_t id, tracker::progress& p) {
+    trk_.visit([&](std::uint64_t id) {
       if (id_ == id) {
         return;
       }

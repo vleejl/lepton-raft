@@ -7,6 +7,9 @@
 #include "log.h"
 #include "types.h"
 namespace lepton {
+
+bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs);
+
 namespace pb {
 
 pb::repeated_entry convert_span_entry(pb::span_entry span_entries);
@@ -39,8 +42,6 @@ repeated_entry limit_entry_size(repeated_entry& entries, entry_encoding_size max
 repeated_entry extend(repeated_entry& dst, pb::span_entry vals);
 
 void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::conf_state& rhs);
-
-bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs);
 
 bool is_empty_hard_state(const raftpb::hard_state& hs);
 

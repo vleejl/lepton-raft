@@ -15,6 +15,8 @@ struct soft_state {
   // must use atomic operations to access; keep 64-bit aligned.
   std::uint64_t leader_id;
   state_type raft_state;
+
+  auto operator<=>(const soft_state &) const = default;
 };
 
 // BasicStatus contains basic information about the Raft peer. It does not
@@ -23,7 +25,7 @@ struct basic_status {
   std::uint64_t id;
 
   raftpb::hard_state hard_state;
-  soft_state current_soft_state;
+  lepton::soft_state soft_state;
 
   std::uint64_t applied;
 
@@ -32,10 +34,10 @@ struct basic_status {
 
 // Status contains information about this Raft peer and its view of the system.
 // The Progress is only populated on the leader.
-struct raft_status {
-  basic_status current_basic_status;
+struct status {
+  lepton::basic_status basic_status;
   tracker::config config;
-  tracker::progress_tracker progress_tracker;
+  tracker::progress_map progress;
 };
 
 }  // namespace lepton

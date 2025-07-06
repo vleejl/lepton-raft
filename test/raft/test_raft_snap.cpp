@@ -2,38 +2,18 @@
 #include <proxy.h>
 #include <raft.pb.h>
 
-#include <algorithm>
 #include <cmath>
-#include <cstddef>
 #include <cstdio>
-#include <functional>
-#include <memory>
-#include <source_location>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
-#include "absl/types/span.h"
-#include "conf_change.h"
-#include "config.h"
-#include "fmt/base.h"
-#include "fmt/format.h"
 #include "gtest/gtest.h"
-#include "lepton_error.h"
-#include "magic_enum.hpp"
-#include "memory_storage.h"
-#include "protobuf.h"
 #include "raft.h"
 #include "raft_log.h"
-#include "spdlog/spdlog.h"
-#include "state.h"
 #include "storage.h"
 #include "test_diff.h"
-#include "test_raft_protobuf.h"
 #include "test_raft_utils.h"
-#include "test_utility_data.h"
-#include "types.h"
 using namespace lepton;
 
 class raft_snap_test_suit : public testing::Test {

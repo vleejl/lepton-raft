@@ -68,7 +68,7 @@ class raft_log {
   // appended them to the local raft log yet. If allowUnstable is true, committed
   // entries from the unstable log may be returned; otherwise, only entries known
   // to reside locally on stable storage will be returned.
-  pb::repeated_entry next_committed_ents(bool allow_unstable);
+  pb::repeated_entry next_committed_ents(bool allow_unstable) const;
 
   // hasNextCommittedEnts returns if there is any available entries for execution.
   // This is a fast check without heavy raftLog.slice() in nextCommittedEnts().
