@@ -2,18 +2,57 @@
 
 #include <google/protobuf/util/message_differencer.h>
 
-#include "fmt/format.h"
+#include <cassert>
+
 #include "leaf.hpp"
 #include "lepton_error.h"
+#include "logic_error.h"
 #include "magic_enum.hpp"
 #include "raft.pb.h"
 using google::protobuf::util::MessageDifferencer;
 namespace lepton {
 
 namespace pb {
-
 template <class>
-constexpr bool always_false = false;  // 自行实现
+constexpr bool always_false = false;
+
+leaf::result<raftpb::conf_change> conf_change_var_as_v1(conf_change_var&& cc) {
+  return std::visit(
+      [](auto&& c) -> leaf::result<raftpb::conf_change> {
+        using T = std::decay_t<decltype(c)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          // 处理 Go 的 nil 情况
+          assert(false);
+          return raftpb::conf_change{};
+        } else if constexpr (std::is_same_v<T, raftpb::conf_change>) {
+          return std::move(c);
+        } else if constexpr (std::is_same_v<T, raftpb::conf_change_v2>) {
+          return new_error(logic_error::INVALID_PARAM);
+        } else {
+          static_assert(always_false<T>, "非穷尽类型检查");
+        }
+      },
+      cc);
+}
+
+raftpb::conf_change_v2 conf_change_var_as_v2(conf_change_var&& cc) {
+  return std::visit(
+      [](auto&& c) -> raftpb::conf_change_v2 {
+        using T = std::decay_t<decltype(c)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          // 处理 Go 的 nil 情况
+          assert(false);
+          return raftpb::conf_change_v2{};
+        } else if constexpr (std::is_same_v<T, raftpb::conf_change>) {
+          return conf_change_as_v2(std::move(c));
+        } else if constexpr (std::is_same_v<T, raftpb::conf_change_v2>) {
+          return std::move(c);
+        } else {
+          static_assert(always_false<T>, "非穷尽类型检查");
+        }
+      },
+      cc);
+}
 
 leaf::result<std::tuple<raftpb::entry_type, std::string>> serialize_conf_change(const conf_change_var& cc) {
   return std::visit(
@@ -76,7 +115,7 @@ raftpb::conf_change_v2 conf_change_as_v2(raftpb::conf_change_v2&& cc) { return c
 
 // first return: 若为 true，表示进入联合共识后自动退出联合状态。
 // second return: 若为 true，表示该配置变更必须使用联合共识
-std::tuple<bool, bool> enter_joint(raftpb::conf_change_v2 c) {
+std::tuple<bool, bool> enter_joint(const raftpb::conf_change_v2& c) {
   // NB: in theory, more config changes could qualify for the "simple"
   // protocol but it depends on the config on top of which the changes apply.
   // For example, adding two learners is not OK if both nodes are part of the

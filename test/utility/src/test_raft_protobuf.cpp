@@ -7,14 +7,87 @@
 #include <vector>
 
 #include "absl/types/span.h"
+#include "conf_change.h"
 #include "raft.pb.h"
 #include "spdlog/spdlog.h"
 
-raftpb::conf_change create_conf_change(std::uint64_t node_id, raftpb::conf_change_type type) {
+raftpb::conf_change create_conf_change_v1(std::uint64_t node_id, raftpb::conf_change_type type) {
   raftpb::conf_change cc;
   cc.set_node_id(node_id);
   cc.set_type(type);
   return cc;
+}
+
+raftpb::conf_change_v2 create_conf_change_v2(std::uint64_t node_id, raftpb::conf_change_type type) {
+  raftpb::conf_change_v2 cc;
+  auto change = cc.add_changes();
+  change->set_node_id(node_id);
+  change->set_type(type);
+  return cc;
+}
+
+raftpb::conf_change_v2 create_conf_change_v2(std::uint64_t node_id, raftpb::conf_change_type type,
+                                             raftpb::conf_change_transition transition) {
+  raftpb::conf_change_v2 cc;
+  auto change = cc.add_changes();
+  change->set_node_id(node_id);
+  change->set_type(type);
+  cc.set_transition(transition);
+  return cc;
+}
+
+raftpb::conf_change_v2 create_conf_change_v2(std::vector<conf_change_v2_change> &&changes) {
+  raftpb::conf_change_v2 cc;
+  for (const auto &change : changes) {
+    auto cc_change = cc.add_changes();
+    cc_change->set_node_id(change.node_id);
+    cc_change->set_type(change.type);
+  }
+  return cc;
+}
+
+raftpb::conf_change_v2 create_conf_change_v2(std::vector<conf_change_v2_change> &&changes,
+                                             raftpb::conf_change_transition transition) {
+  raftpb::conf_change_v2 cc;
+  for (const auto &change : changes) {
+    auto cc_change = cc.add_changes();
+    cc_change->set_node_id(change.node_id);
+    cc_change->set_type(change.type);
+  }
+  cc.set_transition(transition);
+  return cc;
+}
+
+raftpb::conf_state create_conf_state(std::vector<std::uint64_t> &&voters, std::vector<std::uint64_t> &&voters_outgoing,
+                                     std::vector<std::uint64_t> &&learners, std::vector<std::uint64_t> &&learners_next,
+                                     bool auto_leave) {
+  raftpb::conf_state cs;
+  for (const auto &voter : voters) {
+    cs.add_voters(voter);
+  }
+  for (const auto &voter_outgoing : voters_outgoing) {
+    cs.add_voters_outgoing(voter_outgoing);
+  }
+  for (const auto &learner : learners) {
+    cs.add_learners(learner);
+  }
+  for (const auto &learner_next : learners_next) {
+    cs.add_learners_next(learner_next);
+  }
+  if (auto_leave) {
+    cs.set_auto_leave(true);
+  }
+  return cs;
+}
+
+lepton::leaf::result<raftpb::conf_change> test_conf_change_var_as_v1(const lepton::pb::conf_change_var &cc) {
+  lepton::pb::conf_change_var copy_cc = cc;
+  return lepton::pb::conf_change_var_as_v1(std::move(copy_cc));
+}
+
+raftpb::conf_change_v2 test_conf_change_var_as_v2(const lepton::pb::conf_change_var &cc) {
+  lepton::pb::conf_change_var copy_cc = cc;
+  return lepton::pb::conf_change_var_as_v2(std::move(copy_cc));
 }
 
 raftpb::message convert_test_pb_message(test_pb::message &&m) {
@@ -111,6 +184,30 @@ lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::ent
     resp_entries.Add(std::move(entry));
   }
   return resp_entries;
+}
+
+bool operator==(const std::optional<raftpb::conf_state> &lhs, const std::optional<raftpb::conf_state> &rhs) {
+  return compare_optional_conf_state(lhs, rhs);
+}
+
+bool compare_optional_conf_state(const std::optional<raftpb::conf_state> &lhs,
+                                 const std::optional<raftpb::conf_state> &rhs) {
+  if (lhs.has_value()) {
+    if (rhs.has_value()) {
+      if (lhs->DebugString() != rhs->DebugString()) {
+        SPDLOG_ERROR("lhs:{}, rhs:{}", lhs->DebugString().c_str(), rhs->DebugString().c_str());
+        return false;
+      }
+      return true;
+    }
+    return false;
+  } else {
+    if (rhs.has_value()) {
+      return false;
+    }
+    return true;  // both are empty
+  }
+  return false;
 }
 
 bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs) {

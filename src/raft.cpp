@@ -1166,10 +1166,10 @@ void raft::applied_to(std::uint64_t index, pb::entry_encoding_size size) {
           return v;
         },
         [&](const lepton::lepton_error& err) -> leaf::result<raftpb::message> {
-          SPDLOG_DEBUG("{} failed to leave configuration change: {}", id_, err.message);
+          LEPTON_CRITICAL("{} failed to convert conf change to raftpb::message, error: {}", id_, err.message);
           return {};
         });
-    assert(!m);
+    assert(m);
     // NB: this proposal can't be dropped due to size, but can be
     // dropped if a leadership transfer is in progress. We'll keep
     // checking this condition on each applied entry, so either the

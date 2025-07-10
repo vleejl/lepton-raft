@@ -39,7 +39,7 @@ leaf::result<raw_node> new_raw_node(config &&c);
 // The methods of this struct correspond to the methods of Node and are described
 // more fully there.
 class raw_node {
-  NOT_COPYABLE(raw_node);
+  NOT_COPYABLE(raw_node)
 
  public:
   raw_node(lepton::raft &&r, bool async_storage_writes)
@@ -193,7 +193,12 @@ class raw_node {
     raft_.step(std::move(msg));
   }
 
+// 为了方便单元测试 修改私有成员函数作用域
+#ifdef LEPTON_TEST
+ public:
+#else
  private:
+#endif
   lepton::raft raft_;
   bool async_storage_writes_;
 

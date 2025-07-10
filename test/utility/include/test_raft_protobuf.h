@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "conf_change.h"
+#include "lepton_error.h"
 #include "raft.pb.h"
 #include "types.h"
 
@@ -26,7 +28,23 @@ struct message {
 };
 }  // namespace test_pb
 
-raftpb::conf_change create_conf_change(std::uint64_t node_id, raftpb::conf_change_type type);
+struct conf_change_v2_change {
+  std::uint64_t node_id;
+  raftpb::conf_change_type type;
+};
+
+raftpb::conf_change create_conf_change_v1(std::uint64_t node_id, raftpb::conf_change_type type);
+raftpb::conf_change_v2 create_conf_change_v2(std::uint64_t node_id, raftpb::conf_change_type type);
+raftpb::conf_change_v2 create_conf_change_v2(std::uint64_t node_id, raftpb::conf_change_type type,
+                                             raftpb::conf_change_transition transition);
+raftpb::conf_change_v2 create_conf_change_v2(std::vector<conf_change_v2_change> &&changes);
+raftpb::conf_change_v2 create_conf_change_v2(std::vector<conf_change_v2_change> &&changes,
+                                             raftpb::conf_change_transition transition);
+raftpb::conf_state create_conf_state(std::vector<std::uint64_t> &&voters, std::vector<std::uint64_t> &&voters_outgoing,
+                                     std::vector<std::uint64_t> &&learners, std::vector<std::uint64_t> &&learners_next,
+                                     bool auto_leave = false);
+lepton::leaf::result<raftpb::conf_change> test_conf_change_var_as_v1(const lepton::pb::conf_change_var &cc);
+raftpb::conf_change_v2 test_conf_change_var_as_v2(const lepton::pb::conf_change_var &cc);
 raftpb::message convert_test_pb_message(test_pb::message &&);
 lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
 raftpb::entry create_entry(std::uint64_t index, std::uint64_t term, std::string &&data);
@@ -36,6 +54,9 @@ lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, s
                                                           std::uint64_t term_to);
 lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries);
 
+bool operator==(const std::optional<raftpb::conf_state> &lhs, const std::optional<raftpb::conf_state> &rhs);
+bool compare_optional_conf_state(const std::optional<raftpb::conf_state> &lhs,
+                                 const std::optional<raftpb::conf_state> &rhs);
 bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs);
 bool operator==(const raftpb::entry &lhs, const raftpb::entry *const rhs);
 bool operator==(const raftpb::entry *const lhs, const raftpb::entry &rhs);

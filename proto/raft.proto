@@ -228,7 +228,7 @@ message conf_change_single {
 //
 // [1]: https://github.com/ongardie/dissertation/blob/master/online-trim.pdf
 message conf_change_v2 {
-  required conf_change_transition transition = 1;
+  optional conf_change_transition transition = 1;
   repeated conf_change_single changes        = 2;
   optional bytes context                     = 3;
 }

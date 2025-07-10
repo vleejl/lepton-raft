@@ -95,7 +95,7 @@ struct ready {
 };
 
 using ready_channel = channel<void(asio::error_code, ready)>;
-using ready_channel_ptr = ready_channel *;
+using ready_channel_handle = ready_channel *;
 
 // Tick increments the internal logical clock for the Node by a single tick.
 // Election timeouts and heartbeat timeouts are in units of ticks. etcd-raft
@@ -206,7 +206,7 @@ struct node_builer : pro::facade_builder
   ::add_convention<node_propose, leaf::result<void>(std::string &&data)>
   ::add_convention<node_propose_conf_change, leaf::result<void>(const pb::conf_change_var &cc)>
   ::add_convention<node_step, leaf::result<void>(raftpb::message &&msg)>
-  ::add_convention<node_ready, ready_channel_ptr()>
+  ::add_convention<node_ready, ready_channel_handle()>
   ::add_convention<node_advance, void()>
   ::add_convention<node_apply_conf_change, raftpb::conf_state(raftpb::conf_change_v2 &&cc)>
   ::add_convention<node_transfer_leadership, void(std::uint64_t leader_id, std::uint64_t transferee)>

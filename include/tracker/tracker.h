@@ -186,26 +186,30 @@ class progress_tracker {
 
   // ConfState returns a ConfState representing the active configuration.
   raftpb::conf_state conf_state() {
-    auto conf_state = raftpb::conf_state{};
+    raftpb::conf_state cs;
 
     auto primary_config_slice = config_.voters.primary_config_slice();
-    conf_state.mutable_voters()->Add(primary_config_slice.begin(), primary_config_slice.end());
+    cs.mutable_voters()->Add(primary_config_slice.begin(), primary_config_slice.end());
 
     if (config_.voters.is_secondary_config_valid()) {
       auto secondary_config_slice = config_.voters.secondary_config_slice();
-
-      conf_state.mutable_voters_outgoing()->Add(secondary_config_slice.begin(), secondary_config_slice.end());
+      cs.mutable_voters_outgoing()->Add(secondary_config_slice.begin(), secondary_config_slice.end());
     }
 
     if (config_.learners) {
       auto learners_slice = quorum::majority_config{config_.learners.value()}.slice();
-      conf_state.mutable_learners()->Add(learners_slice.begin(), learners_slice.end());
+      cs.mutable_learners()->Add(learners_slice.begin(), learners_slice.end());
     }
+
     if (config_.learners_next) {
       auto learners_next_slice = quorum::majority_config{config_.learners_next.value()}.slice();
-      conf_state.mutable_learners_next()->Add(learners_next_slice.begin(), learners_next_slice.end());
+      cs.mutable_learners_next()->Add(learners_next_slice.begin(), learners_next_slice.end());
     }
-    return conf_state;
+
+    if (config_.auto_leave) {
+      cs.set_auto_leave(config_.auto_leave);
+    }
+    return cs;
   }
 
   // IsSingleton returns true if (and only if) there is only one voting member
