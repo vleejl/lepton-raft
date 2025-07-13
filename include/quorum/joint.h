@@ -96,12 +96,19 @@ class joint_config {
   // JointConfig is a configuration of two groups of (possibly overlapping)
   // majority configurations. Decisions require the support of both majorities
   std::string string() const {
-    std::ostringstream oss;
-    oss << primary_config_.string();
+    fmt::memory_buffer buf;
+
+    // 主配置（总是存在）
+    std::string primary_str = primary_config_.string();
+    fmt::format_to(std::back_inserter(buf), "{}", primary_str);
+
+    // 次配置（如果存在且非空）
     if (secondary_config_ && !secondary_config_->empty()) {
-      oss << "&&" << secondary_config_->string();
+      std::string secondary_str = secondary_config_->string();
+      fmt::format_to(std::back_inserter(buf), "&&{}", secondary_str);
     }
-    return oss.str();
+
+    return fmt::to_string(buf);
   }
 
   // IDs returns a newly initialized map representing the set of voters present

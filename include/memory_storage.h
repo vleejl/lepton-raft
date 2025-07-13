@@ -22,7 +22,10 @@ class memory_storage {
       : hard_state_(std::move(ms.hard_state_)), snapshot_(std::move(ms.snapshot_)), ents_(std::move(ms.ents_)){};
 #ifdef LEPTON_TEST
   explicit memory_storage(const pb::repeated_entry& ents) : ents_(ents) {}
+
   raftpb::snapshot& snapshot_ref() { return snapshot_; }
+
+  auto& mutable_ents() { return ents_; }
 #endif
   leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> initial_state() const;
 

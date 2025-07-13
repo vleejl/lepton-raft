@@ -2,6 +2,7 @@
 #define _LEPTON_MAJORITY_H_
 
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <proxy.h>
 
 #include <algorithm>
@@ -49,18 +50,7 @@ class majority_config {
   // 列表格式化为字符串，并按升序排列。它会将配置中的所有节点 ID
   // 排序，并生成一个形如 (id1 id2 id3 ...) 的字符串输出。
   // 用途：用于打印日志或调试输出，以便更清晰地查看集群的多数配置。
-  std::string string() const {
-    std::ostringstream ss;
-    ss << '(';
-    for (auto iter = id_set_.begin(); iter != id_set_.end(); ++iter) {
-      if (iter != id_set_.begin()) {
-        ss << ' ';
-      }
-      ss << *iter;
-    }
-    ss << ')';
-    return ss.str();
-  }
+  std::string string() const { return fmt::format("({})", fmt::join(id_set_, " ")); }
 
   // Describe returns a (multi-line) representation of the commit indexes for
   // the given lookuper.
@@ -104,17 +94,25 @@ class majority_config {
     }
 
     std::sort(info.begin(), info.end(), [](const tup &lhs, const tup &rhs) { return lhs.id < rhs.id; });
-    std::ostringstream ss;
-    ss << std::string(n, ' ') << "    idx\n";
+    fmt::memory_buffer buf;
+
+    // 第一行：标题
+    fmt::format_to(std::back_inserter(buf), "{}{}    idx\n", std::string(n, ' '), "");
+
+    // 为每个元素构建行
     for (const auto &iter : info) {
       if (!iter.ok) {
-        ss << '?' << std::string(n, ' ');
+        fmt::format_to(std::back_inserter(buf), "?{}", std::string(n, ' '));
       } else {
-        ss << std::string(iter.bar, 'x') << '>' << std::string(n - iter.bar, ' ');
+        fmt::format_to(std::back_inserter(buf), "{}{}{}", std::string(iter.bar, 'x'), '>',
+                       std::string(n - iter.bar, ' '));
       }
-      ss << fmt::format(" {:5d}    (id={})\n", iter.index, iter.id);
+
+      // 保留原始的 fmt::format 调用，但使用更高效的 format_to
+      fmt::format_to(std::back_inserter(buf), " {:5d}    (id={})\n", iter.index, iter.id);
     }
-    return ss.str();
+
+    return fmt::to_string(buf);
   }
 
   std::vector<std::uint64_t> slice() const { return std::vector<std::uint64_t>{id_set_.begin(), id_set_.end()}; }

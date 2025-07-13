@@ -110,4 +110,32 @@ inline constexpr bool is_local_msg_target(uint64_t id) { return id == LOCAL_APPE
 
 }  // namespace lepton
 
+template <>
+struct fmt::formatter<lepton::pb::repeated_uint64> {
+  // 解析格式说明符（这里不需要特殊处理）
+  constexpr auto parse(format_parse_context& ctx) {
+    return ctx.begin();  // 忽略所有格式说明符
+  }
+
+  // 实际格式化函数
+  template <typename FormatContext>
+  auto format(const lepton::pb::repeated_uint64& field, FormatContext& ctx) const {
+    auto out = ctx.out();
+    *out++ = '[';
+
+    bool first = true;
+    for (auto& element : field) {
+      if (!first) {
+        out = fmt::format_to(out, ", ");
+      } else {
+        first = false;
+      }
+      out = fmt::format_to(out, "{}", element);
+    }
+
+    *out++ = ']';
+    return out;
+  }
+};
+
 #endif  // _LEPTON_PB_H_

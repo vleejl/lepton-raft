@@ -7,6 +7,7 @@
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "read_only.h"
+#include "spdlog/spdlog.h"
 #include "state_trace.h"
 #include "types.h"
 namespace lepton {
@@ -25,7 +26,16 @@ bool must_sync(const raftpb::hard_state &st, const raftpb::hard_state &prev_st, 
   // currentTerm
   // votedFor
   // log entries[]
-  return ents_num > 0 || st != prev_st || st.term() != prev_st.term();
+  if (ents_num > 0) {
+    return true;
+  }
+  if (st.vote() != prev_st.vote()) {
+    return true;
+  }
+  if (st.term() != prev_st.term()) {
+    return true;
+  }
+  return false;
 }
 
 static bool need_storage_append_msg(const raft &r, const ready &rd) {

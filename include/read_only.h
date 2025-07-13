@@ -1,6 +1,7 @@
 #ifndef _LEPTON_READ_ONLY_H_
 #define _LEPTON_READ_ONLY_H_
 #include <absl/types/span.h>
+#include <fmt/format.h>
 #include <raft.pb.h>
 
 #include <cassert>
@@ -23,6 +24,15 @@ namespace lepton {
 struct read_state {
   std::uint64_t index;
   std::string request_ctx;
+
+  // 优化为统一格式接口
+  std::string to_string() const { return fmt::format("{{index:{} request_ctx:{:?}}}", index, request_ctx); }
+
+  // 简化转换运算符
+  explicit operator std::string() const { return to_string(); }
+
+  // 优化为使用 fmt 格式化
+  friend std::ostream& operator<<(std::ostream& os, const read_state& rs) { return os << rs.to_string(); }
 };
 
 struct read_index_status {

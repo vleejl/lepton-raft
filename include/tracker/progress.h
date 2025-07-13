@@ -255,32 +255,35 @@ class progress {
   }
 
   auto string() const {
-    std::ostringstream ss;
 #ifdef LEPTON_TEST
     auto state_name = state_type2string(state_);
 #else
     auto state_name = magic_enum::enum_name(state_);
 #endif
-    ss << state_name << " match=" << match_ << " next=" << next_;
+
+    fmt::memory_buffer buf;
+    fmt::format_to(std::back_inserter(buf), "{} match={} next={}", state_name, match_, next_);
+
     if (is_learner_) {
-      ss << " learner";
+      fmt::format_to(std::back_inserter(buf), " learner");
     }
     if (is_paused()) {
-      ss << " paused";
+      fmt::format_to(std::back_inserter(buf), " paused");
     }
     if (pending_snapshot_ > 0) {
-      ss << " pending_snapshot=" << pending_snapshot_;
+      fmt::format_to(std::back_inserter(buf), " pending_snapshot={}", pending_snapshot_);
     }
     if (!recent_active_) {
-      ss << " inactive";
+      fmt::format_to(std::back_inserter(buf), " inactive");
     }
     if (auto count = inflights_.count(); count > 0) {
-      ss << " inflight=" << count;
+      fmt::format_to(std::back_inserter(buf), " inflight={}", count);
       if (inflights_.full()) {
-        ss << "[full]";
+        fmt::format_to(std::back_inserter(buf), "[full]");
       }
     }
-    return ss.str();
+
+    return fmt::to_string(buf);
   }
 
  private:

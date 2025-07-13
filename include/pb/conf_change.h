@@ -5,6 +5,7 @@
 #include <tuple>
 
 #include "lepton_error.h"
+#include "types.h"
 namespace lepton {
 namespace pb {
 
@@ -30,7 +31,10 @@ std::tuple<bool, bool> enter_joint(const raftpb::conf_change_v2& c);
 // LeaveJoint is true if the configuration change leaves a joint configuration.
 // This is the case if the ConfChangeV2 is zero, with the possible exception of
 // the Context field.
-bool leave_joint(raftpb::conf_change_v2 c);
+bool leave_joint(raftpb::conf_change_v2& c);
+
+// ConfChangesToString is the inverse to ConfChangesFromString.
+std::string conf_changes_to_string(const repeated_conf_change& ccs);
 
 }  // namespace pb
 }  // namespace lepton

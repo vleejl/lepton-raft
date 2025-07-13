@@ -120,20 +120,22 @@ struct config {
   std::optional<std::set<std::uint64_t>> learners_next;
 
   std::string string() const {
-    std::ostringstream buf;
-    buf << "voters=" << voters.string();
+    fmt::memory_buffer buf;
+    fmt::format_to(std::back_inserter(buf), "voters={}", voters.string());
 
     if (learners && !learners->empty()) {
-      buf << " learners=" << quorum::majority_config{learners.value()}.string();
+      auto learners_str = quorum::majority_config{learners.value()}.string();
+      fmt::format_to(std::back_inserter(buf), " learners={}", learners_str);
     }
     if (learners_next && !learners_next->empty()) {
-      buf << " learners_next=" << quorum::majority_config{learners_next.value()}.string();
+      auto learners_next_str = quorum::majority_config{learners_next.value()}.string();
+      fmt::format_to(std::back_inserter(buf), " learners_next={}", learners_next_str);
     }
     if (auto_leave) {
-      buf << " autoleave";
+      fmt::format_to(std::back_inserter(buf), " autoleave");
     }
 
-    return buf.str();
+    return fmt::to_string(buf);
   }
 };
 

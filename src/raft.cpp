@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <optional>
+#include <random>
 #include <utility>
 #include <vector>
 

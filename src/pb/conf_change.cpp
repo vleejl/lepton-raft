@@ -1,15 +1,13 @@
 #include "conf_change.h"
 
-#include <google/protobuf/util/message_differencer.h>
-
 #include <cassert>
+#include <sstream>
 
 #include "leaf.hpp"
 #include "lepton_error.h"
 #include "logic_error.h"
 #include "magic_enum.hpp"
 #include "raft.pb.h"
-using google::protobuf::util::MessageDifferencer;
 namespace lepton {
 
 namespace pb {
@@ -147,9 +145,70 @@ std::tuple<bool, bool> enter_joint(const raftpb::conf_change_v2& c) {
   return {false, false};
 }
 
-bool leave_joint(raftpb::conf_change_v2 c) {
+static bool equal_conf_change_single(const raftpb::conf_change_single& a, const raftpb::conf_change_single& b) {
+  return a.type() == b.type() && a.node_id() == b.node_id();
+}
+
+static bool equal_conf_change_v2(const raftpb::conf_change_v2& a, const raftpb::conf_change_v2& b) {
+  // Compare `transition` (optional enum)
+  if (a.has_transition() != b.has_transition()) return false;
+  if (a.has_transition() && a.transition() != b.transition()) return false;
+
+  // Compare `changes` (repeated message, order matters)
+  if (a.changes_size() != b.changes_size()) return false;
+  for (int i = 0; i < a.changes_size(); ++i) {
+    if (!equal_conf_change_single(a.changes(i), b.changes(i))) {
+      return false;
+    }
+  }
+
+  // Compare `context` (optional bytes)
+  if (a.has_context() != b.has_context()) return false;
+  if (a.has_context() && a.context() != b.context()) return false;
+
+  return true;
+}
+
+bool leave_joint(raftpb::conf_change_v2& c) {
   c.clear_context();
-  return MessageDifferencer::Equals(c, raftpb::conf_change_v2{});
+  static raftpb::conf_change_v2 empty_conf_change;
+  return equal_conf_change_v2(c, empty_conf_change);
+}
+std::string conf_changes_to_string(const repeated_conf_change& ccs) {
+  fmt::memory_buffer buf;
+
+  for (int i = 0; i < ccs.size(); ++i) {
+    const auto& cs = ccs.Get(i);
+
+    // 添加分隔符（如果不是第一个元素）
+    if (i > 0) {
+      buf.push_back(' ');
+    }
+
+    // 根据变更类型添加前缀
+    switch (cs.type()) {
+      case raftpb::CONF_CHANGE_ADD_NODE:
+        buf.push_back('v');
+        break;
+      case raftpb::CONF_CHANGE_REMOVE_NODE:
+        buf.push_back('l');
+        break;
+      case raftpb::CONF_CHANGE_UPDATE_NODE:
+        buf.push_back('r');
+        break;
+      case raftpb::CONF_CHANGE_ADD_LEARNER_NODE:
+        buf.push_back('u');
+        break;
+      default:
+        fmt::format_to(std::back_inserter(buf), "unknown");
+        break;
+    }
+
+    // 添加节点ID
+    fmt::format_to(std::back_inserter(buf), "{}", cs.node_id());
+  }
+
+  return fmt::to_string(buf);
 }
 }  // namespace pb
 

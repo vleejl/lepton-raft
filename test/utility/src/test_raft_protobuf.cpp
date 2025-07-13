@@ -186,6 +186,29 @@ lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::ent
   return resp_entries;
 }
 
+bool compare_read_states(const std::vector<lepton::read_state> &lhs, const std::vector<lepton::read_state> &rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < lhs.size(); ++i) {
+    const auto &left = lhs[i];
+    const auto &right = rhs[i];
+
+    // 比较索引
+    if (left.index != right.index) {
+      return false;
+    }
+
+    // 比较请求上下文
+    if (left.request_ctx != right.request_ctx) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 bool operator==(const std::optional<raftpb::conf_state> &lhs, const std::optional<raftpb::conf_state> &rhs) {
   return compare_optional_conf_state(lhs, rhs);
 }
@@ -305,7 +328,57 @@ bool compare_repeated_message(const lepton::pb::repeated_message &lhs, const lep
 }
 
 bool operator==(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs) {
-  compare_repeated_message(lhs, rhs);
+  return compare_repeated_message(lhs, rhs);
+}
+
+bool compare_ready(const lepton::ready &lhs, const lepton::ready &rhs) {
+  // 1. 比较 soft_state（可选值）
+  if (lhs.soft_state.has_value() != rhs.soft_state.has_value()) {
+    return false;
+  }
+  if (lhs.soft_state && rhs.soft_state) {
+    // 假设 lepton::soft_state 有 operator==
+    if (*lhs.soft_state != *rhs.soft_state) {
+      return false;
+    }
+  }
+
+  // 2. 比较 hard_state（直接比较）
+  if (lhs.hard_state.DebugString() != rhs.hard_state.DebugString()) {
+    return false;
+  }
+
+  // 3. 比较 read_states（使用专用比较函数）
+  if (!compare_read_states(lhs.read_states, rhs.read_states)) {
+    return false;
+  }
+
+  // 4. 比较 entries（使用 span_entry 比较）
+  if (!compare_repeated_entry(lhs.entries, rhs.entries)) {
+    return false;
+  }
+
+  // 5. 比较 snapshot
+  if (lhs.snapshot.DebugString() != rhs.snapshot.DebugString()) {
+    return false;
+  }
+
+  // 6. 比较 committed_entries
+  if (!compare_repeated_entry(lhs.committed_entries, rhs.committed_entries)) {
+    return false;
+  }
+
+  // 7. 比较 messages
+  if (!compare_repeated_message(lhs.messages, rhs.messages)) {
+    return false;
+  }
+
+  // 8. 比较 must_sync
+  if (lhs.must_sync != rhs.must_sync) {
+    return false;
+  }
+
+  return true;
 }
 
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term) {
