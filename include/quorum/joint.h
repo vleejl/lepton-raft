@@ -29,6 +29,7 @@ class joint_config {
       : primary_config_(std::move(primary_config)), secondary_config_(std::move(secondary_config)) {}
   joint_config(joint_config&&) = default;
   joint_config& operator=(joint_config&&) = default;
+  auto operator<=>(const joint_config&) const = default;
 
   joint_config clone() const {
     if (secondary_config_) {

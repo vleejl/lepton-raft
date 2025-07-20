@@ -195,4 +195,5 @@ network init_empty_network(std::vector<std::uint64_t> &&ids);
 
 void emplace_nil_peer(std::vector<state_machine_builer_pair> &peers);
 void emplace_nop_stepper(std::vector<state_machine_builer_pair> &peers);
+auto ignore_size_hint_mem_storage_entries(lepton::memory_storage &, std::uint64_t, std::uint64_t, std::uint64_t);
 #endif  // _LEPTON_TEST_RAFT_NETWORKING_H_

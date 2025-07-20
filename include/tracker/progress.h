@@ -60,6 +60,8 @@ class progress {
         is_learner_};
   }
 
+  auto operator<=>(const progress&) const = default;
+
   void set_match(std::uint64_t match) { match_ = match; }
 
   auto match() const { return match_; }

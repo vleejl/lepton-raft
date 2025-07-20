@@ -412,3 +412,8 @@ void emplace_nop_stepper(std::vector<state_machine_builer_pair> &peers) {
   emplace_nil_peer(peers);
   peers.back().init_black_hole_builder(pro::make_proxy<state_machine_builer, black_hole>());
 }
+
+auto ignore_size_hint_mem_storage_entries(lepton::memory_storage &m, std::uint64_t lo, std::uint64_t hi,
+                                          std::uint64_t _) {
+  return m.entries(lo, hi, lepton::NO_LIMIT);
+}

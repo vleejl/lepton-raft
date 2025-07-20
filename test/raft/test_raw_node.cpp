@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -16,8 +17,10 @@
 #include "describe.h"
 #include "fmt/format.h"
 #include "gtest/gtest.h"
+#include "joint.h"
 #include "lepton_error.h"
 #include "magic_enum.hpp"
+#include "majority.h"
 #include "memory_storage.h"
 #include "node.h"
 #include "protobuf.h"
@@ -32,8 +35,11 @@
 #include "test_raft_protobuf.h"
 #include "test_raft_utils.h"
 #include "test_utility_data.h"
+#include "tracker.h"
 #include "types.h"
 using namespace lepton;
+
+static raftpb::hard_state EMPTY_STATE;
 
 // rawNodeAdapter is essentially a lint that makes sure that RawNode implements
 // "most of" Node. The exceptions (some of which are easy to fix) are listed
@@ -654,4 +660,308 @@ TEST_F(raw_node_test_suit, test_raw_node_start) {
   want.soft_state.reset();
   ASSERT_TRUE(compare_ready(rd, want));
   ASSERT_FALSE(raw_node.has_ready());
+}
+
+TEST_F(raw_node_test_suit, test_raw_node_restart) {
+  lepton::pb::repeated_entry entries;
+  {
+    auto entry1 = entries.Add();  // empty entry
+    entry1->set_term(1);
+    entry1->set_index(1);
+    auto entry2 = entries.Add();  // non-empty entry
+    entry2->set_term(1);
+    entry2->set_index(2);
+    entry2->set_data("foo");
+  }
+
+  raftpb::hard_state st;
+  st.set_term(1);
+  st.set_commit(1);
+
+  lepton::ready want;
+  {
+    // commit up to commit index in st
+    auto entry1 = want.committed_entries.Add();
+    entry1->set_term(1);
+    entry1->set_index(1);
+  }
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  mm_storage.set_hard_state(st);
+  mm_storage.append(std::move(entries));
+
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto& raw_node = *raw_node_result;
+  auto rd = raw_node.ready();
+  ASSERT_TRUE(compare_ready(rd, want));
+  raw_node.advance();
+  ASSERT_FALSE(raw_node.has_ready());
+}
+
+TEST_F(raw_node_test_suit, test_raw_node_restart_from_snapshot) {
+  auto snap = create_snapshot(2, 1, {1, 2});
+  lepton::pb::repeated_entry entries;
+  {
+    auto entry1 = entries.Add();
+    entry1->set_term(1);
+    entry1->set_index(3);
+    entry1->set_data("foo");
+  }
+
+  raftpb::hard_state st;
+  st.set_term(1);
+  st.set_commit(3);
+
+  lepton::ready want;
+  want.committed_entries = entries;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  mm_storage.set_hard_state(st);
+  mm_storage.apply_snapshot(std::move(snap));
+  mm_storage.append(std::move(entries));
+
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto& raw_node = *raw_node_result;
+  auto rd = raw_node.ready();
+  ASSERT_TRUE(compare_ready(rd, want));
+  raw_node.advance();
+  ASSERT_FALSE(raw_node.has_ready());
+}
+
+// TestNodeAdvance from node_test.go has no equivalent in rawNode because there is
+// no dependency check between Ready() and Advance()
+TEST_F(raw_node_test_suit, test_node_advance) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto& raw_node = *raw_node_result;
+  ASSERT_TRUE(raw_node.status().progress.view().empty());
+  ASSERT_TRUE(raw_node.campaign());
+
+  auto rd = raw_node.ready();
+  mm_storage.append(std::move(rd.entries));
+  raw_node.advance();
+  auto status = raw_node.status();
+  ASSERT_EQ(1, status.basic_status.soft_state.leader_id);
+  ASSERT_EQ(lepton::state_type::LEADER, status.basic_status.soft_state.raft_state);
+  const auto& lhs_cfg = raw_node.raft_.trk_.progress_map_view().view().at(1);
+  const auto& rhs_cfg = status.progress.view().at(1);
+  ASSERT_EQ(lhs_cfg, rhs_cfg);
+
+  lepton::tracker::config exp_cfg;
+  lepton::quorum::majority_config majority_cfg{std::set<std::uint64_t>{1}};
+  lepton::quorum::joint_config joint_cfg{std::move(majority_cfg)};
+  exp_cfg.voters = std::move(joint_cfg);
+  ASSERT_EQ(exp_cfg, status.config);
+}
+
+// TestRawNodeCommitPaginationAfterRestart is the RawNode version of
+// TestNodeCommitPaginationAfterRestart. The anomaly here was even worse as the
+// Raft group would forget to apply entries:
+//
+//   - node learns that index 11 is committed
+//   - nextCommittedEnts returns index 1..10 in CommittedEntries (but index 10
+//     already exceeds maxBytes), which isn't noticed internally by Raft
+//   - Commit index gets bumped to 10
+//   - the node persists the HardState, but crashes before applying the entries
+//   - upon restart, the storage returns the same entries, but `slice` takes a
+//     different code path and removes the last entry.
+//   - Raft does not emit a HardState, but when the app calls Advance(), it bumps
+//     its internal applied index cursor to 10 (when it should be 9)
+//   - the next Ready asks the app to apply index 11 (omitting index 10), losing a
+//     write.
+/*
+模拟一种临界情况：节点知道索引 11 已提交（Commit:11），但在应用日志前崩溃。
+重启前状态：
+​​存储状态​​：持久化的 HardState 中 Commit:10（但存在索引 11 的条目）。
+​ - ​日志条目​​：索引 1-11 的条目已保存，其中索引 1-10 大小总和为 size。
+​ - ​配置限制​​：MaxSizePerMsg = size - 最后一个条目的大小 -
+1，故意使单次消息无法容纳全部索引 1-10 的条目。
+
+重启后 Raft 内部可能错误地认为索引 1-10 已全部应用（实际未应用），导致：
+  - ​​问题 1​​：跳过索引 10 的应用（直接尝试应用索引 11）。
+  - ​​问题 2​​：日志条目丢失（如索引 10 未被应用）。
+
+验证的核心问题​​
+- ​​存储分页边界处理​​：重启后若 Ready() 返回的条目被错误截断（如索引
+1-9），导致内部状态认为索引 10 已应用（实际未应用），后续可能跳过索引 10。
+​- ​应用状态一致性​​：Advance() 调用后，Raft 内部维护的 applied index
+必须与真实应用进度严格一致。
+​​- 崩溃恢复鲁棒性​​：即使崩溃发生在状态持久化与应用条目的间隙，
+重启后仍需保证所有已提交条目被精确应用。
+*/
+TEST_F(raw_node_test_suit, test_raw_node_commit_pagination_after_restart) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  raftpb::hard_state persisted_hard_state;
+  persisted_hard_state.set_term(1);
+  persisted_hard_state.set_commit(1);
+  persisted_hard_state.set_commit(10);
+  mm_storage.set_hard_state(persisted_hard_state);
+
+  auto& ents = mm_storage.mutable_ents();
+  std::uint64_t size = 0;
+  for (std::uint64_t i = 0; i < 10; ++i) {
+    auto entry = ents.Add();
+    entry->set_term(1);
+    entry->set_index(i + 1);
+    entry->set_type(raftpb::ENTRY_NORMAL);
+    entry->set_data("a");
+    size += entry->ByteSizeLong();
+  }
+
+  auto cfg = new_test_config(1, 10, 1, std::move(storage_proxy));
+  // Set a MaxSizePerMsg that would suggest to Raft that the last committed entry should
+  // not be included in the initial rd.CommittedEntries. However, our storage will ignore
+  // this and *will* return it (which is how the Commit index ended up being 10 initially).
+  cfg.max_size_per_msg = size - ents.at(ents.size() - 1).ByteSizeLong() - 1;
+
+  {
+    auto entry = ents.Add();
+    entry->set_term(1);
+    entry->set_index(11);
+    entry->set_type(raftpb::ENTRY_NORMAL);
+    entry->set_data("boom");
+  }
+
+  auto raw_node_result = lepton::new_raw_node(std::move(cfg));
+  ASSERT_TRUE(raw_node_result);
+  auto& raw_node = *raw_node_result;
+
+  // 循环检查每次 Ready() 返回的 CommittedEntries：
+  // ​​连续性验证​​：新条目必须紧接着已应用的索引（如 highestApplied=9
+  // 时，下一条必须是索引 10）。 ​​完整性验证​​：最终必须应用索引
+  // 11（highestApplied=11）。
+  for (std::uint64_t highest_applied = 0; highest_applied != 11;) {
+    auto rd = raw_node.ready();
+    auto n = rd.committed_entries.size();
+    ASSERT_NE(0, n) << "stopped applying entries at index " << highest_applied;
+    auto next = rd.committed_entries.begin()->index();
+    ASSERT_FALSE(highest_applied != 0 && highest_applied + 1 != next)
+        << fmt::format("attempting to apply index {} after index {}, leaving a gap", next, highest_applied);
+    highest_applied = rd.committed_entries[n - 1].index();
+    raw_node.advance();
+    raftpb::message msg;
+    msg.set_type(::raftpb::message_type::MSG_HEARTBEAT);
+    msg.set_to(1);
+    msg.set_from(2);  // illegal, but we get away with it
+    msg.set_term(1);
+    // 强制更新 Commit Index​
+    msg.set_commit(11);
+    raw_node.step(std::move(msg));
+  }
+}
+
+// TestRawNodeBoundedLogGrowthWithPartition tests a scenario where a leader is
+// partitioned from a quorum of nodes. It verifies that the leader's log is
+// protected from unbounded growth even as new entries continue to be proposed.
+// This protection is provided by the MaxUncommittedEntriesSize configuration.
+// 验证目的：在网络分区期间，通过配置 MaxUncommittedEntriesSize 来防止 leader
+// 节点的日志无限增长​​。
+TEST_F(raw_node_test_suit, test_raw_node_bounded_log_growth_with_partition) {
+  constexpr auto MAX_ENTRIES = 16;
+  std::string data = "testdata";
+  raftpb::entry test_entry;
+  test_entry.set_data(data);
+  auto max_entry_size = MAX_ENTRIES * lepton::pb::payloads_size(test_entry);
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto cfg = new_test_config(1, 10, 1, std::move(storage_proxy));
+  cfg.max_uncommitted_entries_size = max_entry_size;
+
+  auto raw_node_result = lepton::new_raw_node(std::move(cfg));
+  ASSERT_TRUE(raw_node_result);
+  auto& raw_node = *raw_node_result;
+
+  // Become the leader and apply empty entry.
+  raw_node.campaign();
+  while (true) {
+    auto rd = raw_node.ready();
+    mm_storage.append(std::move(rd.entries));
+    raw_node.advance();
+    if (!rd.committed_entries.empty()) {
+      break;
+    }
+  }
+
+  // Simulate a network partition while we make our proposals by never
+  // committing anything. These proposals should not cause the leader's
+  // log to grow indefinitely.
+  // 模拟分区​​：leader 无法联系 follower，无法复制日志
+  // ​​关键风险​​：若无保护机制，leader 将积累1024个未提交条目
+  for (auto i = 0; i < 1024; ++i) {
+    raw_node.propose(std::string{data});
+  }
+
+  // Check the size of leader's uncommitted log tail. It should not exceed the
+  // MaxUncommittedEntriesSize limit.
+  auto check_uncommitted = [&raw_node](lepton::pb::entry_payload_size exp) {
+    ASSERT_EQ(exp, raw_node.raft_.uncommitted_size_);
+  };
+  check_uncommitted(max_entry_size);
+
+  // Recover from the partition. The uncommitted tail of the Raft log should
+  // disappear as entries are committed.
+  auto rd = raw_node.ready();
+  ASSERT_EQ(MAX_ENTRIES, rd.entries.size());
+  mm_storage.append(std::move(rd.entries));
+  raw_node.advance();
+
+  // Entries are appended, but not applied.
+  check_uncommitted(max_entry_size);
+
+  rd = raw_node.ready();
+  ASSERT_TRUE(rd.entries.empty());
+  ASSERT_EQ(MAX_ENTRIES, rd.committed_entries.size());
+  raw_node.advance();
+  check_uncommitted(0);
+}
+
+TEST_F(raw_node_test_suit, test_raw_node_consume_ready) {
+  // Check that readyWithoutAccept() does not call acceptReady (which resets
+  // the messages) but Ready() does.
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  // auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto& raw_node = *raw_node_result;
+
+  raftpb::message m1;
+  m1.set_context("foo");
+  raftpb::message m2;
+  m2.set_context("bar");
+
+  // Inject first message, make sure it's visible via readyWithoutAccept.
+  raw_node.raft_.msgs_.Add(raftpb::message{m1});
+  auto rd = raw_node.ready_without_accept();
+  ASSERT_EQ(1, rd.messages.size());
+  ASSERT_EQ(m1.DebugString(), rd.messages[0].DebugString());
+  ASSERT_EQ(1, raw_node.raft_.msgs_.size());
+  ASSERT_EQ(m1.DebugString(), raw_node.raft_.msgs_[0].DebugString());
+
+  // Now call Ready() which should move the message into the Ready (as opposed
+  // to leaving it in both places).
+  rd = raw_node.ready();
+  ASSERT_TRUE(raw_node.raft_.msgs_.empty());
+  ASSERT_EQ(1, rd.messages.size());
+  ASSERT_EQ(m1.DebugString(), rd.messages[0].DebugString());
+
+  // Add a message to raft to make sure that Advance() doesn't drop it.
+  raw_node.raft_.msgs_.Add(raftpb::message{m2});
+  raw_node.advance();
+  ASSERT_EQ(1, raw_node.raft_.msgs_.size());
+  ASSERT_EQ(m2.DebugString(), raw_node.raft_.msgs_[0].DebugString());
 }

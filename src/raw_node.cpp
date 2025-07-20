@@ -6,8 +6,6 @@
 #include "node.h"
 #include "protobuf.h"
 #include "raft.pb.h"
-#include "read_only.h"
-#include "spdlog/spdlog.h"
 #include "state_trace.h"
 #include "types.h"
 namespace lepton {
@@ -267,7 +265,9 @@ lepton::ready raw_node::ready_without_accept() const {
   if (auto soft_state = raft_.soft_state(); soft_state != prev_soft_state_) {
     rd.soft_state = std::move(soft_state);
   }
-  if (auto hard_state = raft_.hard_state(); hard_state != prev_hard_state_) {
+  auto hard_state = raft_.hard_state();
+  rd.must_sync = must_sync(hard_state, prev_hard_state_, rd.entries.size());
+  if (hard_state != prev_hard_state_) {
     rd.hard_state = std::move(hard_state);
   }
   if (raft_.raft_log_handle_.has_next_unstable_snapshot()) {
@@ -278,7 +278,6 @@ lepton::ready raw_node::ready_without_accept() const {
   if (!raft_.read_states_.empty()) {
     rd.read_states = raft_.read_states_;
   }
-  rd.must_sync = must_sync(rd.hard_state, prev_hard_state_, rd.entries.size());
   if (async_storage_writes_) {
     // If async storage writes are enabled, enqueue messages to
     // local storage threads, where applicable.
@@ -320,10 +319,10 @@ void raw_node::accept_ready(const lepton::ready &rd) {
       }
     }
     if (need_storage_append_resp_msg(raft_, rd)) {
-      steps_on_advance_.Add()->CopyFrom(new_storage_append_resp_msg(raft_, rd));
+      steps_on_advance_.Add(new_storage_append_resp_msg(raft_, rd));
     }
     if (need_storage_apply_resp_msg(rd)) {
-      steps_on_advance_.Add()->CopyFrom(new_storage_apply_resp_msg(raft_, rd.committed_entries));
+      steps_on_advance_.Add(new_storage_apply_resp_msg(raft_, rd.committed_entries));
     }
   }
   raft_.reset_msgs();

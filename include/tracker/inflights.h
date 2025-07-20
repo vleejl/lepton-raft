@@ -21,7 +21,8 @@ struct inflights_data {
   auto operator<=>(const inflights_data &) const = default;
 };
 class inflights {
-  inflights(size_t size, std::deque<inflights_data> &&buffer) : capacity_(size), buffer_(buffer) {}
+  inflights(size_t capacity, std::uint64_t max_bytes, std::uint64_t bytes, std::deque<inflights_data> &&buffer)
+      : capacity_(capacity), max_bytes_(max_bytes), bytes_(bytes), buffer_(buffer) {}
 
  public:
   MOVABLE_BUT_NOT_COPYABLE(inflights)
@@ -30,9 +31,11 @@ class inflights {
   // messages.
   inflights(size_t size, std::uint64_t max_bytes) : capacity_(size), max_bytes_(max_bytes) {}
 
+  auto operator<=>(const inflights &) const = default;
+
   inflights clone() const {
     std::deque<inflights_data> buffer = buffer_;
-    return inflights{capacity_, std::move(buffer)};
+    return inflights{capacity_, max_bytes_, bytes_, std::move(buffer)};
   }
 
   bool full() const { return buffer_.size() == capacity_ || ((max_bytes_ != 0) && (bytes_ >= max_bytes_)); }

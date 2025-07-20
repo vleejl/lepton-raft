@@ -5,7 +5,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <optional>
 #include <set>
 #include <tuple>
@@ -49,6 +48,7 @@ struct config {
   config() : voters(quorum::majority_config{}), auto_leave(false) {}
   config(config&&) = default;
   config& operator=(config&&) = default;
+  auto operator<=>(const config&) const = default;
 
   config clone() const {
     return config{voters.clone(), auto_leave, std::optional<std::set<std::uint64_t>>{learners},
