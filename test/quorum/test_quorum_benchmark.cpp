@@ -10,7 +10,7 @@
 using namespace lepton;
 
 static void BM_majority_config_committed_index(benchmark::State& state) {
-  int n = state.range(0);  // Get the value of n from the benchmark range
+  auto n = state.range(0);  // Get the value of n from the benchmark range
 
   std::set<std::uint64_t> id_set;
   std::map<std::uint64_t, quorum::log_index> id_log_index_ack_map;

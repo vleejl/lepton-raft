@@ -46,7 +46,7 @@ add_requires("protoc", "protobuf-cpp")
 add_requires("spdlog", {configs = {fmt_external = true, header_only = false}})
 
 add_includedirs("third_party/leaf/")
-add_includedirs("third_party/proxy/")
+add_includedirs("third_party/proxy/include/proxy")
 add_includedirs("include/")
 add_includedirs("include/basic")
 add_includedirs("include/confchange")
@@ -84,6 +84,8 @@ target("lepton-unit-test")
     add_files("src/pb/*.cpp")
     add_files("src/tracker/*.cpp")
     add_files("src/*.cpp|main.cpp")
+    -- lepton-raft basic utility unit test file
+    add_files("test/utility/src/*.cpp")
     -- lepton-raft unit test file
     add_files("test/unit_test.cpp")
     add_files("test/asio/*.cpp")
@@ -92,12 +94,17 @@ target("lepton-unit-test")
     add_files("test/raft/*.cpp")
     add_files("test/third_party/*.cpp")
     add_files("test/tracker/*.cpp")
-    add_files("test/utility/src/*.cpp")
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog")
     add_packages("gtest", "benchmark")
 
 
 target("lepton-benchmark-test")
+    -- set_policy("build.sanitizer.leak", true)
+    add_defines("LEPTON_TEST")
+    add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
+    add_includedirs("test/utility/include")
+    add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG")
+    add_defines("SPDLOG_FORCE_COLOR")  -- 强制彩色输出
     -- lepton-raft protobuf file
     add_rules("protobuf.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
@@ -107,10 +114,12 @@ target("lepton-benchmark-test")
     add_files("src/pb/*.cpp")
     add_files("src/tracker/*.cpp")
     add_files("src/*.cpp|main.cpp")
+    -- lepton-raft basic utility unit test file
+    add_files("test/utility/src/*.cpp")    
     -- lepton-raft benchmark test file
-    add_defines("LEPTON_TEST")
     add_files("test/benchmark.cpp")
     add_files("test/quorum/test_quorum_benchmark.cpp")
+    add_files("test/raft/test_raw_node_benchmark.cpp")
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog")
     add_packages("gtest", "benchmark")    
 

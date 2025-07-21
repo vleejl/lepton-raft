@@ -8,7 +8,6 @@
 #include <optional>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -19,13 +18,11 @@
 #include "gtest/gtest.h"
 #include "joint.h"
 #include "lepton_error.h"
-#include "magic_enum.hpp"
 #include "majority.h"
 #include "memory_storage.h"
 #include "node.h"
 #include "protobuf.h"
 #include "raft.h"
-#include "raft_log.h"
 #include "raw_node.h"
 #include "read_only.h"
 #include "spdlog/spdlog.h"
