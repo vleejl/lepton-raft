@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -83,6 +85,9 @@ static void BM_WithProgressExample(benchmark::State& state) {
     benchmark::DoNotOptimize(n);
   }
 }
+
+// TODO(vleejl) 不影响功能，暂时不迁移该测试用例
+// BenchmarkRawNode
 
 #define REGISTER_BENCHMARK(test) BENCHMARK(test)->Arg(1)->Arg(3)->Arg(5)->Arg(100)
 

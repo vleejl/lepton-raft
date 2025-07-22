@@ -3,7 +3,7 @@
 #include <vector>
 
 #include "log.h"
-#include "node.h"
+#include "node_interface.h"
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "state_trace.h"

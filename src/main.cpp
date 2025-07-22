@@ -1,13 +1,3 @@
-//
-// throttling_proxy.cpp
-// ~~~~~~~~~~~~~~~~~~~~
-//
-// Copyright (c) 2003-2024 Christopher M. Kohlhoff (chris at kohlhoff dot com)
-//
-// Distributed under the Boost Software License, Version 1.0. (See accompanying
-// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
-//
-
 #include <raft.pb.h>
 
 #include <asio.hpp>
@@ -133,10 +123,11 @@ awaitable<void> consume_message(message_channel &chann) {
 
 awaitable<void> run(io_context &ctx) {
   constexpr steady_timer::duration interval = 1s;
-  message_channel chann{ctx};
+  message_channel chann{ctx.get_executor()};
   co_spawn(ctx, product_tick(interval, chann), detached);
   co_await consume_message(chann);
 }
+
 int main(int argc, char *argv[]) {
   try {
     std::vector<int> arr;

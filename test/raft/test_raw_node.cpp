@@ -20,7 +20,6 @@
 #include "lepton_error.h"
 #include "majority.h"
 #include "memory_storage.h"
-#include "node.h"
 #include "protobuf.h"
 #include "raft.h"
 #include "raw_node.h"

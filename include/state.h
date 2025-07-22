@@ -4,6 +4,7 @@
 
 #include <cstdint>
 
+#include "channel.h"
 #include "tracker.h"
 namespace lepton {
 
@@ -39,6 +40,10 @@ struct status {
   tracker::config config;
   tracker::progress_map progress;
 };
+
+using status_callback = std::function<void(status)>;
+// 使用 ​​回调+Promise 模式​​ 替代 golang 中 channel 嵌套
+using status_channel = asio::experimental::channel<void(std::error_code, status_callback)>;
 
 }  // namespace lepton
 

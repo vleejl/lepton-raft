@@ -5,9 +5,9 @@
 
 #include "conf_change.h"
 #include "lepton_error.h"
-#include "node.h"
 #include "raft.pb.h"
 #include "read_only.h"
+#include "ready.h"
 #include "types.h"
 
 namespace test_pb {

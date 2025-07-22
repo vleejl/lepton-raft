@@ -7,7 +7,7 @@
 #include "conf_change.h"
 #include "leaf.hpp"
 #include "lepton_error.h"
-#include "node.h"
+#include "node_interface.h"
 #include "protobuf.h"
 #include "raft.h"
 #include "raft.pb.h"
