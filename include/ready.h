@@ -10,14 +10,21 @@
 #include "read_only.h"
 #include "state.h"
 #include "types.h"
-#include "utility_macros.h"
+
 namespace lepton {
 // Ready encapsulates the entries and messages that are ready to read,
 // be saved to stable storage, committed or sent to other peers.
 // All fields in Ready are read-only.
 struct ready {
-  MOVABLE_BUT_NOT_COPYABLE(ready)
+ private:
+  ready(const ready &) = default;
+  ready &operator=(const ready &) = delete;
+
+ public:
   ready() = default;
+  ready(ready &&) = default;
+  ready &operator=(ready &&) = default;
+  ready clone() const { return ready{*this}; }
 
   // The current volatile state of a Node.
   // SoftState will be nil if there is no update.

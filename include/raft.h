@@ -53,8 +53,6 @@ class raft {
   friend leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
   friend leaf::result<void> step_follower(raft& r, raftpb::message&& m);
 
-  bool has_leader() const { return lead_ != NONE; }
-
   // send schedules persisting state to a stable storage and AFTER that
   // sending the message (as part of next Ready message processing).
   void send(raftpb::message&& message);
@@ -221,6 +219,10 @@ class raft {
   raft(raft&&) = default;
 
   auto id() const { return id_; }
+
+  bool has_leader() const { return lead_ != NONE; }
+
+  auto lead() const { return lead_; }
 
   auto term() const { return term_; }
 

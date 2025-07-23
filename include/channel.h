@@ -21,9 +21,9 @@ namespace lepton {
 // using asio::ip::tcp;
 
 template <typename T>
-using channel = asio::experimental::channel<void(std::error_code, T)>;
+using channel = asio::experimental::channel<void(asio::error_code, T)>;
 
-using signal_channel = asio::experimental::channel<void(std::error_code)>;
+using signal_channel = asio::experimental::channel<void(asio::error_code)>;
 }  // namespace lepton
 
 #endif  // _LEPTON_CHANNEL_H_

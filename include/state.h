@@ -41,9 +41,11 @@ struct status {
   tracker::progress_map progress;
 };
 
-using status_callback = std::function<void(status)>;
+struct status_with_channel {
+  std::optional<channel<status>> chan;
+};
 // 使用 ​​回调+Promise 模式​​ 替代 golang 中 channel 嵌套
-using status_channel = asio::experimental::channel<void(std::error_code, status_callback)>;
+using status_channel = channel<status_with_channel>;
 
 }  // namespace lepton
 

@@ -24,22 +24,14 @@ enum class progress_type {
   PROGRESS_TYPE_LEARNER
 };
 
-class raw_node;
-
-// NewRawNode instantiates a RawNode from the given configuration.
-//
-// See Bootstrap() for bootstrapping an initial state; this replaces the former
-// 'peers' argument to this method (with identical behavior). However, It is
-// recommended that instead of calling Bootstrap, applications bootstrap their
-// state manually by setting up a Storage that has a first index > 1 and which
-// stores the desired ConfState as its InitialState.
-leaf::result<raw_node> new_raw_node(config &&c);
+class node;
 
 // RawNode is a thread-unsafe Node.
 // The methods of this struct correspond to the methods of Node and are described
 // more fully there.
 class raw_node {
   NOT_COPYABLE(raw_node)
+  friend class node;
 
  public:
   raw_node(lepton::raft &&r, bool async_storage_writes)
@@ -49,6 +41,8 @@ class raw_node {
         prev_hard_state_(raft_.hard_state()),
         steps_on_advance_() {}
   raw_node(raw_node &&) = default;
+
+  auto async_storage_writes() const { return async_storage_writes_; }
 
   // Tick advances the internal logical clock by a single tick.
   void tick() { raft_.tick(); }
@@ -207,6 +201,15 @@ class raw_node {
   raftpb::hard_state prev_hard_state_;
   lepton::pb::repeated_message steps_on_advance_;
 };
+
+// NewRawNode instantiates a RawNode from the given configuration.
+//
+// See Bootstrap() for bootstrapping an initial state; this replaces the former
+// 'peers' argument to this method (with identical behavior). However, It is
+// recommended that instead of calling Bootstrap, applications bootstrap their
+// state manually by setting up a Storage that has a first index > 1 and which
+// stores the desired ConfState as its InitialState.
+leaf::result<raw_node> new_raw_node(config &&c);
 
 }  // namespace lepton
 
