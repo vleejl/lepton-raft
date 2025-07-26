@@ -1,5 +1,7 @@
 #include "test_raft_protobuf.h"
 
+#include <spdlog/spdlog.h>
+
 #include <cassert>
 #include <cstdio>
 #include <ostream>
@@ -9,7 +11,6 @@
 #include "absl/types/span.h"
 #include "conf_change.h"
 #include "raft.pb.h"
-#include "spdlog/spdlog.h"
 
 raftpb::conf_change create_conf_change_v1(std::uint64_t node_id, raftpb::conf_change_type type) {
   raftpb::conf_change cc;

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <proxy.h>
 #include <raft.pb.h>
+#include <spdlog/spdlog.h>
 
 #include <cmath>
 #include <cstddef>
@@ -24,7 +25,6 @@
 #include "raft.h"
 #include "raw_node.h"
 #include "read_only.h"
-#include "spdlog/spdlog.h"
 #include "state.h"
 #include "storage.h"
 #include "test_diff.h"
@@ -78,6 +78,18 @@ struct raw_node_adapter {
 
   leaf::result<void> propose_conf_change(const lepton::pb::conf_change_var& cc) { return node.propose_conf_change(cc); }
 };
+
+leaf::result<void> run_awaitable(auto&& awaitable) {
+  asio::io_context ctx;
+  leaf::result<void> result;
+
+  asio::co_spawn(
+      ctx, [&]() -> asio::awaitable<void> { result = co_await std::forward<decltype(awaitable)>(awaitable); },
+      asio::detached);
+
+  ctx.run();
+  return result;
+}
 
 class raw_node_test_suit : public testing::Test {
  protected:

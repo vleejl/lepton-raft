@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <proxy.h>
 #include <raft.pb.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cmath>
@@ -24,7 +25,6 @@
 #include "protobuf.h"
 #include "raft.h"
 #include "raft_log.h"
-#include "spdlog/spdlog.h"
 #include "state.h"
 #include "storage.h"
 #include "test_diff.h"
@@ -196,10 +196,12 @@ static void test_nonleader_start_election(lepton::state_type state_type) {
   switch (state_type) {
     case state_type::FOLLOWER: {
       r.become_follower(1, 2);
+      ASSERT_EQ(1, r.term_);
       break;
     }
     case state_type::CANDIDATE: {
       r.become_candidate();
+      ASSERT_EQ(1, r.term_);
       break;
     }
     case state_type::LEADER:
@@ -207,13 +209,13 @@ static void test_nonleader_start_election(lepton::state_type state_type) {
       ASSERT_TRUE(false);
       break;
   }
-
-  for (auto i = 0; i < 2 * et; ++i) {
+  for (auto i = 1; i < 2 * et; ++i) {
     r.tick();
   }
   r.advance_messages_after_append();
 
-  ASSERT_EQ(2, r.term_);
+  ASSERT_EQ(2, r.term_) << fmt::format("randomized_election_timeout:{} election_elapsed:{}",
+                                       r.randomized_election_timeout_, r.election_elapsed_);
   ASSERT_EQ(lepton::state_type::CANDIDATE, r.state_type_);
   ASSERT_TRUE(r.trk_.votes_view().at(r.id_));
 
@@ -946,7 +948,7 @@ TEST_F(raft_paper_test_suit, test_vote_request) {
     r.step(std::move(msg));
     r.read_messages();
 
-    for (auto i = 0; i < r.election_timeout_ * 2; ++i) {
+    for (auto i = 1; i < r.election_timeout_ * 2; ++i) {
       r.tick_election();
     }
 
@@ -954,11 +956,11 @@ TEST_F(raft_paper_test_suit, test_vote_request) {
     std::sort(msgs.begin(), msgs.end(), [](const raftpb::message& lhs, const raftpb::message& rhs) {
       return lhs.DebugString() < rhs.DebugString();
     });
-    ASSERT_EQ(2, msgs.size());
+    ASSERT_EQ(2, msgs.size()) << fmt::format("#{}: expected 2 messages, got {}", j, msgs.size());
     for (auto i = 0; i < msgs.size(); ++i) {
       auto& msg = msgs[i];
       ASSERT_EQ(i + 2, msg.to());
-      ASSERT_EQ(raftpb::message_type::MSG_VOTE, msg.type());
+      ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_VOTE), magic_enum::enum_name(msg.type()));
       ASSERT_EQ(tt.wterm, msg.term());
 
       ASSERT_EQ(tt.ents[tt.ents.size() - 1].index(), msg.index());

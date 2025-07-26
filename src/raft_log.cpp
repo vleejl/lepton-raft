@@ -2,6 +2,7 @@
 
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cassert>
@@ -13,7 +14,6 @@
 #include "log.h"
 #include "protobuf.h"
 #include "raft.pb.h"
-#include "spdlog/spdlog.h"
 #include "types.h"
 
 namespace lepton {

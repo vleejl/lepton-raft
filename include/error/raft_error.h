@@ -20,6 +20,9 @@ enum class raft_error {
   // ErrStepPeerNotFound is returned when try to step a response message
   // but there is no peer found in raft.trk for that node.
   STEP_PEER_NOT_FOUND,
+
+  // ErrStopped is returned by methods on Nodes that have been stopped.
+  STOPPED,
 };
 
 class raft_error_category : public base_error_category {
@@ -38,6 +41,8 @@ class raft_error_category : public base_error_category {
         return "raft: cannot step raft local message";
       case raft_error::STEP_PEER_NOT_FOUND:
         return "raft: cannot step as peer not found";
+      case raft_error::STOPPED:
+        return "raft: stopped";
       default:
         assert(false);
         return "Unrecognized storage error";

@@ -1,5 +1,7 @@
 #include "raft.h"
 
+#include <spdlog/spdlog.h>
+
 #include <cassert>
 #include <optional>
 #include <random>
@@ -24,7 +26,6 @@
 #include "raft_log.h"
 #include "read_only.h"
 #include "restore.h"
-#include "spdlog/spdlog.h"
 #include "state.h"
 #include "state_trace.h"
 #include "storage.h"

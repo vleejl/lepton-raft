@@ -2,6 +2,7 @@
 #define _LEPTON_RAFT_LOG_UNSTABLE_H_
 #include <absl/types/span.h>
 #include <raft.pb.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cassert>
@@ -14,7 +15,6 @@
 #include "lepton_error.h"
 #include "log.h"
 #include "protobuf.h"
-#include "spdlog/spdlog.h"
 #include "types.h"
 #include "utility_macros.h"
 namespace lepton {

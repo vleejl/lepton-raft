@@ -42,9 +42,8 @@ struct status {
 };
 
 struct status_with_channel {
-  std::optional<channel<status>> chan;
+  std::optional<std::reference_wrapper<channel<status>>> chan;
 };
-// 使用 ​​回调+Promise 模式​​ 替代 golang 中 channel 嵌套
 using status_channel = channel<status_with_channel>;
 
 }  // namespace lepton

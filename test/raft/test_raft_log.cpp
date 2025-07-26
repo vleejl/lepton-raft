@@ -1,6 +1,7 @@
 #include <error.h>
 #include <gtest/gtest.h>
 #include <raft.pb.h>
+#include <spdlog/spdlog.h>
 
 #include <cmath>
 #include <cstddef>
@@ -20,7 +21,6 @@
 #include "proxy.h"
 #include "raft_log.h"
 #include "raft_log_unstable.h"
-#include "spdlog/spdlog.h"
 #include "storage.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_data.h"

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <proxy.h>
 #include <raft.pb.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cmath>
@@ -26,7 +27,6 @@
 #include "protobuf.h"
 #include "raft.h"
 #include "raft_log.h"
-#include "spdlog/spdlog.h"
 #include "state.h"
 #include "storage.h"
 #include "test_diff.h"
