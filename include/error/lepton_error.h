@@ -1,12 +1,12 @@
 #ifndef _LEPTON_ERROR_H_
 #define _LEPTON_ERROR_H_
+#include <asio.hpp>
 #include <cassert>
 #include <source_location>
 #include <string>
 #include <system_error>
 
 #include "leaf.hpp"
-#include "log.h"
 #include "logic_error.h"
 #include "raft_error.h"
 #include "storage_error.h"
@@ -20,7 +20,7 @@ using result = boost::leaf::result<T>;
 template <typename error_code_type>
 concept err_types =
     std::is_same_v<error_code_type, lepton::logic_error> || std::is_same_v<error_code_type, lepton::raft_error> ||
-    std::is_same_v<error_code_type, lepton::storage_error>;
+    std::is_same_v<error_code_type, lepton::storage_error> || std::is_same_v<error_code_type, asio::error_code>;
 struct lepton_error {
   std::error_code err_code;
   std::string message;
@@ -88,11 +88,23 @@ auto new_error(error_code_type code, std::source_location location = std::source
 
 inline auto new_error(const lepton::lepton_error& err) { return leaf::new_error(err); }
 
-inline void panic(std::string_view message, std::source_location location = std::source_location::current()) {
-  LEPTON_CRITICAL("panic error {}, file_name:{} line:{} column:{} function:{}", message, location.file_name(),
-                  location.line(), location.column(), location.function_name());
-  assert(false);  // TODO(bdarnell)
-}
+// template <typename T, typename F>
+// expected<T> leaf_to_expected(F&& fn) {
+//   std::error_code ec;
+
+//   auto result = leaf::try_handle_some([&]() -> leaf::result<T> { return std::forward<F>(fn)(); },
+//                                       [&](const lepton_error& e) -> leaf::result<T> {
+//                                         ec = e.err_code;
+//                                         return new_error(e);
+//                                       });
+
+//   if (!result) {
+//     return tl::unexpected{ec ? ec : std::make_error_code(std::errc::invalid_argument)};
+//   }
+
+//   return *result;
+// }
+
 }  // namespace lepton
 
 #endif  // _LEPTON_ERROR_H_

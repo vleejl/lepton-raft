@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 
+#include "log.h"
 #include "protobuf.h"
 
 namespace lepton {

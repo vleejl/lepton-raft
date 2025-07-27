@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <deque>
 
-#include "lepton_error.h"
+#include "log.h"
 #include "utility_macros.h"
 namespace lepton {
 namespace tracker {

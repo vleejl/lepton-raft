@@ -1,10 +1,13 @@
 #include "conf_change.h"
 
+#include <fmt/format.h>
+
 #include <cassert>
-#include <sstream>
+#include <system_error>
 
 #include "leaf.hpp"
 #include "lepton_error.h"
+#include "log.h"
 #include "logic_error.h"
 #include "magic_enum.hpp"
 #include "raft.pb.h"

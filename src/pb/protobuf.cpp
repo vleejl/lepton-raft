@@ -6,6 +6,7 @@
 
 #include "conf_state.h"
 #include "lepton_error.h"
+#include "log.h"
 #include "raft.pb.h"
 #include "types.h"
 

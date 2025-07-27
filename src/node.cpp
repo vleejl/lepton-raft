@@ -1,5 +1,12 @@
 #include "node.h"
 
+#include <utility>
+
+#include "expected.h"
+#include "leaf_expected.h"
+#include "spdlog/spdlog.h"
+#include "tl/expected.hpp"
+
 namespace lepton {
 
 void node::stop() {
@@ -56,7 +63,7 @@ asio::awaitable<void> node::tick() {
 
 auto node::campaign() { return raw_node_.campaign(); }
 
-asio::awaitable<leaf::result<void>> node::propose(asio::any_io_executor& executor, std::string&& data) {
+asio::awaitable<expected<void>> node::propose(asio::any_io_executor& executor, std::string&& data) {
   raftpb::message msg;
   msg.set_type(raftpb::message_type::MSG_PROP);
   auto entry = msg.add_entries();
@@ -65,22 +72,29 @@ asio::awaitable<leaf::result<void>> node::propose(asio::any_io_executor& executo
   co_return result;
 }
 
-asio::awaitable<leaf::result<void>> node::step(raftpb::message&& msg) {
+asio::awaitable<expected<void>> node::step(raftpb::message&& msg) {
+  SPDLOG_DEBUG(msg.DebugString());
   if (pb::is_local_msg(msg.type()) && !pb::is_local_msg_target(msg.from())) {
     // Local messages are not handled by step, but by the node's
     // propose method.
-    co_return new_error(raft_error::STEP_LOCAL_MSG);
+    co_return expected<void>{};
   }
   auto result = co_await step_impl(std::move(msg));
   co_return result;
 }
 
-asio::awaitable<leaf::result<void>> node::propose_conf_change(const pb::conf_change_var& cc) {
-  auto msg_result = pb::conf_change_to_message(cc);
+asio::awaitable<expected<void>> node::propose_conf_change(const pb::conf_change_var& cc) {
+  auto msg_result = leaf_to_expected([&]() -> leaf::result<raftpb::message> {
+    BOOST_LEAF_AUTO(m, pb::conf_change_to_message(cc));
+    return m;
+  });
   if (!msg_result) {
-    co_return new_error(msg_result.error());
+    co_return tl::unexpected{msg_result.error()};
   }
-  co_return raw_node_.step(std::move(*msg_result));
+  co_return leaf_to_expected_void([&]() -> leaf::result<void> {
+    BOOST_LEAF_CHECK(raw_node_.step(std::move(*msg_result)));
+    return {};
+  });
 }
 
 auto node::ready_handle() const { return read_only_channel(ready_chan_); }
@@ -184,14 +198,14 @@ asio::awaitable<void> node::transfer_leadership(std::uint64_t lead, std::uint64_
   co_return;
 }
 
-asio::awaitable<leaf::result<void>> node::forget_leader() {
+asio::awaitable<expected<void>> node::forget_leader() {
   raftpb::message msg;
   msg.set_type(raftpb::message_type::MSG_FORGET_LEADER);
   auto result = co_await step_impl(std::move(msg));
   co_return result;
 }
 
-asio::awaitable<leaf::result<void>> node::read_index(std::string&& data) {
+asio::awaitable<expected<void>> node::read_index(std::string&& data) {
   raftpb::message msg;
   msg.set_type(raftpb::message_type::MSG_PROP);
   auto entry = msg.add_entries();
@@ -215,7 +229,11 @@ asio::awaitable<void> node::listen_propose(signal_channel& trigger_chan, signal_
     auto& msg = msg_result.msg;
     msg.set_from(r.id());
     if (msg_result.ec_chan) {
-      co_await msg_result.ec_chan->get().async_send(asio::error_code{}, r.step(std::move(msg)));
+      auto result = leaf_to_expected_void([&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(r.step(std::move(msg)));
+        return {};
+      });
+      co_await msg_result.ec_chan->get().async_send(asio::error_code{}, result);
       msg_result.ec_chan->get().close();
     } else {
       auto _ = r.step(std::move(msg));
@@ -424,62 +442,56 @@ asio::awaitable<void> node::run() {
   co_return;
 }
 
-asio::awaitable<leaf::result<void>> node::handle_non_prop_msg() {
+asio::awaitable<expected<void>> node::handle_non_prop_msg(raftpb::message&& msg) {
   if (!done_chan_.is_open()) {
-    co_return new_error(raft_error::STOPPED);
+    co_return tl::unexpected(raft_error::STOPPED);
   }
   asio::error_code ec;
-  co_await recv_chan_.async_receive(asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
-    SPDLOG_ERROR(ec.message());
-  }
-  co_return leaf::result<void>{};
+  co_await recv_chan_.async_send(asio::error_code{}, std::move(msg), asio::redirect_error(asio::use_awaitable, ec));
+  CO_CHECK_EXPECTED(ec);
+  co_return expected<void>{};
 }
 
-asio::awaitable<leaf::result<void>> node::step_impl(raftpb::message&& msg) {
+asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
   auto msg_type = msg.type();
   if (msg_type != raftpb::message_type::MSG_PROP) {
-    auto result = co_await handle_non_prop_msg();
+    auto result = co_await handle_non_prop_msg(std::move(msg));
     co_return result;
   }
 
   if (!done_chan_.is_open()) {
-    co_return new_error(raft_error::STOPPED);
+    SPDLOG_ERROR("Node is stopped, cannot step with message type: {}", magic_enum::enum_name(msg_type));
+    co_return tl::unexpected(raft_error::STOPPED);
   }
-
+  SPDLOG_DEBUG("[STEP 1 ]Node {} step with message type: {}", raw_node_.raft_.id(), magic_enum::enum_name(msg_type));
   asio::error_code ec;
   msg_with_result msg_result{.msg = std::move(msg), .ec_chan = std::nullopt};
   co_await prop_chan_.async_send(asio::error_code{}, std::move(msg_result),
                                  asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
-    SPDLOG_ERROR(ec.message());
-  }
-  co_return leaf::result<void>{};
+  SPDLOG_DEBUG("[STEP 2 ]Node {} step with message type: {}", raw_node_.raft_.id(), magic_enum::enum_name(msg_type));
+  CO_CHECK_EXPECTED(ec);
+  co_return expected<void>{};
 }
 
-asio::awaitable<leaf::result<void>> node::step_with_wait_impl(asio::any_io_executor& executor, raftpb::message&& msg) {
+asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor& executor, raftpb::message&& msg) {
   auto msg_type = msg.type();
   if (msg_type != raftpb::message_type::MSG_PROP) {
-    auto result = co_await handle_non_prop_msg();
+    auto result = co_await handle_non_prop_msg(std::move(msg));
     co_return result;
   }
 
   if (!done_chan_.is_open()) {
-    co_return new_error(raft_error::STOPPED);
+    co_return tl::unexpected(raft_error::STOPPED);
   }
 
   asio::error_code ec;
-  channel<leaf::result<void>> ec_chan(executor);
+  channel<expected<void>> ec_chan(executor);
   msg_with_result msg_result{.msg = std::move(msg), .ec_chan = std::optional(std::ref(ec_chan))};
   co_await prop_chan_.async_send(asio::error_code{}, std::move(msg_result),
                                  asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
-    SPDLOG_ERROR(ec.message());
-  }
+  CO_CHECK_EXPECTED(ec);
   auto recv_result = co_await ec_chan.async_receive(asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
-    SPDLOG_ERROR(ec.message());
-  }
+  CO_CHECK_EXPECTED(ec);
   co_return recv_result;
 }
 

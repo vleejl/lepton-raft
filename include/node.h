@@ -18,6 +18,7 @@
 
 #include "asio/awaitable.hpp"
 #include "channel.h"
+#include "expected.h"
 #include "lepton_error.h"
 #include "node_interface.h"
 #include "raft.h"
@@ -36,7 +37,7 @@ struct peer {
 
 struct msg_with_result {
   raftpb::message msg;
-  std::optional<std::reference_wrapper<channel<leaf::result<void>>>> ec_chan;
+  std::optional<std::reference_wrapper<channel<expected<void>>>> ec_chan;
 };
 
 using msg_with_result_channel_handle = channel<msg_with_result>*;
@@ -65,11 +66,11 @@ class node {
 
   auto campaign();
 
-  asio::awaitable<leaf::result<void>> propose(asio::any_io_executor& executor, std::string&& data);
+  asio::awaitable<expected<void>> propose(asio::any_io_executor& executor, std::string&& data);
 
-  asio::awaitable<leaf::result<void>> step(raftpb::message&& msg);
+  asio::awaitable<expected<void>> step(raftpb::message&& msg);
 
-  asio::awaitable<leaf::result<void>> propose_conf_change(const pb::conf_change_var& cc);
+  asio::awaitable<expected<void>> propose_conf_change(const pb::conf_change_var& cc);
 
   auto ready_handle() const;
 
@@ -85,9 +86,9 @@ class node {
 
   asio::awaitable<void> transfer_leadership(std::uint64_t lead, std::uint64_t transferee);
 
-  asio::awaitable<leaf::result<void>> forget_leader();
+  asio::awaitable<expected<void>> forget_leader();
 
-  asio::awaitable<leaf::result<void>> read_index(std::string&& data);
+  asio::awaitable<expected<void>> read_index(std::string&& data);
 
  private:
   asio::awaitable<void> listen_propose(signal_channel& trigger_chan, signal_channel& active_prop_chan);
@@ -110,11 +111,11 @@ class node {
 
   asio::awaitable<void> run();
 
-  asio::awaitable<leaf::result<void>> handle_non_prop_msg();
+  asio::awaitable<expected<void>> handle_non_prop_msg(raftpb::message&& msg);
 
-  asio::awaitable<leaf::result<void>> step_impl(raftpb::message&& msg);
+  asio::awaitable<expected<void>> step_impl(raftpb::message&& msg);
 
-  asio::awaitable<leaf::result<void>> step_with_wait_impl(asio::any_io_executor& executor, raftpb::message&& msg);
+  asio::awaitable<expected<void>> step_with_wait_impl(asio::any_io_executor& executor, raftpb::message&& msg);
 
 // 为了方便单元测试 修改私有成员函数作用域
 #ifdef LEPTON_TEST
