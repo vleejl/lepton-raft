@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #include "asio/awaitable.hpp"
@@ -37,7 +38,7 @@ struct peer {
 
 struct msg_with_result {
   raftpb::message msg;
-  std::optional<std::reference_wrapper<channel<expected<void>>>> ec_chan;
+  std::optional<std::reference_wrapper<channel<std::error_code>>> ec_chan;
 };
 
 using msg_with_result_channel_handle = channel<msg_with_result>*;

@@ -18,6 +18,8 @@
 #include "raft.pb.h"
 #include "raft_error.h"
 #include "spdlog/spdlog.h"
+#include "storage_error.h"
+#include "tl/expected.hpp"
 using asio::awaitable;
 using asio::co_spawn;
 using asio::detached;
@@ -25,7 +27,6 @@ using asio::io_context;
 using asio::steady_timer;
 using asio::use_awaitable;
 using asio::experimental::make_parallel_group;
-;
 
 struct RaftMessage {
   std::string content;
@@ -212,36 +213,32 @@ TEST(asio_test_suit, asio_io_context2) {
 }
 
 // 等效操作函数
-awaitable<asio::error_code> async_select(lepton::channel<raftpb::message> &recvc, raftpb::message m,
-                                         asio::steady_timer &ctx_done, lepton::signal_channel &done_chan) {
-  // 同时发起三个异步操作
-  auto [order, ec1, ec2, ec3] = co_await asio::experimental::make_parallel_group(
-                                    // 尝试发送消息
-                                    [&](auto token) {
-                                      std::cout << "Attempting to send message..." << std::endl;
-                                      return recvc.async_send(asio::error_code{}, m, token);
-                                      std::cout << "Message sent successfully." << std::endl;
-                                    },
-                                    // 等待上下文取消
-                                    [&](auto token) { return ctx_done.async_wait(token); },
-                                    // 等待节点停止
-                                    [&](auto token) { return done_chan.async_receive(token); })
-                                    .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+awaitable<lepton::expected<void>> async_select(lepton::channel<raftpb::message> &recvc, raftpb::message m,
+                                               lepton::signal_channel &done_chan) {
+  // 同时发起异步操作
+  auto [order, ec1, ec2] = co_await asio::experimental::make_parallel_group(
+                               // 尝试发送消息
+                               [&](auto token) {
+                                 std::cout << "Attempting to send message..." << std::endl;
+                                 return recvc.async_send(asio::error_code{}, m, token);
+                                 std::cout << "Message sent successfully." << std::endl;
+                               },
+                               // 等待节点停止
+                               [&](auto token) { return done_chan.async_receive(token); })
+                               .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
 
   // 根据第一个完成的操作返回结果
   switch (order[0]) {  // 查看哪个操作先完成
     case 0:            // 发送成功
-      co_return asio::error_code{};
-    case 1:  // 上下文取消
-      co_return asio::error::operation_aborted;
-    case 2:  // 节点停止
-      co_return asio::error::connection_aborted;
+      co_return lepton::expected<void>{};
+    case 1:  // 节点停止
+      co_return tl::unexpected{lepton::raft_error::STOPPED};
     default:
-      co_return asio::error::operation_aborted;
+      co_return tl::unexpected{lepton::raft_error::UNKNOWN_ERROR};
   }
 }
 
-TEST(asio_test_suit, asio_io_context3) {
+TEST(asio_test_suit, async_select_done_chan) {
   // 初始化组件
   asio::io_context io;
   lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
@@ -249,20 +246,20 @@ TEST(asio_test_suit, asio_io_context3) {
   asio::steady_timer ctx_done(io);
 
   // 触发取消（测试用）
-  ctx_done.expires_after(std::chrono::milliseconds(100));  // 100ms后超时
+  // ctx_done.expires_after(std::chrono::milliseconds(100));  // 100ms后超时
 
   // 执行选择操作
 
   co_spawn(
       io,
       [&]() -> awaitable<void> {
-        auto ec = co_await async_select(recvc, raftpb::message{}, ctx_done, done_chan);
-        if (!ec) {
+        auto ec = co_await async_select(recvc, raftpb::message{}, done_chan);
+        if (ec.has_value()) {
           std::cout << "发送成功\n";
-        } else if (ec == asio::error::operation_aborted) {
+        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
           std::cout << "上下文取消\n";
-        } else if (ec == asio::error::connection_aborted) {
-          std::cout << "节点停止\n";
+        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+          std::cout << "未知错误\n";
         }
         co_return;
       },
@@ -280,6 +277,191 @@ TEST(asio_test_suit, asio_io_context3) {
   asio::post(io, [&]() {
     SPDLOG_INFO("posting done");
     done_chan.try_send(asio::error_code{});  // 触发取消
+  });
+
+  io.run();
+}
+
+TEST(asio_test_suit, async_select_done) {
+  // 初始化组件
+  asio::io_context io;
+  lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
+  lepton::signal_channel done_chan(io.get_executor());        // 用于取消的信号通道
+  asio::steady_timer ctx_done(io);
+
+  // 执行选择操作
+  co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        auto ec = co_await lepton::async_select_done(
+            [&](auto token) {
+              std::cout << "Attempting to send message..." << std::endl;
+              return recvc.async_send(asio::error_code{}, raftpb::message{}, token);
+              std::cout << "Message sent successfully." << std::endl;
+            },
+            done_chan);
+        if (ec.has_value()) {
+          std::cout << "发送成功\n";
+        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
+          std::cout << "上下文取消\n";
+        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+          std::cout << "未知错误\n";
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("event loop has started");
+        co_return;
+      },
+      asio::detached);
+
+  // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
+  asio::post(io, [&]() {
+    SPDLOG_INFO("posting done");
+    done_chan.try_send(asio::error_code{});  // 触发取消
+  });
+
+  io.run();
+}
+
+TEST(asio_test_suit, async_select_any_expected) {
+  // 初始化组件
+  asio::io_context io;
+  lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
+  lepton::signal_channel done_chan(io.get_executor());        // 用于取消的信号通道
+
+  // 执行选择操作
+  co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        auto ec = co_await lepton::async_select_any_expected(
+            [&](auto token) {
+              std::cout << "Attempting to send message..." << std::endl;
+              return recvc.async_send(asio::error_code{}, raftpb::message{}, token);
+              std::cout << "Message sent successfully." << std::endl;
+            },
+            [&](auto token) { return done_chan.async_receive(token); });
+        if (ec.has_value()) {
+          std::cout << "发送成功, idx: " << ec.value() << std::endl;
+        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
+          std::cout << "上下文取消\n";
+        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+          std::cout << "未知错误\n";
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("event loop has started");
+        co_return;
+      },
+      asio::detached);
+
+  // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
+  asio::post(io, [&]() {
+    SPDLOG_INFO("posting done");
+    done_chan.try_send(asio::error_code{});  // 触发取消
+  });
+
+  io.run();
+}
+
+TEST(asio_test_suit, async_select_done_with_raft_message_type) {
+  // 初始化组件
+  asio::io_context io;
+  lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
+  lepton::signal_channel done_chan(io.get_executor());        // 用于取消的信号通道
+
+  // 执行选择操作
+  co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        auto msg = co_await lepton::async_select_done_with_value(
+            [&](auto token) {
+              std::cout << "Attempting to recv message..." << std::endl;
+              return recvc.async_receive(token);
+              std::cout << "Message recv successfully." << std::endl;
+            },
+            done_chan);
+        if (msg.has_value()) {
+          std::cout << "发送成功 " << msg.value().DebugString() << std::endl;
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
+          std::cout << "上下文取消\n";
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+          std::cout << "未知错误\n";
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("event loop has started");
+        co_return;
+      },
+      asio::detached);
+
+  // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
+  asio::post(io, [&]() {
+    SPDLOG_INFO("ready to send msg heartbeat");
+    raftpb::message msg;
+    msg.set_type(raftpb::message_type::MSG_HEARTBEAT);
+    recvc.try_send(asio::error_code{}, std::move(msg));
+    SPDLOG_INFO("has ready send msg heartbeat");
+  });
+
+  io.run();
+}
+
+TEST(asio_test_suit, async_select_done_with_expected_error_type) {
+  // 初始化组件
+  asio::io_context io;
+  lepton::channel<std::error_code> recvc(io.get_executor());  // 带缓冲的通道
+  lepton::signal_channel done_chan(io.get_executor());        // 用于取消的信号通道
+
+  // 执行选择操作
+  co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        auto msg = co_await lepton::async_select_done_with_value(
+            [&](auto token) {
+              std::cout << "Attempting to recv message..." << std::endl;
+              return recvc.async_receive(token);
+              std::cout << "Message recv successfully." << std::endl;
+            },
+            done_chan);
+        if (msg.has_value()) {
+          std::cout << "发送成功 " << msg->value() << std::endl;
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
+          std::cout << "上下文取消\n";
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+          std::cout << "未知错误\n";
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("event loop has started");
+        co_return;
+      },
+      asio::detached);
+
+  // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
+  asio::post(io, [&]() {
+    SPDLOG_INFO("ready to send mock error info");
+    recvc.try_send(asio::error_code{}, lepton::storage_error::COMPACTED);
+    SPDLOG_INFO("has ready send mock error info");
   });
 
   io.run();

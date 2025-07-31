@@ -1,5 +1,6 @@
 #include "node.h"
 
+#include <system_error>
 #include <utility>
 
 #include "expected.h"
@@ -51,12 +52,9 @@ void node::stop() {
 // Tick increments the internal logical clock for this Node. Election timeouts
 // and heartbeat timeouts are in units of ticks.
 asio::awaitable<void> node::tick() {
-  if (!stop_chan_.is_open()) {
-    co_return;
-  }
-  // 非阻塞发送尝试
-  if (!tick_chan_.try_send(asio::error_code{})) {
-    SPDLOG_WARN("{} A tick missed to fire. Node blocks too long!", raw_node_.raft_.id());
+  auto ec = co_await async_select_done([&](auto token) { return tick_chan_.async_receive(token); }, done_chan_);
+  if (!ec.has_value()) {
+    SPDLOG_ERROR("Tick operation aborted: {}", ec.error().message());
   }
   co_return;
 }
@@ -233,7 +231,11 @@ asio::awaitable<void> node::listen_propose(signal_channel& trigger_chan, signal_
         BOOST_LEAF_CHECK(r.step(std::move(msg)));
         return {};
       });
-      co_await msg_result.ec_chan->get().async_send(asio::error_code{}, result);
+      std::error_code ec;
+      if (!result) {
+        ec = result.error();
+      }
+      co_await msg_result.ec_chan->get().async_send(asio::error_code{}, ec);
       msg_result.ec_chan->get().close();
     } else {
       auto _ = r.step(std::move(msg));
@@ -443,13 +445,12 @@ asio::awaitable<void> node::run() {
 }
 
 asio::awaitable<expected<void>> node::handle_non_prop_msg(raftpb::message&& msg) {
-  if (!done_chan_.is_open()) {
-    co_return tl::unexpected(raft_error::STOPPED);
+  auto ec = co_await async_select_done(
+      [&](auto token) { return recv_chan_.async_send(asio::error_code{}, std::move(msg), token); }, done_chan_);
+  if (!ec.has_value()) {
+    SPDLOG_ERROR("Failed to handle non-proposal message: {}", ec.error().message());
   }
-  asio::error_code ec;
-  co_await recv_chan_.async_send(asio::error_code{}, std::move(msg), asio::redirect_error(asio::use_awaitable, ec));
-  CO_CHECK_EXPECTED(ec);
-  co_return expected<void>{};
+  co_return ec;
 }
 
 asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
@@ -459,18 +460,16 @@ asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
     co_return result;
   }
 
-  if (!done_chan_.is_open()) {
-    SPDLOG_ERROR("Node is stopped, cannot step with message type: {}", magic_enum::enum_name(msg_type));
-    co_return tl::unexpected(raft_error::STOPPED);
+  auto ec = co_await async_select_done(
+      [&](auto token) {
+        return prop_chan_.async_send(asio::error_code{},
+                                     msg_with_result{.msg = std::move(msg), .ec_chan = std::nullopt}, token);
+      },
+      done_chan_);
+  if (!ec.has_value()) {
+    SPDLOG_ERROR("Failed to handle non-proposal message: {}", ec.error().message());
   }
-  SPDLOG_DEBUG("[STEP 1 ]Node {} step with message type: {}", raw_node_.raft_.id(), magic_enum::enum_name(msg_type));
-  asio::error_code ec;
-  msg_with_result msg_result{.msg = std::move(msg), .ec_chan = std::nullopt};
-  co_await prop_chan_.async_send(asio::error_code{}, std::move(msg_result),
-                                 asio::redirect_error(asio::use_awaitable, ec));
-  SPDLOG_DEBUG("[STEP 2 ]Node {} step with message type: {}", raw_node_.raft_.id(), magic_enum::enum_name(msg_type));
-  CO_CHECK_EXPECTED(ec);
-  co_return expected<void>{};
+  co_return ec;
 }
 
 asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor& executor, raftpb::message&& msg) {
@@ -484,15 +483,25 @@ asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor&
     co_return tl::unexpected(raft_error::STOPPED);
   }
 
-  asio::error_code ec;
-  channel<expected<void>> ec_chan(executor);
-  msg_with_result msg_result{.msg = std::move(msg), .ec_chan = std::optional(std::ref(ec_chan))};
-  co_await prop_chan_.async_send(asio::error_code{}, std::move(msg_result),
-                                 asio::redirect_error(asio::use_awaitable, ec));
-  CO_CHECK_EXPECTED(ec);
-  auto recv_result = co_await ec_chan.async_receive(asio::redirect_error(asio::use_awaitable, ec));
-  CO_CHECK_EXPECTED(ec);
-  co_return recv_result;
+  channel<std::error_code> ec_chan(executor);
+  auto ec = co_await async_select_done(
+      [&](auto token) {
+        return prop_chan_.async_send(
+            asio::error_code{}, msg_with_result{.msg = std::move(msg), .ec_chan = std::optional(std::ref(ec_chan))},
+            token);
+      },
+      done_chan_);
+  if (!ec.has_value()) {
+    SPDLOG_ERROR("Failed to handle non-proposal message: {}", ec.error().message());
+    co_return tl::unexpected(ec.error());
+  }
+
+  auto result =
+      co_await async_select_done_with_value([&](auto token) { return ec_chan.async_receive(token); }, done_chan_);
+  if (result.has_value()) {
+    co_return tl::unexpected{result.value()};
+  }
+  co_return tl::unexpected{result.error()};
 }
 
 }  // namespace lepton

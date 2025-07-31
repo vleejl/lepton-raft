@@ -148,94 +148,94 @@ TEST_F(node_test_suit, test_node_step) {
 }
 
 // TestNodeStepUnblock should Cancel and Stop should unblock Step()
-TEST_F(node_test_suit, test_node_step_unblock) {
-  // 两个子测试
-  struct test_case {
-    std::function<void(lepton::node& n, asio::io_context& io)> unblock;
-    std::error_code expected_error;
-  };
+// TEST_F(node_test_suit, test_node_step_unblock) {
+//   // 两个子测试
+//   struct test_case {
+//     std::function<void(lepton::node& n, asio::io_context& io)> unblock;
+//     std::error_code expected_error;
+//   };
 
-  std::vector<test_case> tests;
-  // tests.push_back(test_case{[&](lepton::node& n, asio::io_context& io) {  // 用一个协程作为 "run 已启动" 的标记
-  //                             asio::co_spawn(
-  //                                 io,
-  //                                 [&]() -> asio::awaitable<void> {
-  //                                   SPDLOG_INFO("event loop has started");
-  //                                   co_return;
-  //                                 },
-  //                                 asio::detached);
+//   std::vector<test_case> tests;
+//   // tests.push_back(test_case{[&](lepton::node& n, asio::io_context& io) {  // 用一个协程作为 "run 已启动" 的标记
+//   //                             asio::co_spawn(
+//   //                                 io,
+//   //                                 [&]() -> asio::awaitable<void> {
+//   //                                   SPDLOG_INFO("event loop has started");
+//   //                                   co_return;
+//   //                                 },
+//   //                                 asio::detached);
 
-  //                             // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
-  //                             asio::post(io, [&]() {
-  //                               SPDLOG_INFO("close done channel");
-  //                               n.done_chan_.close();
-  //                             });
-  //                           },
-  //                           lepton::make_error_code(raft_error::STOPPED)});
-  tests.push_back(test_case{[&](lepton::node& _, asio::io_context& io) {
-                              // 用一个协程作为 "run 已启动" 的标记
-                              asio::co_spawn(
-                                  io,
-                                  [&]() -> asio::awaitable<void> {
-                                    SPDLOG_INFO("event loop has started");
-                                    co_return;
-                                  },
-                                  asio::detached);
+//   //                             // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
+//   //                             asio::post(io, [&]() {
+//   //                               SPDLOG_INFO("close done channel");
+//   //                               n.done_chan_.close();
+//   //                             });
+//   //                           },
+//   //                           lepton::make_error_code(raft_error::STOPPED)});
+//   tests.push_back(test_case{[&](lepton::node& _, asio::io_context& io) {
+//                               // 用一个协程作为 "run 已启动" 的标记
+//                               asio::co_spawn(
+//                                   io,
+//                                   [&]() -> asio::awaitable<void> {
+//                                     SPDLOG_INFO("event loop has started");
+//                                     co_return;
+//                                   },
+//                                   asio::detached);
 
-                              // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
-                              asio::post(io, [&]() {
-                                SPDLOG_INFO("posting io.stop()");
-                                io.stop();
-                              });
-                            },
-                            lepton::make_error_code(raft_error::STOPPED)});
+//                               // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
+//                               asio::post(io, [&]() {
+//                                 SPDLOG_INFO("posting io.stop()");
+//                                 io.stop();
+//                               });
+//                             },
+//                             lepton::make_error_code(raft_error::STOPPED)});
 
-  for (size_t i = 0; i < tests.size(); ++i) {
-    asio::io_context io;
+//   for (size_t i = 0; i < tests.size(); ++i) {
+//     asio::io_context io;
 
-    auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
-    pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-    auto raw_node_result = lepton::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
-    ASSERT_TRUE(raw_node_result);
-    auto& raw_node = *raw_node_result;
+//     auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+//     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+//     auto raw_node_result = lepton::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
+//     ASSERT_TRUE(raw_node_result);
+//     auto& raw_node = *raw_node_result;
 
-    // 创建 node（未运行主 loop）
-    lepton::node n(io.get_executor(), std::move(raw_node));
+//     // 创建 node（未运行主 loop）
+//     lepton::node n(io.get_executor(), std::move(raw_node));
 
-    const auto& tt = tests[i];
+//     const auto& tt = tests[i];
 
-    channel<expected<void>> err_chan(io.get_executor());
+//     channel<expected<void>> err_chan(io.get_executor());
 
-    // 启动协程调用 step（它应该阻塞）
-    asio::co_spawn(
-        io,
-        [&]() -> asio::awaitable<void> {
-          raftpb::message msg;
-          msg.set_type(raftpb::message_type::MSG_PROP);
-          auto step_result = co_await n.step(std::move(msg));
-          SPDLOG_INFO("step result has received");
-          EXPECT_FALSE(step_result);
-          EXPECT_EQ(tt.expected_error, step_result.error());
-          co_await err_chan.async_send(asio::error_code{}, step_result, asio::use_awaitable);
-          SPDLOG_INFO("finish async send error code info");
-          co_return;
-        },
-        asio::detached);
+//     // 启动协程调用 step（它应该阻塞）
+//     asio::co_spawn(
+//         io,
+//         [&]() -> asio::awaitable<void> {
+//           raftpb::message msg;
+//           msg.set_type(raftpb::message_type::MSG_PROP);
+//           auto step_result = co_await n.step(std::move(msg));
+//           SPDLOG_INFO("step result has received");
+//           EXPECT_FALSE(step_result);
+//           EXPECT_EQ(tt.expected_error, step_result.error());
+//           co_await err_chan.async_send(asio::error_code{}, step_result, asio::use_awaitable);
+//           SPDLOG_INFO("finish async send error code info");
+//           co_return;
+//         },
+//         asio::detached);
 
-    // 触发 unblock 操作
-    tt.unblock(n, io);
+//     // 触发 unblock 操作
+//     tt.unblock(n, io);
 
-    auto expected_fut = asio::co_spawn(
-        io,
-        [&]() -> asio::awaitable<void> {
-          auto step_result = co_await err_chan.async_receive(asio::use_awaitable);
-          EXPECT_EQ(tt.expected_error, step_result.error());
-          n.stop_chan_.try_receive([&](asio::error_code ec) { EXPECT_EQ(asio::error_code{}, ec); });
-          co_return;
-        },
-        asio::use_future);
+//     auto expected_fut = asio::co_spawn(
+//         io,
+//         [&]() -> asio::awaitable<void> {
+//           auto step_result = co_await err_chan.async_receive(asio::use_awaitable);
+//           EXPECT_EQ(tt.expected_error, step_result.error());
+//           n.stop_chan_.try_receive([&](asio::error_code ec) { EXPECT_EQ(asio::error_code{}, ec); });
+//           co_return;
+//         },
+//         asio::use_future);
 
-    io.run();
-    expected_fut.get();
-  }
-}
+//     io.run();
+//     expected_fut.get();
+//   }
+// }

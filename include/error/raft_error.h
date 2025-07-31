@@ -23,6 +23,9 @@ enum class raft_error {
 
   // ErrStopped is returned by methods on Nodes that have been stopped.
   STOPPED,
+
+  // ErrUnknownError is returned when an unknown error occurs.
+  UNKNOWN_ERROR,
 };
 
 class raft_error_category : public base_error_category {
@@ -43,6 +46,8 @@ class raft_error_category : public base_error_category {
         return "raft: cannot step as peer not found";
       case raft_error::STOPPED:
         return "raft: stopped";
+      case raft_error::UNKNOWN_ERROR:
+        return "raft: unknown error";
       default:
         assert(false);
         return "Unrecognized storage error";
