@@ -34,7 +34,7 @@ struct RaftMessage {
 
 class RaftNode {
  public:
-  RaftNode(io_context &io_context) : io_context_(io_context), stop_flag_(false), timer_(io_context) {}
+  RaftNode(io_context& io_context) : io_context_(io_context), stop_flag_(false), timer_(io_context) {}
 
   // 启动协程事件循环
   void start() {
@@ -43,12 +43,12 @@ class RaftNode {
 
   void stop() { stop_flag_ = true; }
 
-  awaitable<void> propose(const RaftMessage &message) {
+  awaitable<void> propose(const RaftMessage& message) {
     std::cout << "Proposing message: " << message.content << std::endl;
     co_return;
   }
 
-  awaitable<void> propose_conf_change(const std::string &config) {
+  awaitable<void> propose_conf_change(const std::string& config) {
     std::cout << "Proposing config change: " << config << std::endl;
     co_return;
   }
@@ -79,7 +79,7 @@ class RaftNode {
   }
 
  private:
-  io_context &io_context_;
+  io_context& io_context_;
   std::atomic<bool> stop_flag_;
   steady_timer timer_;  // 定时器对象
 };
@@ -213,8 +213,8 @@ TEST(asio_test_suit, asio_io_context2) {
 }
 
 // 等效操作函数
-awaitable<lepton::expected<void>> async_select(lepton::channel<raftpb::message> &recvc, raftpb::message m,
-                                               lepton::signal_channel &done_chan) {
+awaitable<lepton::expected<void>> async_select(lepton::channel<raftpb::message>& recvc, raftpb::message m,
+                                               lepton::signal_channel& done_chan) {
   // 同时发起异步操作
   auto [order, ec1, ec2] = co_await asio::experimental::make_parallel_group(
                                // 尝试发送消息
@@ -328,7 +328,7 @@ TEST(asio_test_suit, async_select_done) {
   io.run();
 }
 
-TEST(asio_test_suit, async_select_any_expected) {
+TEST(asio_test_suit, async_select_any_expected_async_send) {
   // 初始化组件
   asio::io_context io;
   lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道

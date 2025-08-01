@@ -53,7 +53,7 @@ class node {
         recv_chan_(executor),
         conf_chan_(executor),
         conf_state_chan_(executor),
-        ready_chan_(std::make_shared<ready_channel>(executor)),
+        ready_chan_(executor),
         advance_chan_(executor),
         tick_chan_(executor, 128),
         done_chan_(executor),
@@ -61,19 +61,23 @@ class node {
         status_chan_(executor),
         raw_node_(std::move(raw_node)) {}
 
-  void stop();
+  asio::awaitable<void> stop();
+
+  asio::awaitable<void> run1();
+
+  asio::awaitable<void> run();
 
   asio::awaitable<void> tick();
 
-  auto campaign();
+  asio::awaitable<expected<void>> campaign();
 
-  asio::awaitable<expected<void>> propose(asio::any_io_executor& executor, std::string&& data);
+  asio::awaitable<expected<void>> propose(asio::any_io_executor executor, std::string&& data);
 
   asio::awaitable<expected<void>> step(raftpb::message&& msg);
 
   asio::awaitable<expected<void>> propose_conf_change(const pb::conf_change_var& cc);
 
-  auto ready_handle() const;
+  ready_channel& ready_handle();
 
   asio::awaitable<void> advance();
 
@@ -92,31 +96,25 @@ class node {
   asio::awaitable<expected<void>> read_index(std::string&& data);
 
  private:
-  asio::awaitable<void> listen_propose(signal_channel& trigger_chan, signal_channel& active_prop_chan);
+  asio::awaitable<void> propose_chan_callback(std::error_code callback_ec, msg_with_result&& result);
 
-  asio::awaitable<void> listen_receive(signal_channel& trigger_chan);
+  void receive_chan_callback(std::error_code callback_ec, raftpb::message&& msg);
 
-  asio::awaitable<void> send_conf_state(raftpb::conf_state&& cs);
+  asio::awaitable<void> conf_chan_callback(std::error_code _, raftpb::conf_change_v2&& cc,
+                                           msg_with_result_channel_handle& prop_chan);
 
-  asio::awaitable<void> listen_conf_change(signal_channel& trigger_chan, bool& is_active_prop_chan);
+  asio::awaitable<void> send_ready(std::optional<ready>& rd, signal_channel& ready_active_chan,
+                                   signal_channel& advance_active_chan, signal_channel_handle& advance_chan);
 
-  asio::awaitable<void> listen_tick(signal_channel& trigger_chan);
+  asio::awaitable<void> status_chan_callback(std::error_code callback_ec, status_with_channel&& status_chan);
 
-  asio::awaitable<void> send_ready(std::optional<ready>& rd);
-
-  asio::awaitable<void> listen_advance(signal_channel& trigger_chan, std::optional<ready>& rd);
-
-  asio::awaitable<void> listen_status(signal_channel& trigger_chan);
-
-  asio::awaitable<void> listen_stop();
-
-  asio::awaitable<void> run();
+  asio::awaitable<void> stop_chan_callback(std::error_code callback_ec);
 
   asio::awaitable<expected<void>> handle_non_prop_msg(raftpb::message&& msg);
 
   asio::awaitable<expected<void>> step_impl(raftpb::message&& msg);
 
-  asio::awaitable<expected<void>> step_with_wait_impl(asio::any_io_executor& executor, raftpb::message&& msg);
+  asio::awaitable<expected<void>> step_with_wait_impl(asio::any_io_executor executor, raftpb::message&& msg);
 
 // 为了方便单元测试 修改私有成员函数作用域
 #ifdef LEPTON_TEST
@@ -130,7 +128,7 @@ class node {
   channel<raftpb::message> recv_chan_;
   channel<raftpb::conf_change_v2> conf_chan_;
   channel<raftpb::conf_state> conf_state_chan_;
-  std::shared_ptr<ready_channel> ready_chan_;
+  ready_channel ready_chan_;
   signal_channel advance_chan_;
   signal_channel tick_chan_;
   signal_channel done_chan_;

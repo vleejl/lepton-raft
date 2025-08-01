@@ -10,6 +10,8 @@ std::string describe_soft_state(const soft_state &ss);
 
 std::string describe_hard_state(const raftpb::hard_state &hs);
 
+std::string describe_message(const raftpb::message &m);
+
 std::string describe_ready(const ready &rd);
 
 }  // namespace lepton
