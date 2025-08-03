@@ -100,10 +100,12 @@ class raft_log {
 
   std::uint64_t last_index() const;
 
-#ifdef LEPTON_TEST
-  raft_log& operator=(raft_log&&) = default;
+  leaf::result<std::uint64_t> storage_last_index() const;
 
   void set_commit(std::uint64_t tocommit) { committed_ = tocommit; }
+
+#ifdef LEPTON_TEST
+  raft_log& operator=(raft_log&&) = default;
 
   void set_applying_ents_paused(bool applying_ents_paused) { applying_ents_paused_ = applying_ents_paused; }
 #endif

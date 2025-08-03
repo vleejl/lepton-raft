@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "asio/awaitable.hpp"
 #include "asio/detached.hpp"
 #include "asio/error_code.hpp"
 #include "asio/use_awaitable.hpp"
@@ -26,6 +27,7 @@
 #include "joint.h"
 #include "leaf.hpp"
 #include "lepton_error.h"
+#include "log.h"
 #include "magic_enum.hpp"
 #include "majority.h"
 #include "memory_storage.h"
@@ -35,6 +37,7 @@
 #include "raft_error.h"
 #include "raw_node.h"
 #include "read_only.h"
+#include "ready.h"
 #include "state.h"
 #include "storage.h"
 #include "test_diff.h"
@@ -44,6 +47,7 @@
 #include "tracker.h"
 #include "types.h"
 using namespace lepton;
+using asio::steady_timer;
 
 class node_test_suit : public testing::Test {
  protected:
@@ -56,43 +60,50 @@ class node_test_suit : public testing::Test {
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
 
-using asio::steady_timer;
-
-template <typename T>
-asio::awaitable<leaf::result<T>> receive_with_timeout(channel<void(asio::error_code, T)>& ch,
-                                                      std::chrono::steady_clock::duration timeout) {
-  auto exec = co_await asio::this_coro::executor;
-  steady_timer timer(exec);
-  timer.expires_after(timeout);
-
-  std::optional<T> result;
-  asio::error_code final_ec;
-  bool done = false;
-
-  co_await (ch.async_receive(
-                [&](asio::error_code ec, T value) {
-                  if (!done) {
-                    final_ec = ec;
-                    if (!ec) {
-                      result = std::move(value);
-                    }
-                    done = true;
-                  }
-                },
-                asio::use_awaitable) ||
-            timer.async_wait(
-                [&](asio::error_code ec) {
-                  if (!done) {
-                    final_ec = asio::error::timed_out;
-                    done = true;
-                  }
-                },
-                asio::use_awaitable));
-  if (final_ec) {
-    co_return result;
+static node_handle new_node_test_harness(asio::any_io_executor executor, lepton::config&& config,
+                                         std::vector<peer>&& peers) {
+  node_handle n;
+  if (!peers.empty()) {
+    n = setup_node(executor, std::move(config), std::move(peers));
+  } else {
+    auto raw_node_result = leaf::try_handle_some(
+        [&]() -> leaf::result<lepton::raw_node> {
+          BOOST_LEAF_AUTO(v, new_raw_node(std::move(config)));
+          return v;
+        },
+        [&](const lepton_error& e) -> leaf::result<lepton::raw_node> {
+          LEPTON_CRITICAL(e.message);
+          return new_error(e);
+        });
+    assert(raw_node_result);
+    n = std::make_unique<node>(executor, std::move(*raw_node_result));
   }
-  co_return leaf::new_error(final_ec);
+  n->start_run();
+  return n;
 }
+
+// readyWithTimeout selects from n.Ready() with a 1-second timeout. It
+// panics on timeout, which is better than the indefinite wait that
+// would occur if this channel were read without being wrapped in a
+// select.
+static asio::awaitable<lepton::ready> ready_with_timeout(asio::any_io_executor executor, lepton::node& n) {
+  asio::steady_timer timeout_timer(executor, std::chrono::seconds(1));
+  auto [order, msg_ec, msg_result, timer_ec] = co_await asio::experimental::make_parallel_group(
+                                                   // 1. 从 channel 接收消息
+                                                   [&](auto token) { return n.ready_handle().async_receive(token); },
+                                                   [&](auto token) { return timeout_timer.async_wait(token); })
+                                                   .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+  switch (order[0]) {
+    case 0: {
+      co_return msg_result;
+    }
+    case 1: {
+      LEPTON_CRITICAL("timed out waiting for ready");
+    }
+  }
+  co_return ready{};
+}
+
 // TestNodeStep ensures that node.Step sends msgProp to propc chan
 // and other kinds of messages to recvc chan.
 TEST_F(node_test_suit, test_node_step) {
@@ -244,7 +255,7 @@ TEST_F(node_test_suit, test_node_propose) {
       io_context,
       [&]() -> asio::awaitable<void> {
         SPDLOG_INFO("ready to node run.......");
-        co_await n.run1();
+        n.start_run();
         SPDLOG_INFO("node run finshed.......");
         co_return;
       },
@@ -411,4 +422,221 @@ TEST_F(node_test_suit, test_node_read_index_to_old_leader) {
   ASSERT_EQ(read_indx_msg3.DebugString(), r1.msgs_[0].DebugString());
   read_indx_msg3 = new_pb_message(3, 3, raftpb::message_type::MSG_PROP, "testdata");
   ASSERT_EQ(read_indx_msg3.DebugString(), r1.msgs_[1].DebugString());
+}
+
+// TestNodeProposeConfig ensures that node.ProposeConfChange sends the given configuration proposal
+// to the underlying raft.
+TEST_F(node_test_suit, test_node_propose_config) {
+  lepton::pb::repeated_message msgs;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto raw_node = *std::move(raw_node_result);
+
+  asio::io_context io_context;
+  lepton::node n(io_context.get_executor(), std::move(raw_node));
+
+  // 启动节点运行协程
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to node run.......");
+        n.start_run();
+        SPDLOG_INFO("node run finshed.......");
+        co_return;
+      },
+      asio::detached);
+
+  std::string msg_data;
+
+  // 启动主测试逻辑协程
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        // 发起竞选
+        co_await n.campaign();
+
+        // 等待成为leader
+        while (true) {
+          SPDLOG_INFO("main loop ......................");
+          auto rd = co_await n.ready_handle().async_receive();
+          if (rd.entries.size() > 0) {
+            SPDLOG_INFO("Appending entries to storage");
+            EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+          }
+
+          // 检查是否成为leader
+          if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
+            SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
+            n.raw_node_.raft_.step_func_ = [&](lepton::raft& _, raftpb::message&& msg) -> lepton::leaf::result<void> {
+              SPDLOG_INFO(lepton::describe_message(msg));
+              if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
+                return {};  // injected by (*raft).advance
+              }
+              msgs.Add(std::move(msg));
+              return {};
+            };
+            co_await n.advance();
+            break;
+          } else {
+            co_await n.advance();
+          }
+        }
+
+        // 提出提案
+        auto cc =
+            lepton::pb::conf_change_as_v2(create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE));
+        msg_data = cc.SerializeAsString();
+        co_await n.propose_conf_change(cc);
+
+        // 短暂延迟确保消息处理
+        asio::steady_timer timer(io_context, std::chrono::milliseconds(50));
+        co_await timer.async_wait(asio::use_awaitable);
+
+        // 停止节点
+        co_await n.stop();
+        SPDLOG_INFO("stop node successful.......");
+        co_return;
+      },
+      asio::detached);
+
+  io_context.run();
+
+  ASSERT_EQ(1, msgs.size());
+  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_PROP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(msg_data, msgs[0].entries(0).data());
+}
+
+// TestNodeProposeAddDuplicateNode ensures that two proposes to add the same node should
+// not affect the later propose to add new node.
+TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
+  asio::io_context io_context;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto cfg = new_test_config(1, 10, 1, std::move(storage_proxy));
+  auto node_handle = new_node_test_harness(io_context.get_executor(), std::move(cfg), {});
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        // 发起竞选
+        co_await node_handle->campaign();
+        lepton::pb::repeated_entry all_committed_entries;
+        asio::steady_timer timer(io_context.get_executor());
+        timer.expires_after(std::chrono::milliseconds(100));
+        lepton::signal_channel goroutine_stopped_chan(io_context.get_executor());
+        lepton::signal_channel apply_conf_chan(io_context.get_executor());
+        lepton::signal_channel cancel_chan(io_context.get_executor());
+
+        auto rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await node_handle->advance();
+
+        auto running_loop = true;
+        auto sub_loop = [&]() -> asio::awaitable<void> {
+          while (running_loop) {
+            auto [order, msg_ec, msg_result, cancel_ec, timer_ec] =
+                co_await asio::experimental::make_parallel_group(
+                    // 1. 从 channel 接收消息
+                    [&](auto token) { return node_handle->ready_handle().async_receive(token); },
+                    [&](auto token) { return cancel_chan.async_receive(token); },
+                    [&](auto token) { return timer.async_wait(token); })
+                    .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+            switch (order[0]) {
+              case 0: {
+                SPDLOG_INFO("receive new ready");
+                SPDLOG_INFO(lepton::describe_ready(msg_result));
+                EXPECT_TRUE(mm_storage.append(std::move(msg_result.entries)));
+                auto applied = false;
+                for (auto& entry : msg_result.committed_entries) {
+                  auto entry_type = entry.type();
+                  all_committed_entries.Add(raftpb::entry{entry});
+                  switch (entry_type) {
+                    case raftpb::ENTRY_CONF_CHANGE: {
+                      raftpb::conf_change cc;
+                      EXPECT_TRUE(cc.ParseFromString(entry.data()));
+                      co_await node_handle->apply_conf_change(lepton::pb::conf_change_var_as_v2(cc));
+                      applied = true;
+                      break;
+                    }
+                    default:
+                      break;
+                  }
+                }
+                co_await node_handle->advance();
+                if (applied) {
+                  co_await apply_conf_chan.async_send(asio::error_code{});
+                }
+                break;
+              }
+              case 1: {
+                running_loop = false;
+                break;
+              }
+              case 2: {
+                SPDLOG_INFO("node is ticking");
+                co_await node_handle->tick();
+                timer.expires_after(std::chrono::milliseconds(100));
+                break;
+              }
+            }
+          }
+          co_await node_handle->stop();
+          co_await goroutine_stopped_chan.async_send(asio::error_code{});
+        };
+        SPDLOG_INFO("[main logic]ready to start sub loop");
+        asio::co_spawn(
+            io_context,
+            [&]() -> asio::awaitable<void> {
+              co_await sub_loop();
+              co_return;
+            },
+            asio::detached);
+        SPDLOG_INFO("[main logic]start sub loop successful");
+
+        raftpb::conf_change cc1;
+        cc1.set_type(::raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
+        cc1.set_node_id(1);
+        auto ccdata1 = cc1.SerializeAsString();
+        SPDLOG_INFO("[main logic]first times ready to propose conf change");
+        co_await node_handle->propose_conf_change(cc1);
+        SPDLOG_INFO("[main logic]first times propose conf change success");
+        co_await apply_conf_chan.async_receive();
+        SPDLOG_INFO("[main logic]first times apply conf change success");
+
+        // try add the same node again
+        co_await node_handle->propose_conf_change(cc1);
+        co_await apply_conf_chan.async_receive();
+        SPDLOG_INFO("[main logic]first times try add the same node again...");
+
+        // the new node join should be ok
+        raftpb::conf_change cc2;
+        cc2.set_type(::raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
+        cc2.set_node_id(2);
+        auto ccdata2 = cc2.SerializeAsString();
+        co_await node_handle->propose_conf_change(cc2);
+        co_await apply_conf_chan.async_receive();
+        SPDLOG_INFO("[main logic]second times propose conf change success...");
+
+        co_await cancel_chan.async_send(asio::error_code{});
+        co_await node_handle->stop();
+        co_await goroutine_stopped_chan.async_receive();
+        SPDLOG_INFO("[main logic]sub loop has finished");
+
+        EXPECT_EQ(4, all_committed_entries.size());
+        EXPECT_EQ(ccdata1, all_committed_entries[1].data());
+        EXPECT_EQ(ccdata2, all_committed_entries[3].data());
+        co_return;
+      },
+      asio::detached);
+  io_context.run();
 }

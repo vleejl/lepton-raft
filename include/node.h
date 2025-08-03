@@ -16,11 +16,11 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include "asio/awaitable.hpp"
 #include "channel.h"
 #include "expected.h"
-#include "lepton_error.h"
 #include "node_interface.h"
 #include "raft.h"
 #include "raft.pb.h"
@@ -31,11 +31,6 @@
 
 namespace lepton {
 
-struct peer {
-  std::uint64_t id;
-  std::string context;
-};
-
 struct msg_with_result {
   raftpb::message msg;
   std::optional<std::reference_wrapper<channel<std::error_code>>> ec_chan;
@@ -45,7 +40,7 @@ using msg_with_result_channel_handle = channel<msg_with_result>*;
 
 // node is the canonical implementation of the Node interface
 class node {
-  NOT_COPYABLE(node)
+  NONCOPYABLE_NONMOVABLE(node)
  public:
   node(asio::any_io_executor executor, raw_node&& raw_node)
       : executor_(executor),
@@ -61,11 +56,11 @@ class node {
         status_chan_(executor),
         raw_node_(std::move(raw_node)) {}
 
+  ~node() { stop_source_.request_stop(); }
+
   asio::awaitable<void> stop();
 
-  asio::awaitable<void> run1();
-
-  asio::awaitable<void> run();
+  void start_run();
 
   asio::awaitable<void> tick();
 
@@ -110,6 +105,8 @@ class node {
 
   asio::awaitable<void> stop_chan_callback(std::error_code callback_ec);
 
+  asio::awaitable<void> run();
+
   asio::awaitable<expected<void>> handle_non_prop_msg(raftpb::message&& msg);
 
   asio::awaitable<expected<void>> step_impl(raftpb::message&& msg);
@@ -123,6 +120,7 @@ class node {
  private:
 #endif
   asio::any_io_executor executor_;
+  std::stop_source stop_source_;
 
   channel<msg_with_result> prop_chan_;
   channel<raftpb::message> recv_chan_;
@@ -136,6 +134,22 @@ class node {
   status_channel status_chan_;
   raw_node raw_node_;
 };
+
+using node_handle = std::unique_ptr<node>;
+
+node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers);
+
+// StartNode returns a new Node given configuration and a list of raft peers.
+// It appends a ConfChangeAddNode entry for each given peer to the initial log.
+//
+// Peers must not be zero length; call RestartNode in that case.
+node_handle start_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers);
+
+// RestartNode is similar to StartNode but does not take a list of peers.
+// The current membership of the cluster will be restored from the Storage.
+// If the caller has an existing state machine, pass in the last log index that
+// has been applied to it; otherwise use zero.
+node_handle restart_node(asio::any_io_executor executor, lepton::config&& config);
 }  // namespace lepton
 
 #endif  // _LEPTON_NODE_

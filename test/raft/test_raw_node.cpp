@@ -234,7 +234,8 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_and_conf_change) {
     auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
     ASSERT_TRUE(raw_node_result);
     auto& raw_node = *raw_node_result;
-    raw_node.campaign();
+    ASSERT_TRUE(raw_node.campaign());
+
     auto proposed = false;
     std::uint64_t last_index = 0;
     std::string ccdata;

@@ -1,6 +1,7 @@
 #include "node.h"
 
 #include <cassert>
+#include <memory>
 #include <system_error>
 #include <utility>
 
@@ -10,6 +11,7 @@
 #include "expected.h"
 #include "leaf_expected.h"
 #include "raft.pb.h"
+#include "raw_node.h"
 #include "spdlog/spdlog.h"
 #include "tl/expected.hpp"
 
@@ -30,7 +32,7 @@ asio::awaitable<void> node::stop() {
   co_return;
 }
 
-asio::awaitable<void> node::run1() {
+asio::awaitable<void> node::run() {
   msg_with_result_channel_handle prop_chan = nullptr;
   // ready_channel_handle ready_chan = nullptr;
   signal_channel ready_active_chan(executor_);
@@ -42,7 +44,8 @@ asio::awaitable<void> node::run1() {
 
   auto lead = NONE;
 
-  while (true) {
+  auto token = stop_source_.get_token();
+  while (!stop_source_.stop_requested()) {
     SPDLOG_INFO("run main loop ......");
     if ((advance_chan == nullptr) && raw_node_.has_ready()) {
       SPDLOG_INFO("run main loop has ready......");
@@ -164,10 +167,13 @@ asio::awaitable<void> node::run1() {
   co_return;
 }
 
+void node::start_run() { co_spawn(executor_, run(), asio::detached); }
+
 // Tick increments the internal logical clock for this Node. Election timeouts
 // and heartbeat timeouts are in units of ticks.
 asio::awaitable<void> node::tick() {
-  auto ec = co_await async_select_done([&](auto token) { return tick_chan_.async_receive(token); }, done_chan_);
+  auto ec = co_await async_select_done([&](auto token) { return tick_chan_.async_send(asio::error_code{}, token); },
+                                       done_chan_);
   if (!ec.has_value()) {
     SPDLOG_ERROR("Tick operation aborted: {}", ec.error().message());
   }
@@ -209,10 +215,8 @@ asio::awaitable<expected<void>> node::propose_conf_change(const pb::conf_change_
   if (!msg_result) {
     co_return tl::unexpected{msg_result.error()};
   }
-  co_return leaf_to_expected_void([&]() -> leaf::result<void> {
-    BOOST_LEAF_CHECK(raw_node_.step(std::move(*msg_result)));
-    return {};
-  });
+  auto result = co_await step(std::move(*msg_result));
+  co_return result;
 }
 
 ready_channel& node::ready_handle() { return ready_chan_; }
@@ -333,7 +337,7 @@ asio::awaitable<void> node::propose_chan_callback(std::error_code callback_ec, m
   auto& msg = result.msg;
   msg.set_from(raw_node_.raft_.id());
   auto step_result = leaf_to_expected_void([&]() -> leaf::result<void> {
-    BOOST_LEAF_CHECK(raw_node_.step(std::move(msg)));
+    BOOST_LEAF_CHECK(raw_node_.raft_.step(std::move(msg)));
     return {};
   });
   if (result.ec_chan.has_value()) {
@@ -387,13 +391,13 @@ asio::awaitable<void> node::conf_chan_callback(std::error_code _, raftpb::conf_c
     if (!found) {
       prop_chan = nullptr;
     }
-    auto ec = co_await async_select_done(
-        [&](auto token) { return conf_state_chan_.async_send(asio::error_code{}, std::move(cs), token); }, done_chan_);
-    if (!ec.has_value()) {
-      SPDLOG_ERROR("Failed to send conf state, error: {}", ec.error().message());
-    }
-    co_return;
   }
+  auto ec = co_await async_select_done(
+      [&](auto token) { return conf_state_chan_.async_send(asio::error_code{}, std::move(cs), token); }, done_chan_);
+  if (!ec.has_value()) {
+    SPDLOG_ERROR("Failed to send conf state, error: {}", ec.error().message());
+  }
+  co_return;
 }
 
 asio::awaitable<void> node::send_ready(std::optional<ready>& rd, signal_channel& ready_active_chan,
@@ -500,6 +504,56 @@ asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor 
     co_return tl::unexpected{result.value()};
   }
   co_return tl::unexpected{result.error()};
+}
+
+node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers) {
+  if (peers.empty()) {
+    LEPTON_CRITICAL("no peers given; use RestartNode instead");
+  }
+  auto raw_node_result = leaf::try_handle_some(
+      [&]() -> leaf::result<lepton::raw_node> {
+        BOOST_LEAF_AUTO(v, new_raw_node(std::move(config)));
+        return v;
+      },
+      [&](const lepton_error& e) -> leaf::result<lepton::raw_node> {
+        LEPTON_CRITICAL(e.message);
+        return new_error(e);
+      });
+  assert(raw_node_result);
+  auto bootstrap_result = raw_node_result->bootstrap(std::move(peers));
+  auto _ = leaf::try_handle_some(
+      [&]() -> leaf::result<void> {
+        BOOST_LEAF_CHECK(raw_node_result->bootstrap(std::move(peers)));
+        return {};
+      },
+      [&](const lepton_error& e) -> leaf::result<void> {
+        SPDLOG_WARN("error occurred during starting a new node: {}", e.message);
+        return {};
+      });
+  return std::make_unique<node>(executor, std::move(*raw_node_result));
+}
+
+node_handle start_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers) {
+  auto node_handler = setup_node(executor, std::move(config), std::move(peers));
+  node_handler->start_run();
+  return node_handler;
+}
+
+node_handle restart_node(asio::any_io_executor executor, lepton::config&& config) {
+  auto raw_node_result = leaf::try_handle_some(
+      [&]() -> leaf::result<lepton::raw_node> {
+        BOOST_LEAF_AUTO(v, new_raw_node(std::move(config)));
+        return v;
+      },
+      [&](const lepton_error& e) -> leaf::result<lepton::raw_node> {
+        LEPTON_CRITICAL(e.message);
+        return new_error(e);
+      });
+  assert(raw_node_result);
+
+  auto node_handler = std::make_unique<node>(executor, std::move(*raw_node_result));
+  node_handler->start_run();
+  return node_handler;
 }
 
 }  // namespace lepton

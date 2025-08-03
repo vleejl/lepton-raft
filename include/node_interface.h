@@ -8,9 +8,15 @@
 #include "lepton_error.h"
 #include "ready.h"
 namespace lepton {
+
 enum class snapshot_status : int {
   SNAPSHOT_FINISH = 1,
   SNAPSHOT_FAILURE = 2,
+};
+
+struct peer {
+  std::uint64_t ID;
+  std::string context;
 };
 
 // Tick increments the internal logical clock for the Node by a single tick.

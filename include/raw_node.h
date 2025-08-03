@@ -3,6 +3,7 @@
 #include <error.h>
 
 #include <cassert>
+#include <vector>
 
 #include "conf_change.h"
 #include "leaf.hpp"
@@ -186,6 +187,15 @@ class raw_node {
     *msg.mutable_entries()->Add()->mutable_data() = std::move(rctx);
     raft_.step(std::move(msg));
   }
+
+  // Bootstrap initializes the RawNode for first use by appending configuration
+  // changes for the supplied peers. This method returns an error if the Storage
+  // is nonempty.
+  //
+  // It is recommended that instead of calling this method, applications bootstrap
+  // their state manually by setting up a Storage that has a first index > 1 and
+  // which stores the desired ConfState as its InitialState.
+  leaf::result<void> bootstrap(std::vector<peer> &&peers);
 
 // 为了方便单元测试 修改私有成员函数作用域
 #ifdef LEPTON_TEST

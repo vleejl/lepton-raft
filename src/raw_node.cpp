@@ -1,10 +1,15 @@
 #include "raw_node.h"
 
+#include <cstddef>
 #include <vector>
 
+#include "leaf.hpp"
+#include "lepton_error.h"
 #include "log.h"
 #include "protobuf.h"
 #include "raft.pb.h"
+#include "raft_error.h"
+#include "spdlog/spdlog.h"
 #include "state_trace.h"
 #include "types.h"
 namespace lepton {
@@ -291,8 +296,14 @@ lepton::ready raw_node::ready_without_accept() const {
     // msgsAfterAppend to be sent out. The Ready struct contract
     // mandates that Messages cannot be sent until after Entries
     // are written to stable storage.
+    // raft durability 持久化保证：不能发送任何消息（尤其是包含 Index 的 AppendEntries）直到对应的日志 entries
+    // 已经被写入稳定存储。
+    // 所有要发送的 msgsAfterAppend（即 应该在日志成功写入之后再发送的消息）现在可以立刻发送；
+    // 这些消息就会放入 rd.Messages 里，外层驱动代码会立刻把它们发送出去；
     for (const auto &msg : raft_.msgs_after_append_) {
-      rd.messages.Add()->CopyFrom(msg);
+      if (msg.to() != raft_.id()) {
+        rd.messages.Add()->CopyFrom(msg);
+      }
     }
   }
   return rd;
@@ -312,7 +323,7 @@ void raw_node::accept_ready(const lepton::ready &rd) {
     if (!steps_on_advance_.empty()) {
       LEPTON_CRITICAL("two accepted Ready structs without call to Advance");
     }
-    for (const auto &msg : rd.messages) {
+    for (const auto &msg : raft_.msgs_after_append()) {
       if (msg.to() == raft_.id()) {
         steps_on_advance_.Add()->CopyFrom(msg);
       }
@@ -338,22 +349,31 @@ void raw_node::accept_ready(const lepton::ready &rd) {
 bool raw_node::has_ready() const {
   // TODO(nvanbenschoten): order these cases in terms of cost and frequency.
   if (auto soft_state = raft_.soft_state(); soft_state != prev_soft_state_) {
+    SPDLOG_DEBUG("soft state has changed");
     return true;
   }
   if (auto hard_state = raft_.hard_state(); !pb::is_empty_hard_state(hard_state) && hard_state != prev_hard_state_) {
+    SPDLOG_DEBUG("hard state has changed");
     return true;
   }
   if (raft_.raft_log_handle_.has_next_unstable_snapshot()) {
+    SPDLOG_DEBUG("has next unstable snapshot");
     return true;
   }
   if (!raft_.msgs_.empty() || !raft_.msgs_after_append().empty()) {
+    SPDLOG_DEBUG("msg not empty, msgs size:{}, msgs_after_append size:{}", raft_.msgs_.size(),
+                 raft_.msgs_after_append().size());
     return true;
   }
   if (raft_.raft_log_handle().has_next_unstable_ents() ||
       raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries())) {
+    SPDLOG_DEBUG("has next unstable ents:%{}, has next committed ents:%{}",
+                 raft_.raft_log_handle().has_next_unstable_ents(),
+                 raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries()));
     return true;
   }
   if (!raft_.read_states_.empty()) {
+    SPDLOG_DEBUG("read stattes not empty");
     return true;
   }
   return false;
@@ -370,6 +390,64 @@ void raw_node::advance(/*ready*/) {
     raft_.step(std::move(msg));
   }
   steps_on_advance_.Clear();
+}
+
+leaf::result<void> raw_node::bootstrap(std::vector<peer> &&peers) {
+  if (peers.empty()) {
+    return new_error(raft_error::CONFIG_INVALID, "must provide at least one peer to Bootstrap");
+  }
+
+  BOOST_LEAF_AUTO(last_index, raft_.raft_log_handle_.storage_last_index());
+  if (last_index != 0) {
+    return new_error(raft_error::CONFIG_INVALID, "can't bootstrap a nonempty Storage");
+  }
+
+  // We've faked out initial entries above, but nothing has been
+  // persisted. Start with an empty HardState (thus the first Ready will
+  // emit a HardState update for the app to persist).
+  prev_hard_state_ = raftpb::hard_state{};
+
+  // TODO(tbg): remove StartNode and give the application the right tools to
+  // bootstrap the initial membership in a cleaner way.
+  raft_.become_follower(1, NONE);
+  pb::repeated_entry ents;
+  ents.Reserve(static_cast<int>(peers.size()));
+  for (std::size_t i = 0; i < peers.size(); ++i) {
+    auto &iter = peers[i];
+    raftpb::conf_change cc;
+    cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
+    cc.set_node_id(iter.ID);
+    cc.set_context(std::move(iter.context));
+
+    auto entry = ents.Add();
+    entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
+    entry->set_term(1);
+    entry->set_index(i + 1);
+    entry->set_data(cc.SerializeAsString());
+  }
+  const std::uint64_t ents_size = static_cast<std::uint64_t>(ents.size());
+  raft_.raft_log_handle_.append(std::move(ents));
+
+  // Now apply them, mainly so that the application can call Campaign
+  // immediately after StartNode in tests. Note that these nodes will
+  // be added to raft twice: here and when the application's Ready
+  // loop calls ApplyConfChange. The calls to addNode must come after
+  // all calls to raftLog.append so progress.next is set after these
+  // bootstrapping entries (it is an error if we try to append these
+  // entries since they have already been committed).
+  // We do not set raftLog.applied so the application will be able
+  // to observe all conf changes via Ready.CommittedEntries.
+  //
+  // TODO(bdarnell): These entries are still unstable; do we need to preserve
+  // the invariant that committed < unstable?
+  raft_.raft_log_handle_.set_commit(ents_size);
+  for (const auto &iter : peers) {
+    raftpb::conf_change cc;
+    cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
+    cc.set_node_id(iter.ID);
+    raft_.apply_conf_change(pb::conf_change_as_v2(std::move(cc)));
+  }
+  return {};
 }
 
 }  // namespace lepton

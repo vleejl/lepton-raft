@@ -61,7 +61,7 @@ std::string describe_entry(const raftpb::entry &ent) {
 // each.
 std::string describe_entries(const pb::repeated_entry &entries) {
   return fmt::format(
-      "{}", fmt::join(entries | std::views::transform([](const auto &ent) { return describe_entry(ent); }), "\n"));
+      "{}\n", fmt::join(entries | std::views::transform([](const auto &ent) { return describe_entry(ent); }), "\n"));
 }
 
 std::string describe_conf_state(const raftpb::conf_state &state) {
@@ -168,7 +168,7 @@ std::string describe_ready(const ready &rd) {
   }
 
   // Handle snapshot
-  if (pb::is_empty_snap(rd.snapshot)) {
+  if (!pb::is_empty_snap(rd.snapshot)) {
     auto snapshot_str = describe_snapshot(rd.snapshot);
     fmt::format_to(std::back_inserter(buf), "Snapshot: {{}}{}\n", snapshot_str);
   }

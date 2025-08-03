@@ -131,7 +131,7 @@ struct config {
   // threads are not responsible for understanding the response messages, only
   // for delivering them to the correct target after performing the storage
   // write.
-  bool async_storage_writes;
+  bool async_storage_writes = false;
 
   // MaxSizePerMsg limits the max byte size of each append message. Smaller
   // value lowers the raft recovery cost(initial probing and message lost
