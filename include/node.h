@@ -62,7 +62,7 @@ class node {
 
   void start_run();
 
-  asio::awaitable<void> tick();
+  void tick();
 
   asio::awaitable<expected<void>> campaign();
 

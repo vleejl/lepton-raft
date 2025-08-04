@@ -584,7 +584,7 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
               }
               case 2: {
                 SPDLOG_INFO("node is ticking");
-                co_await node_handle->tick();
+                node_handle->tick();
                 timer.expires_after(std::chrono::milliseconds(100));
                 break;
               }
@@ -638,5 +638,180 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
         co_return;
       },
       asio::detached);
+  io_context.run();
+}
+
+// TestBlockProposal ensures that node will block proposal when it does not
+// know who is the current leader; node will accept proposal when it knows
+// who is the current leader.
+TEST_F(node_test_suit, test_block_proposal) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto raw_node = *std::move(raw_node_result);
+
+  asio::io_context io_context;
+  lepton::node n(io_context.get_executor(), std::move(raw_node));
+
+  n.start_run();
+  lepton::channel<std::error_code> err_chan(io_context.get_executor());
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto result = co_await n.propose(io_context.get_executor(), "somedata");
+        if (result.has_value()) {
+          co_await err_chan.async_send(asio::error_code{}, std::error_code{});
+        } else {
+          co_await err_chan.async_send(asio::error_code{}, result.error());
+        }
+        co_return;
+      },
+      asio::detached);
+
+  ASSERT_FALSE(err_chan.try_receive(
+      [&](asio::error_code _, std::error_code ec) { EXPECT_TRUE(ec) << "unexpected case, want blocking"; }));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        co_await n.campaign();
+        auto rd = co_await n.ready_handle().async_receive();
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await n.advance();
+        asio::steady_timer timeout_timer(io_context.get_executor(), std::chrono::seconds(10));
+        auto [order, msg_ec, msg_result, timer_ec] =
+            co_await asio::experimental::make_parallel_group(
+                // 1. 从 channel 接收消息
+                [&](auto token) { return err_chan.async_receive(token); },
+                [&](auto token) { return timeout_timer.async_wait(token); })
+                .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+        switch (order[0]) {
+          case 0: {
+            EXPECT_EQ(std::error_code{}, msg_result);
+            break;
+          }
+          case 1: {
+            EXPECT_FALSE(true) << "blocking proposal, want unblocking";
+            break;
+          }
+        }
+        co_await n.stop();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(node_test_suit, test_node_propose_wait_dropped) {
+  lepton::pb::repeated_message msgs;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto raw_node = *std::move(raw_node_result);
+
+  asio::io_context io_context;
+  lepton::node n(io_context.get_executor(), std::move(raw_node));
+
+  // 启动节点运行协程
+  n.start_run();
+
+  // 启动主测试逻辑协程
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        // 发起竞选
+        co_await n.campaign();
+
+        // 等待成为leader
+        while (true) {
+          SPDLOG_INFO("main loop ......................");
+          auto rd = co_await n.ready_handle().async_receive();
+          if (rd.entries.size() > 0) {
+            SPDLOG_INFO("Appending entries to storage");
+            EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+          }
+
+          // 检查是否成为leader
+          if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
+            SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
+            n.raw_node_.raft_.step_func_ = [&](lepton::raft& _, raftpb::message&& msg) -> lepton::leaf::result<void> {
+              SPDLOG_INFO(lepton::describe_message(msg));
+              if ((msg.type() == raftpb::message_type::MSG_PROP) &&
+                  (msg.DebugString().find("test_dropping")) != std::string::npos) {
+                return new_error(lepton::raft_error::PROPOSAL_DROPPED);
+              }
+              if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
+                // This is produced by raft internally, see (*raft).advance.
+                return {};
+              }
+              msgs.Add(std::move(msg));
+              return {};
+            };
+            co_await n.advance();
+            break;
+          } else {
+            co_await n.advance();
+          }
+        }
+
+        // 提出提案
+        auto propose_result = co_await n.propose(io_context.get_executor(), "test_dropping");
+        EXPECT_FALSE(propose_result.has_value());
+        EXPECT_EQ(lepton::make_error_code(lepton::raft_error::PROPOSAL_DROPPED), propose_result.error());
+
+        // 停止节点
+        co_await n.stop();
+        SPDLOG_INFO("stop node successful.......");
+        co_return;
+      },
+      asio::detached);
+
+  io_context.run();
+
+  // 验证结果
+  ASSERT_EQ(0, msgs.size());
+}
+
+// TestNodeTick ensures that node.Tick() will increase the
+// elapsed of the underlying raft state machine.
+TEST_F(node_test_suit, test_node_tick) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto raw_node = *std::move(raw_node_result);
+
+  asio::io_context io_context;
+  lepton::node n(io_context.get_executor(), std::move(raw_node));
+
+  // 启动节点运行协程
+  n.start_run();
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        n.tick();
+        const auto elapsed = n.raw_node_.raft_.election_elapsed_;
+        asio::steady_timer timer(io_context, std::chrono::milliseconds(100));
+        while (elapsed + 1 != n.raw_node_.raft_.election_elapsed_) {
+          SPDLOG_INFO("current elapsed:{}, election_elapsed_:{}", elapsed, n.raw_node_.raft_.election_elapsed_);
+          co_await timer.async_wait(asio::use_awaitable);
+          timer.expires_after(std::chrono::milliseconds(100));
+        }
+        co_await n.stop();
+        co_return;
+      },
+      asio::use_future);
+
   io_context.run();
 }

@@ -131,7 +131,7 @@ asio::awaitable<void> node::run() {
                         [&](auto token) { return ready_active_chan.async_receive(token); },
                         [&](auto token) { return advance_active_chan.async_receive(token); },
                         [&](auto token) { return status_chan_.async_receive(token); },
-                        [&](auto token) { return done_chan_.async_receive(token); })
+                        [&](auto token) { return stop_chan_.async_receive(token); })
                         .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
       auto [order, recv_chan_ec, recv_chan_result, conf_chan_ec, conf_chan_result, tick_chan_result,
             ready_active_chan_ec, advance_active_chan_ec, status_chan_ec, status_chan_result, stop_chan_result] =
@@ -171,13 +171,14 @@ void node::start_run() { co_spawn(executor_, run(), asio::detached); }
 
 // Tick increments the internal logical clock for this Node. Election timeouts
 // and heartbeat timeouts are in units of ticks.
-asio::awaitable<void> node::tick() {
-  auto ec = co_await async_select_done([&](auto token) { return tick_chan_.async_send(asio::error_code{}, token); },
-                                       done_chan_);
-  if (!ec.has_value()) {
-    SPDLOG_ERROR("Tick operation aborted: {}", ec.error().message());
+void node::tick() {
+  if (!done_chan_.is_open()) {
+    return;
   }
-  co_return;
+
+  if (!tick_chan_.try_send(asio::error_code{})) {
+    SPDLOG_WARN("{} A tick missed to fire. Node blocks too long!", raw_node_.raft_.id());
+  }
 }
 
 asio::awaitable<expected<void>> node::campaign() {
