@@ -8,10 +8,12 @@
 #include "asio/awaitable.hpp"
 #include "asio/error_code.hpp"
 #include "channel.h"
+#include "describe.h"
 #include "expected.h"
 #include "leaf_expected.h"
 #include "raft.pb.h"
 #include "raw_node.h"
+#include "signal_channel_endpoint.h"
 #include "spdlog/spdlog.h"
 #include "tl/expected.hpp"
 
@@ -33,19 +35,31 @@ asio::awaitable<void> node::stop() {
 }
 
 asio::awaitable<void> node::run() {
-  msg_with_result_channel_handle prop_chan = nullptr;
-  // ready_channel_handle ready_chan = nullptr;
-  signal_channel ready_active_chan(executor_);
-  signal_channel advance_active_chan(executor_);
-  signal_channel_handle advance_chan = nullptr;
+  signal_channel token_chan(executor_);
+
+  bool is_active_prop_chan = false;
+  signal_channel active_prop_chan(executor_);
+
+  signal_channel cancel_listen_ready_chan(executor_);
+  signal_channel_endpoint_handle advance_chan = nullptr;
+  signal_channel active_advance_chan(executor_);
 
   std::optional<ready> rd;
   auto& r = raw_node_.raft_;
 
   auto lead = NONE;
 
+  co_spawn(executor_, listen_propose(token_chan, active_prop_chan, is_active_prop_chan), asio::detached);
+  co_spawn(executor_, listen_receive(token_chan), asio::detached);
+  co_spawn(executor_, listen_conf_change(token_chan, is_active_prop_chan), asio::detached);
+  co_spawn(executor_, listen_tick(token_chan), asio::detached);
+  co_spawn(executor_, listen_advance(rd, token_chan, active_advance_chan, advance_chan), asio::detached);
+  co_spawn(executor_, listen_status(token_chan), asio::detached);
+  co_spawn(executor_, listen_stop(token_chan, active_prop_chan, active_advance_chan), asio::detached);
+
   auto token = stop_source_.get_token();
-  while (!stop_source_.stop_requested()) {
+  while (!stop_source_.stop_requested() && done_chan_.is_open()) {
+    auto has_ready = false;
     SPDLOG_INFO("run main loop ......");
     if ((advance_chan == nullptr) && raw_node_.has_ready()) {
       SPDLOG_INFO("run main loop has ready......");
@@ -57,11 +71,13 @@ asio::awaitable<void> node::run() {
       // handled first, but it's generally good to emit larger Readys plus
       // it simplifies testing (by emitting less frequently and more
       // predictably).
-      advance_chan = &advance_chan_;
+      // if (!raw_node_.async_storage_writes()) {
+      //   advance_chan = &advance_chan_;
+      // }
       rd = raw_node_.ready_without_accept();
-      co_spawn(executor_, send_ready(rd, ready_active_chan, advance_active_chan, advance_chan), asio::detached);
+      has_ready = true;
     }
-
+    SPDLOG_INFO("run main loop, continue main loop logic ......");
     if (lead != r.lead()) {
       if (r.has_leader()) {
         if (lead == NONE) {
@@ -69,101 +85,33 @@ asio::awaitable<void> node::run() {
         } else {
           SPDLOG_INFO("raft.node: {} changed leader from {} to {} at term {}", r.id(), lead, r.lead(), r.term());
         }
-        prop_chan = &prop_chan_;
+        is_active_prop_chan = true;
       } else {
         SPDLOG_INFO("raft.node: {} lost leader {} at term {}", r.id(), lead, r.term());
-        prop_chan = nullptr;
+        is_active_prop_chan = false;
       }
       lead = r.lead();
     }
 
-    if (prop_chan != nullptr) {
-      SPDLOG_INFO("ready to listen 5 channels ......");
-      auto result = co_await asio::experimental::make_parallel_group(
-                        [&](auto token) { return prop_chan->async_receive(token); },
-                        [&](auto token) { return recv_chan_.async_receive(token); },
-                        [&](auto token) { return conf_chan_.async_receive(token); },
-                        [&](auto token) { return tick_chan_.async_receive(token); },
-                        [&](auto token) { return ready_active_chan.async_receive(token); },
-                        [&](auto token) { return advance_active_chan.async_receive(token); },
-                        [&](auto token) { return status_chan_.async_receive(token); },
-                        [&](auto token) { return stop_chan_.async_receive(token); })
-                        .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
-      auto [order, prop_chan_ec, prop_chan_result, recv_chan_ec, recv_chan_result, conf_chan_ec, conf_chan_result,
-            tick_chan_result, ready_active_chan_ec, advance_active_chan_ec, status_chan_ec, status_chan_result,
-            stop_chan_result] = result;
-      switch (order[0]) {
-        case 0: {
-          co_await propose_chan_callback(prop_chan_ec, std::move(prop_chan_result));
-          break;
-        }
-        case 1: {
-          receive_chan_callback(recv_chan_ec, std::move(recv_chan_result));
-          break;
-        }
-        case 2: {
-          co_await conf_chan_callback(conf_chan_ec, std::move(conf_chan_result), prop_chan);
-          break;
-        }
-        case 3: {
-          raw_node_.tick();
-          break;
-        }
-        case 4:
-          break;
-        case 5:
-          break;
-        case 6: {
-          co_await status_chan_callback(status_chan_ec, std::move(status_chan_result));
-          break;
-        }
-        case 7: {
-          co_await stop_chan_callback(stop_chan_result);
-          co_return;
-        }
-      }
-    } else {
-      SPDLOG_INFO("ready to listen 4 channels ......");
-      auto result = co_await asio::experimental::make_parallel_group(
-                        [&](auto token) { return recv_chan_.async_receive(token); },
-                        [&](auto token) { return conf_chan_.async_receive(token); },
-                        [&](auto token) { return tick_chan_.async_receive(token); },
-                        [&](auto token) { return ready_active_chan.async_receive(token); },
-                        [&](auto token) { return advance_active_chan.async_receive(token); },
-                        [&](auto token) { return status_chan_.async_receive(token); },
-                        [&](auto token) { return stop_chan_.async_receive(token); })
-                        .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
-      auto [order, recv_chan_ec, recv_chan_result, conf_chan_ec, conf_chan_result, tick_chan_result,
-            ready_active_chan_ec, advance_active_chan_ec, status_chan_ec, status_chan_result, stop_chan_result] =
-          result;
-      switch (order[0]) {
-        case 0: {
-          receive_chan_callback(recv_chan_ec, std::move(recv_chan_result));
-          break;
-        }
-        case 1: {
-          co_await conf_chan_callback(conf_chan_ec, std::move(conf_chan_result), prop_chan);
-          break;
-        }
-        case 2: {
-          raw_node_.tick();
-          break;
-        }
-        case 3:
-          break;
-        case 4:
-          break;
-        case 5: {
-          co_await status_chan_callback(status_chan_ec, std::move(status_chan_result));
-          break;
-        }
-        case 6: {
-          co_await stop_chan_callback(stop_chan_result);
-          co_return;
-        }
-      }
+    if (is_active_prop_chan) {
+      SPDLOG_INFO("ready to send active prop channel");
+      // 不能阻塞主循环
+      active_prop_chan.try_send(asio::error_code{});
+      SPDLOG_INFO("send active prop channel successful");
     }
+    SPDLOG_INFO("has_ready: {}, waiting token async_receive", has_ready);
+    if (has_ready) {
+      co_await receive_ready(rd, token_chan, advance_chan, active_advance_chan);
+    } else {
+      co_await token_chan.async_receive();
+    }
+    // if (advance_chan != nullptr) {
+    //   co_await listen_advance(rd, token_chan, advance_chan);
+    // }
+    // co_await token_chan.async_receive();
+    // cancel_listen_ready_chan.try_send(asio::error_code{});
   }
+  SPDLOG_INFO("receive stop signal and exit run loop");
   co_return;
 }
 
@@ -176,7 +124,7 @@ void node::tick() {
     return;
   }
 
-  if (!tick_chan_.try_send(asio::error_code{})) {
+  if (!tick_chan_.raw_channel().try_send(asio::error_code{})) {
     SPDLOG_WARN("{} A tick missed to fire. Node blocks too long!", raw_node_.raft_.id());
   }
 }
@@ -185,6 +133,11 @@ asio::awaitable<expected<void>> node::campaign() {
   raftpb::message msg;
   msg.set_type(::raftpb::message_type::MSG_HUP);
   auto result = co_await step_impl(std::move(msg));
+  co_return result;
+}
+
+asio::awaitable<expected<void>> node::propose(std::string&& data) {
+  auto result = co_await propose(executor_, std::move(data));
   co_return result;
 }
 
@@ -223,27 +176,26 @@ asio::awaitable<expected<void>> node::propose_conf_change(const pb::conf_change_
 ready_channel& node::ready_handle() { return ready_chan_; }
 
 asio::awaitable<void> node::advance() {
-  auto ec = co_await async_select_done([&](auto token) { return advance_chan_.async_send(asio::error_code{}, token); },
-                                       done_chan_);
+  auto ec = co_await advance_chan_.async_send();
   if (!ec.has_value()) {
     SPDLOG_ERROR("Failed to recv non-proposal message: {}", ec.error().message());
   }
   co_return;
 }
 
-asio::awaitable<raftpb::conf_state> node::apply_conf_change(raftpb::conf_change_v2&& cc) {
+asio::awaitable<expected<raftpb::conf_state>> node::apply_conf_change(raftpb::conf_change_v2&& cc) {
   if (!stop_chan_.is_open()) {
     co_return raftpb::conf_state{};
   }
   asio::error_code ec;
-  co_await conf_chan_.async_send(asio::error_code{}, cc, asio::redirect_error(asio::use_awaitable, ec));
+  co_await conf_chan_.raw_channel().async_send(asio::error_code{}, cc, asio::redirect_error(asio::use_awaitable, ec));
   if (ec != asio::error::operation_aborted && ec) {
     SPDLOG_ERROR(ec.message());
   }
-  auto cs = co_await conf_state_chan_.async_receive(asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
+  auto cs = co_await conf_state_chan_.async_receive();
+  if (!ec) {
     SPDLOG_ERROR(ec.message());
-    co_return raftpb::conf_state{};
+    co_return tl::unexpected{ec};
   }
   co_return cs;
 }
@@ -254,13 +206,12 @@ asio::awaitable<lepton::status> node::status() {
   }
 
   channel<lepton::status> status_chan(executor_);
-  asio::error_code ec;
-  co_await status_chan_.async_send(asio::error_code{}, status_with_channel{std::ref(status_chan)},
-                                   asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
-    SPDLOG_ERROR(ec.message());
+  if (auto result = co_await status_chan_.async_send(status_with_channel{std::ref(status_chan)}); !result) {
+    SPDLOG_ERROR(result.error().message());
     co_return lepton::status{};
   }
+
+  asio::error_code ec;
   auto result = co_await status_chan.async_receive(asio::redirect_error(asio::use_awaitable, ec));
   if (ec != asio::error::operation_aborted && ec) {
     SPDLOG_ERROR(ec.message());
@@ -276,10 +227,9 @@ asio::awaitable<void> node::report_unreachable(std::uint64_t id) {
   raftpb::message msg;
   msg.set_from(id);
   msg.set_type(raftpb::message_type::MSG_UNREACHABLE);
-  asio::error_code ec;
-  co_await recv_chan_.async_send(asio::error_code{}, std::move(msg), asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
-    SPDLOG_ERROR(ec.message());
+  auto ec = co_await recv_chan_.async_send(std::move(msg));
+  if (!ec) {
+    SPDLOG_ERROR(ec.error().message());
   }
   co_return;
 }
@@ -293,10 +243,9 @@ asio::awaitable<void> node::report_snapshot(std::uint64_t id, snapshot_status st
   msg.set_type(raftpb::message_type::MSG_SNAP_STATUS);
   msg.set_from(id);
   msg.set_reject(rej);
-  asio::error_code ec;
-  co_await recv_chan_.async_send(asio::error_code{}, std::move(msg), asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
-    SPDLOG_ERROR(ec.message());
+  auto ec = co_await recv_chan_.async_send(std::move(msg));
+  if (!ec) {
+    SPDLOG_ERROR(ec.error().message());
   }
   co_return;
 }
@@ -310,10 +259,9 @@ asio::awaitable<void> node::transfer_leadership(std::uint64_t lead, std::uint64_
   // manually set 'from' and 'to', so that leader can voluntarily transfers its leadership
   msg.set_from(transferee);
   msg.set_to(lead);
-  asio::error_code ec;
-  co_await recv_chan_.async_send(asio::error_code{}, std::move(msg), asio::redirect_error(asio::use_awaitable, ec));
-  if (ec != asio::error::operation_aborted && ec) {
-    SPDLOG_ERROR(ec.message());
+  auto ec = co_await recv_chan_.async_send(std::move(msg));
+  if (!ec) {
+    SPDLOG_ERROR(ec.error().message());
   }
   co_return;
 }
@@ -334,141 +282,238 @@ asio::awaitable<expected<void>> node::read_index(std::string&& data) {
   co_return result;
 }
 
-asio::awaitable<void> node::propose_chan_callback(std::error_code callback_ec, msg_with_result&& result) {
-  auto& msg = result.msg;
-  msg.set_from(raw_node_.raft_.id());
-  auto step_result = leaf_to_expected_void([&]() -> leaf::result<void> {
-    BOOST_LEAF_CHECK(raw_node_.raft_.step(std::move(msg)));
-    return {};
-  });
-  if (result.ec_chan.has_value()) {
-    std::error_code ec;
-    if (!step_result.has_value()) {
-      ec = step_result.error();
-    }
-    co_await result.ec_chan->get().async_send(asio::error_code{}, ec, asio::use_awaitable);
-    result.ec_chan->get().close();
-  }
-  co_return;
-}
-
-void node::receive_chan_callback(std::error_code _, raftpb::message&& msg) {
-  if (pb::is_response_msg(msg.type()) && !pb::is_local_msg_target(msg.from()) &&
-      raw_node_.raft_.has_trk_progress(msg.from())) {
-    // Filter out response message from unknown From.
-  } else {
-    auto _ = raw_node_.raft_.step(std::move(msg));
-  }
-}
-
-asio::awaitable<void> node::conf_chan_callback(std::error_code _, raftpb::conf_change_v2&& cc,
-                                               msg_with_result_channel_handle& prop_chan) {
-  auto& r = raw_node_.raft_;
-  auto ok_before = r.has_trk_progress(r.id());
-  auto cs = r.apply_conf_change(std::move(cc));
-  // If the node was removed, block incoming proposals. Note that we
-  // only do this if the node was in the config before. Nodes may be
-  // a member of the group without knowing this (when they're catching
-  // up on the log and don't have the latest config) and we don't want
-  // to block the proposal channel in that case.
-  //
-  // NB: propc is reset when the leader changes, which, if we learn
-  // about it, sort of implies that we got readded, maybe? This isn't
-  // very sound and likely has bugs.
-  auto ok_after = r.has_trk_progress(r.id());
-  if (ok_before && !ok_after) {
-    auto found = false;
-    for (const auto& set : {cs.voters(), cs.learners(), cs.voters_outgoing()}) {
-      for (const auto& id : set) {
-        if (id == r.id()) {
-          found = true;
-          break;
-        }
-      }
-      if (found) {
-        break;
-      }
-    }
-    if (!found) {
-      prop_chan = nullptr;
-    }
-  }
-  auto ec = co_await async_select_done(
-      [&](auto token) { return conf_state_chan_.async_send(asio::error_code{}, std::move(cs), token); }, done_chan_);
-  if (!ec.has_value()) {
-    SPDLOG_ERROR("Failed to send conf state, error: {}", ec.error().message());
-  }
-  co_return;
-}
-
-asio::awaitable<void> node::send_ready(std::optional<ready>& rd, signal_channel& ready_active_chan,
-                                       signal_channel& advance_active_chan, signal_channel_handle& advance_chan) {
+asio::awaitable<void> node::receive_ready(std::optional<ready>& rd, signal_channel& token_chan,
+                                          signal_channel_endpoint_handle& advance_chan,
+                                          signal_channel& active_advance_chan) {
   assert(rd.has_value());
+  SPDLOG_INFO("ready to send ready by ready_channel, {}", describe_ready(*rd));
   auto ec = co_await async_select_done(
-      [&](auto token) { return ready_chan_.async_send(asio::error_code{}, rd->clone(), token); }, done_chan_);
-  if (!ec.has_value()) {
+      [&](auto token) { return ready_chan_.raw_channel().async_send(asio::error_code{}, rd->clone(), token); },
+      token_chan);
+  if (!ec) {
     SPDLOG_ERROR("Failed to send ready, error: {}", ec.error().message());
     co_return;
   }
-  ready_active_chan.try_send(asio::error_code{});
+  assert(rd.has_value());
   raw_node_.accept_ready(*rd);
   if (!raw_node_.async_storage_writes()) {
-    ec = co_await async_select_done([&](auto token) { return advance_chan_.async_receive(token); }, done_chan_);
-    if (!ec.has_value()) {
-      SPDLOG_ERROR("Failed to receive advance, error: {}", ec.error().message());
-      co_return;
-    }
-    raw_node_.advance();
-    advance_active_chan.try_send(asio::error_code{});
+    advance_chan = &advance_chan_;
+  } else {
+    rd.reset();
   }
-  rd.reset();
-  advance_chan = nullptr;
+  SPDLOG_INFO("send ready by ready_channel successfully");
+  co_await active_advance_chan.async_send(asio::error_code{});
   co_return;
 }
 
-asio::awaitable<void> node::status_chan_callback(std::error_code callback_ec, status_with_channel&& status_chan) {
-  asio::error_code ec;
-  assert(status_chan.chan.has_value());
-  co_await status_chan.chan->get().async_send(asio::error_code{}, raw_node_.status(),
-                                              asio::redirect_error(asio::use_awaitable, ec));
+asio::awaitable<void> node::listen_advance(std::optional<ready>& rd, signal_channel& token_chan,
+                                           signal_channel& active_advance_chan,
+                                           signal_channel_endpoint_handle& advance_chan) {
+  while (done_chan_.is_open() && token_chan.is_open() && advance_chan_.is_open()) {
+    if (advance_chan == nullptr) {
+      SPDLOG_INFO("waiting active_advance_chan signal......");
+      co_await active_advance_chan.async_receive();
+      SPDLOG_INFO("receive active_advance_chan signal");
+    }
+    assert(advance_chan != nullptr);
+    SPDLOG_INFO("ready to async_receive advance by advance_chan_");
+    auto ec = co_await advance_chan_.async_receive();
+    if (!ec) {
+      SPDLOG_ERROR("Failed to receive advance, error: {}", ec.error().message());
+      co_return;
+    }
+    SPDLOG_INFO("async_receive advance by advance_chan_ successfully");
+    raw_node_.advance();
+    rd.reset();
+    advance_chan = nullptr;
+    co_await token_chan.async_send(asio::error_code{});
+  }
+  co_return;
 }
 
-asio::awaitable<void> node::stop_chan_callback(std::error_code callback_ec) {
+asio::awaitable<void> node::listen_propose(signal_channel& token_chan, signal_channel& active_prop_chan,
+                                           bool& is_active_prop_chan) {
+  while (done_chan_.is_open() && token_chan.is_open() && active_prop_chan.is_open() && prop_chan_.is_open()) {
+    if (!is_active_prop_chan) {
+      SPDLOG_INFO("waiting active_prop_chan signal......");
+      co_await active_prop_chan.async_receive();
+      SPDLOG_INFO("receive active_prop_chan signal");
+    }
+    SPDLOG_INFO("ready to listen prop_chan");
+    auto msg_result = co_await prop_chan_.async_receive();
+    if (!msg_result) {
+      SPDLOG_ERROR(msg_result.error().message());
+      break;
+    }
+
+    auto& msg = msg_result->msg;
+    SPDLOG_INFO("receive msg by prop_chan and ready to process, {}", msg.DebugString());
+    msg.set_from(raw_node_.raft_.id());
+    auto step_result = leaf_to_expected_void([&]() -> leaf::result<void> {
+      BOOST_LEAF_CHECK(raw_node_.raft_.step(std::move(msg)));
+      return {};
+    });
+    if (msg_result->ec_chan.has_value()) {
+      std::error_code ec;
+      if (!step_result.has_value()) {
+        ec = step_result.error();
+      }
+      co_await msg_result->ec_chan->get().async_send(asio::error_code{}, ec, asio::use_awaitable);
+    }
+    SPDLOG_INFO("prop_chan_ send token_chan and wait next loop", msg.DebugString());
+    co_await token_chan.async_send(asio::error_code{});
+  }
+  co_return;
+}
+
+asio::awaitable<void> node::listen_receive(signal_channel& token_chan) {
+  while (done_chan_.is_open() && token_chan.is_open() && recv_chan_.is_open()) {
+    SPDLOG_INFO("begin recv_chan_ async_receive....");
+    auto result = co_await recv_chan_.async_receive();
+    if (!result) {
+      SPDLOG_ERROR(result.error().message());
+      break;
+    }
+    auto& msg = *result;
+    SPDLOG_INFO("recv_chan_ async_receive receive msg. {}", msg.DebugString());
+    if (pb::is_response_msg(msg.type()) && !pb::is_local_msg_target(msg.from()) &&
+        raw_node_.raft_.has_trk_progress(msg.from())) {
+      // Filter out response message from unknown From.
+    } else {
+      auto _ = raw_node_.raft_.step(std::move(msg));
+    }
+    SPDLOG_INFO("recv_chan_ send token_chan and wait next loop");
+    co_await token_chan.async_send(asio::error_code{});
+  }
+  co_return;
+}
+
+asio::awaitable<void> node::listen_conf_change(signal_channel& token_chan, bool& is_active_prop_chan) {
+  auto& r = raw_node_.raft_;
+  while (done_chan_.is_open() && token_chan.is_open() && conf_chan_.is_open()) {
+    auto result = co_await conf_chan_.async_receive();
+    if (!result) {
+      SPDLOG_ERROR(result.error().message());
+      break;
+    }
+    auto& cc = *result;
+
+    auto ok_before = r.has_trk_progress(r.id());
+    auto cs = r.apply_conf_change(std::move(cc));
+    // If the node was removed, block incoming proposals. Note that we
+    // only do this if the node was in the config before. Nodes may be
+    // a member of the group without knowing this (when they're catching
+    // up on the log and don't have the latest config) and we don't want
+    // to block the proposal channel in that case.
+    //
+    // NB: propc is reset when the leader changes, which, if we learn
+    // about it, sort of implies that we got readded, maybe? This isn't
+    // very sound and likely has bugs.
+    auto ok_after = r.has_trk_progress(r.id());
+    if (ok_before && !ok_after) {
+      auto found = false;
+      for (const auto& set : {cs.voters(), cs.learners(), cs.voters_outgoing()}) {
+        for (const auto& id : set) {
+          if (id == r.id()) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          break;
+        }
+      }
+      if (!found) {
+        is_active_prop_chan = false;
+      }
+    }
+
+    auto ec = co_await conf_state_chan_.async_send(std::move(cs));
+    if (!ec.has_value()) {
+      SPDLOG_ERROR("Failed to send conf state, error: {}", ec.error().message());
+    }
+    SPDLOG_INFO("conf_chan_ send token_chan and wait next loop");
+    co_await token_chan.async_send(asio::error_code{});
+  }
+  co_return;
+}
+
+asio::awaitable<void> node::listen_tick(signal_channel& token_chan) {
+  while (done_chan_.is_open() && token_chan.is_open() && tick_chan_.is_open()) {
+    asio::error_code ec;
+    auto result = co_await tick_chan_.async_receive();
+    if (!result) {
+      SPDLOG_ERROR(result.error().message());
+      break;
+    }
+    raw_node_.tick();
+    SPDLOG_INFO("tick_chan_ send token_chan and wait next loop");
+    co_await token_chan.async_send(asio::error_code{});
+  }
+  co_return;
+}
+
+asio::awaitable<void> node::listen_status(signal_channel& token_chan) {
+  while (done_chan_.is_open() && token_chan.is_open() && status_chan_.is_open()) {
+    asio::error_code ec;
+    auto result = co_await status_chan_.async_receive();
+    if (!result) {
+      SPDLOG_ERROR(result.error().message());
+      break;
+    }
+    auto& status_chan = *result;
+    assert(status_chan.chan.has_value());
+    co_await status_chan.chan->get().async_send(asio::error_code{}, raw_node_.status(),
+                                                asio::redirect_error(asio::use_awaitable, ec));
+    SPDLOG_INFO("status_chan send token_chan and wait next loop");
+    co_await token_chan.async_send(asio::error_code{});
+  }
+  co_return;
+}
+
+asio::awaitable<void> node::listen_stop(signal_channel& token_chan, signal_channel& active_prop_chan,
+                                        signal_channel& active_advance_chan) {
+  co_await stop_chan_.async_receive();
+  SPDLOG_INFO("receive stop signal and stop all channels");
   prop_chan_.close();
   recv_chan_.close();
   conf_chan_.close();
+  conf_state_chan_.close();
+  ready_chan_.close();
   advance_chan_.close();
   tick_chan_.close();
   status_chan_.close();
-  SPDLOG_INFO("ready to send done signal");
+  token_chan.close();
+  active_prop_chan.close();
+  active_advance_chan.close();
+  SPDLOG_INFO("ready to send cansel and done signal");
   co_await done_chan_.async_send(asio::error_code{});
   SPDLOG_INFO("send done signal successful and close done chan");
   done_chan_.close();
+  co_return;
 }
 
 asio::awaitable<expected<void>> node::handle_non_prop_msg(raftpb::message&& msg) {
-  SPDLOG_INFO("ready to send non-proposal message");
-  auto ec = co_await async_select_done(
-      [&](auto token) { return recv_chan_.async_send(asio::error_code{}, std::move(msg), token); }, done_chan_);
-  if (!ec.has_value()) {
+  auto debugMsg = msg.DebugString();
+  SPDLOG_INFO("ready to send non-proposal message, {}", debugMsg);
+
+  auto ec = co_await recv_chan_.async_send(std::move(msg));
+  if (!ec) {
     SPDLOG_ERROR("Failed to recv non-proposal message: {}", ec.error().message());
   }
-  co_return ec;
+  SPDLOG_INFO("send non-proposal message {} successful", debugMsg);
+  co_return expected<void>{};
 }
 
 asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
-  auto msg_type = msg.type();
+  SPDLOG_DEBUG(msg.DebugString());
+  const auto msg_type = msg.type();
   if (msg_type != raftpb::message_type::MSG_PROP) {
     auto result = co_await handle_non_prop_msg(std::move(msg));
     co_return result;
   }
 
-  auto ec = co_await async_select_done(
-      [&](auto token) {
-        return prop_chan_.async_send(asio::error_code{},
-                                     msg_with_result{.msg = std::move(msg), .ec_chan = std::nullopt}, token);
-      },
-      done_chan_);
+  auto ec = co_await prop_chan_.async_send(msg_with_result{.msg = std::move(msg), .ec_chan = std::nullopt});
   if (!ec.has_value()) {
     SPDLOG_ERROR("Failed to handle non-proposal message: {}", ec.error().message());
   }
@@ -476,7 +521,8 @@ asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
 }
 
 asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor executor, raftpb::message&& msg) {
-  auto msg_type = msg.type();
+  SPDLOG_DEBUG(msg.DebugString());
+  const auto msg_type = msg.type();
   if (msg_type != raftpb::message_type::MSG_PROP) {
     auto result = co_await handle_non_prop_msg(std::move(msg));
     co_return result;
@@ -487,13 +533,8 @@ asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor 
   }
 
   channel<std::error_code> ec_chan(executor);
-  auto ec = co_await async_select_done(
-      [&](auto token) {
-        return prop_chan_.async_send(
-            asio::error_code{}, msg_with_result{.msg = std::move(msg), .ec_chan = std::optional(std::ref(ec_chan))},
-            token);
-      },
-      done_chan_);
+  auto ec = co_await prop_chan_.async_send(
+      msg_with_result{.msg = std::move(msg), .ec_chan = std::optional(std::ref(ec_chan))});
   if (!ec.has_value()) {
     SPDLOG_ERROR("Failed to handle non-proposal message: {}", ec.error().message());
     co_return tl::unexpected(ec.error());
@@ -521,7 +562,6 @@ node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, 
         return new_error(e);
       });
   assert(raw_node_result);
-  auto bootstrap_result = raw_node_result->bootstrap(std::move(peers));
   auto _ = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
         BOOST_LEAF_CHECK(raw_node_result->bootstrap(std::move(peers)));

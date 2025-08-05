@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <vector>
 
+#include "describe.h"
 #include "leaf.hpp"
 #include "lepton_error.h"
 #include "log.h"
@@ -349,11 +350,13 @@ void raw_node::accept_ready(const lepton::ready &rd) {
 bool raw_node::has_ready() const {
   // TODO(nvanbenschoten): order these cases in terms of cost and frequency.
   if (auto soft_state = raft_.soft_state(); soft_state != prev_soft_state_) {
-    SPDLOG_DEBUG("soft state has changed");
+    SPDLOG_DEBUG("soft state has changed, soft_state: {}, prev_soft_state_: {}", describe_soft_state(soft_state),
+                 describe_soft_state(prev_soft_state_));
     return true;
   }
   if (auto hard_state = raft_.hard_state(); !pb::is_empty_hard_state(hard_state) && hard_state != prev_hard_state_) {
-    SPDLOG_DEBUG("hard state has changed");
+    SPDLOG_DEBUG("hard state has changed, hard_state:{}, prev_hard_state_:{}", hard_state.DebugString(),
+                 prev_hard_state_.DebugString());
     return true;
   }
   if (raft_.raft_log_handle_.has_next_unstable_snapshot()) {
@@ -417,7 +420,9 @@ leaf::result<void> raw_node::bootstrap(std::vector<peer> &&peers) {
     raftpb::conf_change cc;
     cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
     cc.set_node_id(iter.ID);
-    cc.set_context(std::move(iter.context));
+    if (!iter.context.empty()) {
+      cc.set_context(std::move(iter.context));
+    }
 
     auto entry = ents.Add();
     entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);

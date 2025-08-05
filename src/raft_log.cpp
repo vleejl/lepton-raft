@@ -155,7 +155,6 @@ pb::repeated_entry raft_log::next_committed_ents(bool allow_unstable) const {
         return new_error(e);
       });
   assert(entries.has_value());
-  SPDLOG_INFO("entries size:{} lo:{} hi:{}", entries.value().size(), lo, hi);
   return entries.value();
 }
 

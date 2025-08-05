@@ -20,12 +20,14 @@
 
 #include "asio/awaitable.hpp"
 #include "channel.h"
+#include "channel_endpoint.h"
 #include "expected.h"
 #include "node_interface.h"
 #include "raft.h"
 #include "raft.pb.h"
 #include "raw_node.h"
 #include "ready.h"
+#include "signal_channel_endpoint.h"
 #include "state.h"
 #include "utility_macros.h"
 
@@ -36,7 +38,7 @@ struct msg_with_result {
   std::optional<std::reference_wrapper<channel<std::error_code>>> ec_chan;
 };
 
-using msg_with_result_channel_handle = channel<msg_with_result>*;
+using msg_with_result_channel_handle = channel_endpoint<msg_with_result>*;
 
 // node is the canonical implementation of the Node interface
 class node {
@@ -62,9 +64,13 @@ class node {
 
   void start_run();
 
+  asio::awaitable<void> run();
+
   void tick();
 
   asio::awaitable<expected<void>> campaign();
+
+  asio::awaitable<expected<void>> propose(std::string&& data);
 
   asio::awaitable<expected<void>> propose(asio::any_io_executor executor, std::string&& data);
 
@@ -76,7 +82,7 @@ class node {
 
   asio::awaitable<void> advance();
 
-  asio::awaitable<raftpb::conf_state> apply_conf_change(raftpb::conf_change_v2&& cc);
+  asio::awaitable<expected<raftpb::conf_state>> apply_conf_change(raftpb::conf_change_v2&& cc);
 
   asio::awaitable<lepton::status> status();
 
@@ -91,21 +97,27 @@ class node {
   asio::awaitable<expected<void>> read_index(std::string&& data);
 
  private:
-  asio::awaitable<void> propose_chan_callback(std::error_code callback_ec, msg_with_result&& result);
+  asio::awaitable<void> receive_ready(std::optional<ready>& rd, signal_channel& token_chan,
+                                      signal_channel_endpoint_handle& advance_chan,
+                                      signal_channel& active_advance_chan);
 
-  void receive_chan_callback(std::error_code callback_ec, raftpb::message&& msg);
+  asio::awaitable<void> listen_advance(std::optional<ready>& rd, signal_channel& token_chan,
+                                       signal_channel& active_advance_chan,
+                                       signal_channel_endpoint_handle& advance_chan);
 
-  asio::awaitable<void> conf_chan_callback(std::error_code _, raftpb::conf_change_v2&& cc,
-                                           msg_with_result_channel_handle& prop_chan);
+  asio::awaitable<void> listen_propose(signal_channel& token_chan, signal_channel& active_prop_chan,
+                                       bool& is_active_prop_chan);
 
-  asio::awaitable<void> send_ready(std::optional<ready>& rd, signal_channel& ready_active_chan,
-                                   signal_channel& advance_active_chan, signal_channel_handle& advance_chan);
+  asio::awaitable<void> listen_receive(signal_channel& token_chan);
 
-  asio::awaitable<void> status_chan_callback(std::error_code callback_ec, status_with_channel&& status_chan);
+  asio::awaitable<void> listen_conf_change(signal_channel& token_chan, bool& is_active_prop_chan);
 
-  asio::awaitable<void> stop_chan_callback(std::error_code callback_ec);
+  asio::awaitable<void> listen_tick(signal_channel& token_chan);
 
-  asio::awaitable<void> run();
+  asio::awaitable<void> listen_status(signal_channel& token_chan);
+
+  asio::awaitable<void> listen_stop(signal_channel& token_chan, signal_channel& active_prop_chan,
+                                    signal_channel& active_advance_chan);
 
   asio::awaitable<expected<void>> handle_non_prop_msg(raftpb::message&& msg);
 
@@ -122,13 +134,13 @@ class node {
   asio::any_io_executor executor_;
   std::stop_source stop_source_;
 
-  channel<msg_with_result> prop_chan_;
-  channel<raftpb::message> recv_chan_;
-  channel<raftpb::conf_change_v2> conf_chan_;
-  channel<raftpb::conf_state> conf_state_chan_;
+  channel_endpoint<msg_with_result> prop_chan_;
+  channel_endpoint<raftpb::message> recv_chan_;
+  channel_endpoint<raftpb::conf_change_v2> conf_chan_;
+  channel_endpoint<raftpb::conf_state> conf_state_chan_;
   ready_channel ready_chan_;
-  signal_channel advance_chan_;
-  signal_channel tick_chan_;
+  signal_channel_endpoint advance_chan_;
+  signal_channel_endpoint tick_chan_;
   signal_channel done_chan_;
   signal_channel stop_chan_;
   status_channel status_chan_;

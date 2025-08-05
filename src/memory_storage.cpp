@@ -195,10 +195,11 @@ leaf::result<void> memory_storage::append(pb::repeated_entry&& entries) {
     entries = pb::extract_range_without_copy(entries, static_cast<int>(first - entries[0].index()), entries.size());
   }
   const auto offset = entries[0].index() - ents_[0].index();
-  if (offset < ents_.size()) {
+  const auto ents_size = static_cast<std::uint64_t>(ents_.size());
+  if (offset < ents_size) {
     ents_ = pb::extract_range_without_copy(ents_, 0, static_cast<int>(offset));
     ents_.Add(std::make_move_iterator(entries.begin()), std::make_move_iterator(entries.end()));
-  } else if (offset == ents_.size()) {
+  } else if (offset == ents_size) {
     ents_.Add(std::make_move_iterator(entries.begin()), std::make_move_iterator(entries.end()));
   } else {
     LEPTON_CRITICAL("offset({}) is out of range [len({})]", offset, ents_.size());

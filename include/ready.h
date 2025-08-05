@@ -6,7 +6,7 @@
 
 #include <vector>
 
-#include "channel.h"
+#include "channel_endpoint.h"
 #include "read_only.h"
 #include "state.h"
 #include "types.h"
@@ -91,7 +91,7 @@ struct ready {
   bool must_sync = false;
 };
 
-using ready_channel = channel<ready>;
+using ready_channel = channel_endpoint<ready>;
 using ready_channel_handle = ready_channel *;
 }  // namespace lepton
 

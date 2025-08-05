@@ -8,15 +8,19 @@
 #include <atomic>
 #include <chrono>
 #include <iostream>
+#include <string>
 #include <system_error>
 
+#include "asio/cancellation_signal.hpp"
 #include "asio/detached.hpp"
 #include "asio/error_code.hpp"
 #include "asio/use_future.hpp"
 #include "channel.h"
+#include "channel_endpoint.h"
 #include "expected.h"
 #include "raft.pb.h"
 #include "raft_error.h"
+#include "signal_channel_endpoint.h"
 #include "spdlog/spdlog.h"
 #include "storage_error.h"
 #include "tl/expected.hpp"
@@ -463,6 +467,267 @@ TEST(asio_test_suit, async_select_done_with_expected_error_type) {
     recvc.try_send(asio::error_code{}, lepton::storage_error::COMPACTED);
     SPDLOG_INFO("has ready send mock error info");
   });
+
+  io.run();
+}
+
+TEST(asio_test_suit, close_channel) {
+  // 初始化组件
+  asio::io_context io;
+  lepton::channel<std::error_code> recvc1(io.get_executor());  // 带缓冲的通道
+  lepton::channel<std::error_code> recvc2(io.get_executor());  // 带缓冲的通道
+  lepton::signal_channel done_chan(io.get_executor());         // 用于取消的信号通道
+
+  // 执行选择操作
+  co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        auto msg = co_await lepton::async_select_done_with_value(
+            [&](auto token) {
+              std::cout << "Attempting to recv message..." << std::endl;
+              return recvc1.async_receive(token);
+              std::cout << "Message recv successfully." << std::endl;
+            },
+            done_chan);
+        if (!msg) {
+          std::cout << "发送成功 " << msg->value() << std::endl;
+        } else if (msg.error() == lepton::raft_error::STOPPED) {
+          std::cout << "上下文取消\n";
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+          std::cout << "未知错误\n";
+        }
+        co_return;
+      },
+      asio::detached);
+
+  // 执行选择操作
+  co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        auto msg = co_await lepton::async_select_done_with_value(
+            [&](auto token) {
+              std::cout << "Attempting to recv message..." << std::endl;
+              return recvc2.async_receive(token);
+              std::cout << "Message recv successfully." << std::endl;
+            },
+            done_chan);
+        if (msg.has_value()) {
+          std::cout << "发送成功 " << msg->value() << std::endl;
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
+          std::cout << "上下文取消\n";
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+          std::cout << "未知错误\n";
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("event loop has started");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to send mock error info");
+        done_chan.close();
+        SPDLOG_INFO("has ready send mock error info");
+        co_return;
+      },
+      asio::use_future);
+  io.run();
+}
+
+TEST(asio_test_suit, cancellation_signal) {
+  asio::io_context io;
+  asio::cancellation_signal cancel_sig;
+
+  // 创建两个容量为0的channel（确保发送操作会阻塞）
+  lepton::channel_endpoint<std::string> ch1(io.get_executor());
+  lepton::channel_endpoint<std::string> ch2(io.get_executor());
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        auto msg = co_await ch1.async_receive();
+        if (msg.has_value()) {
+          std::cout << "ch1 发送成功 " << msg.value() << std::endl;
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
+          std::cout << "ch1 上下文取消\n";
+        } else {
+          std::cout << "ch1 未知错误\n";
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        auto msg = co_await ch2.async_send("value");
+        if (msg.has_value()) {
+          std::cout << "ch2 发送成功 " << std::endl;
+        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
+          std::cout << "ch2 上下文取消\n";
+        } else {
+          std::cout << "ch2 未知错误\n";
+        }
+        co_return;
+      },
+      asio::detached);
+
+  // 启动协程设置取消定时器
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        // 等待1秒后取消操作
+        asio::steady_timer timer(io, std::chrono::seconds(1));
+        co_await timer.async_wait(asio::use_awaitable);
+        SPDLOG_INFO("wait timeout and ready cancel channel....");
+        ch1.close();
+        ch2.close();
+        SPDLOG_INFO("cancel channel successful");
+        co_return;
+      },
+      asio::detached);
+
+  // 运行IO上下文
+  io.run();
+}
+
+// asio make_parallel_group 与 channel
+// 结合一起使用时，如果其中一个channel收到消息时，会取消其他channel；导致并行发送的消息会丢失
+TEST(asio_test_suit, parallel_send_msg) {
+  asio::io_context io;
+  lepton::channel<std::string> recvc1(io.get_executor());  // 带缓冲的通道
+  lepton::channel<std::string> recvc2(io.get_executor());  // 带缓冲的通道
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        auto group = asio::experimental::make_parallel_group([&](auto token) { return recvc1.async_receive(token); },
+                                                             [&](auto token) { return recvc2.async_receive(token); });
+        for (auto times = 0; times < 2; ++times) {
+          SPDLOG_INFO("running test main loop times: {}", times);
+          auto [order, ec1, result1, ec2, result2] =
+              co_await group.async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+
+          switch (order[0]) {
+            case 0:
+              SPDLOG_INFO("receive msg from channel 1, {}", result1);
+              break;
+            case 1:
+              SPDLOG_INFO("receive msg from channel 2, {}", result2);
+              break;
+          }
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to send msg by channel 1");
+        co_await recvc1.async_send(asio::error_code{}, "测试 channel 1");
+        SPDLOG_INFO("send msg by channel 1 successful");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to send msg by channel 2");
+        co_await recvc2.async_send(asio::error_code{}, "测试 channel 2");
+        SPDLOG_INFO("send msg by channel 2 successful");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        // 等待1秒后取消操作
+        asio::steady_timer timer(io, std::chrono::seconds(1));
+        co_await timer.async_wait(asio::use_awaitable);
+        SPDLOG_INFO("wait timeout and ready cancel channel....");
+        recvc1.close();
+        recvc2.close();
+        SPDLOG_INFO("cancel channel successful");
+        co_return;
+      },
+      asio::detached);
+
+  io.run();
+}
+
+asio::awaitable<void> parallel_process(lepton::channel<std::string>& recvc, lepton::signal_channel& token_chan) {
+  while (recvc.is_open() && token_chan.is_open()) {
+    auto msg = co_await recvc.async_receive();
+    SPDLOG_INFO("receive msg from channel, {}", msg);
+    co_await token_chan.async_send(asio::error_code{});
+  }
+}
+
+TEST(asio_test_suit, lepton_parallel_send_msg) {
+  asio::io_context io;
+  lepton::channel<std::string> recvc1(io.get_executor());
+  lepton::channel<std::string> recvc2(io.get_executor());
+  lepton::signal_channel done_chan(io.get_executor());
+  lepton::signal_channel token_chan(io.get_executor());
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        asio::co_spawn(io.get_executor(), parallel_process(recvc1, token_chan), asio::detached);
+        asio::co_spawn(io.get_executor(), parallel_process(recvc2, token_chan), asio::detached);
+        while (done_chan.is_open()) {
+          co_await token_chan.async_receive();
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to send msg by channel 1");
+        co_await recvc1.async_send(asio::error_code{}, "测试 channel 1");
+        SPDLOG_INFO("send msg by channel 1 successful");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to send msg by channel 2");
+        co_await recvc2.async_send(asio::error_code{}, "测试 channel 2");
+        SPDLOG_INFO("send msg by channel 2 successful");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        // 等待1秒后取消操作
+        asio::steady_timer timer(io, std::chrono::seconds(1));
+        co_await timer.async_wait(asio::use_awaitable);
+        SPDLOG_INFO("wait timeout and ready cancel channel....");
+        recvc1.close();
+        recvc2.close();
+        done_chan.close();
+        token_chan.close();
+        SPDLOG_INFO("cancel channel successful");
+        co_return;
+      },
+      asio::detached);
 
   io.run();
 }

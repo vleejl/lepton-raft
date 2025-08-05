@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-#include "channel.h"
+#include "channel_endpoint.h"
 #include "tracker.h"
 namespace lepton {
 
@@ -44,7 +44,7 @@ struct status {
 struct status_with_channel {
   std::optional<std::reference_wrapper<channel<status>>> chan;
 };
-using status_channel = channel<status_with_channel>;
+using status_channel = channel_endpoint<status_with_channel>;
 
 }  // namespace lepton
 

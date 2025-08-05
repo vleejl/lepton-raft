@@ -883,7 +883,9 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
 raftpb::hard_state raft::hard_state() const {
   raftpb::hard_state hs;
   hs.set_term(term_);
-  hs.set_vote(vote_id_);
+  if (vote_id_ != 0) {
+    hs.set_vote(vote_id_);
+  }
   hs.set_commit(raft_log_handle_.committed());
   return hs;
 }

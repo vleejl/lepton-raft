@@ -8,6 +8,7 @@
 #include "raft.pb.h"
 #include "read_only.h"
 #include "ready.h"
+#include "state.h"
 #include "types.h"
 
 namespace test_pb {
@@ -56,6 +57,7 @@ lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, s
                                                           std::uint64_t term_to);
 lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries);
 
+bool compare_status(const lepton::status &lhs, const lepton::status &rhs);
 bool compare_read_states(const std::vector<lepton::read_state> &lhs, const std::vector<lepton::read_state> &rhs);
 bool operator==(const std::optional<raftpb::conf_state> &lhs, const std::optional<raftpb::conf_state> &rhs);
 bool compare_optional_conf_state(const std::optional<raftpb::conf_state> &lhs,

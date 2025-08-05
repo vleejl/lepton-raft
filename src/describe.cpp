@@ -54,6 +54,9 @@ std::string describe_entry(const raftpb::entry &ent) {
   if (!formatted.empty()) {
     formatted = fmt::format(" {}", formatted);
   }
+  if (!formatted.empty()) {
+    formatted = " " + formatted;
+  }
   return fmt::format("{}/{} {}{}", ent.term(), ent.index(), magic_enum::enum_name(ent.type()), formatted);
 }
 

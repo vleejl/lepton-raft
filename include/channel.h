@@ -10,11 +10,8 @@
 
 #include "expected.h"
 #include "raft_error.h"
-// using namespace asio::experimental::awaitable_operators;
-// using namespace std::literals::chrono_literals;
-namespace lepton {
 
-using executor_handle = asio::any_io_executor *;
+namespace lepton {
 
 template <typename T>
 using channel = asio::experimental::channel<void(asio::error_code, T)>;

@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cassert>
+#include <cstddef>
 #include <cstdio>
 #include <ostream>
 #include <string>
@@ -185,6 +186,25 @@ lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::ent
     resp_entries.Add(std::move(entry));
   }
   return resp_entries;
+}
+
+bool compare_basic_status(const lepton::basic_status &lhs, const lepton::basic_status &rhs) {
+  return lhs.id == rhs.id && lhs.hard_state.DebugString() == rhs.hard_state.DebugString() &&  // protobuf: equality only
+         lhs.soft_state == rhs.soft_state &&                                                  // has <=>, so == is OK
+         lhs.applied == rhs.applied && lhs.lead_transferee == rhs.lead_transferee;
+}
+
+bool compare_status(const lepton::status &lhs, const lepton::status &rhs) {
+  if (!compare_basic_status(lhs.basic_status, rhs.basic_status)) {
+    return false;
+  }
+  if (lhs.config != rhs.config) {
+    return false;
+  }
+  if (lhs.progress.string() != rhs.progress.string()) {
+    return false;
+  }
+  return true;
 }
 
 bool compare_read_states(const std::vector<lepton::read_state> &lhs, const std::vector<lepton::read_state> &rhs) {
