@@ -489,7 +489,7 @@ TEST(asio_test_suit, close_channel) {
               std::cout << "Message recv successfully." << std::endl;
             },
             done_chan);
-        if (!msg) {
+        if (msg) {
           std::cout << "发送成功 " << msg->value() << std::endl;
         } else if (msg.error() == lepton::raft_error::STOPPED) {
           std::cout << "上下文取消\n";
@@ -511,7 +511,7 @@ TEST(asio_test_suit, close_channel) {
               std::cout << "Message recv successfully." << std::endl;
             },
             done_chan);
-        if (msg.has_value()) {
+        if (msg) {
           std::cout << "发送成功 " << msg->value() << std::endl;
         } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
           std::cout << "上下文取消\n";

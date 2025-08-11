@@ -105,11 +105,6 @@ asio::awaitable<void> node::run() {
     } else {
       co_await token_chan.async_receive();
     }
-    // if (advance_chan != nullptr) {
-    //   co_await listen_advance(rd, token_chan, advance_chan);
-    // }
-    // co_await token_chan.async_receive();
-    // cancel_listen_ready_chan.try_send(asio::error_code{});
   }
   SPDLOG_INFO("receive stop signal and exit run loop");
   co_return;

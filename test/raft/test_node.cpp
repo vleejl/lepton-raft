@@ -614,7 +614,6 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
               }
             }
           }
-          // co_await node_handle->stop();
           co_await goroutine_stopped_chan.async_send(asio::error_code{});
         };
         SPDLOG_INFO("[main logic]ready to start sub loop");
@@ -1117,5 +1116,439 @@ TEST_F(node_test_suit, test_node_start) {
         co_return;
       },
       asio::use_future);
+  io_context.run();
+}
+
+TEST_F(node_test_suit, test_node_restart) {
+  lepton::pb::repeated_entry entries;
+  {
+    auto entry = entries.Add();
+    entry->set_term(1);
+    entry->set_index(1);
+  }
+  {
+    auto entry = entries.Add();
+    entry->set_term(1);
+    entry->set_index(2);
+    entry->set_data("foo");
+  }
+  raftpb::hard_state hs;
+  hs.set_term(1);
+  hs.set_commit(1);
+
+  ready want_rd;
+  // No HardState is emitted because there was no change.
+  want_rd.hard_state = raftpb::hard_state{};
+  // commit up to index commit index in st
+  want_rd.committed_entries =
+      lepton::pb::repeated_entry{entries.begin(), entries.begin() + static_cast<int>(hs.commit())};
+  ASSERT_EQ(1, want_rd.committed_entries.size());
+  // MustSync is false because no HardState or new entries are provided.
+  want_rd.must_sync = false;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  mm_storage.set_hard_state(hs);
+  ASSERT_TRUE(mm_storage.append(std::move(entries)));
+
+  asio::io_context io_context;
+  auto n = lepton::restart_node(io_context.get_executor(), new_test_config(1, 10, 1, std::move(storage_proxy)));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto rd_result = co_await n->ready_handle().async_receive();
+        EXPECT_TRUE(rd_result);
+        auto& rd = rd_result.value();
+        EXPECT_TRUE(compare_ready(want_rd, rd));
+        co_await n->advance();
+
+        asio::steady_timer timeout_timer(io_context.get_executor(), std::chrono::milliseconds(1));
+        auto [order, msg_ec, msg_result, timer_ec] =
+            co_await asio::experimental::make_parallel_group(
+                // 1. 从 channel 接收消息
+                [&](auto token) { return n->ready_handle().raw_channel().async_receive(token); },
+                [&](auto token) { return timeout_timer.async_wait(token); })
+                .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+        switch (order[0]) {
+          case 0: {
+            EXPECT_FALSE(true);
+            break;
+          }
+          case 1: {
+            SPDLOG_INFO("timeout.....");
+            break;
+          }
+        }
+        co_await n->stop();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(node_test_suit, test_node_restart_from_snapshot) {
+  auto snap = create_snapshot(2, 1, {1, 2});
+
+  lepton::pb::repeated_entry entries;
+  auto& entry = *entries.Add();
+  entry.set_term(1);
+  entry.set_index(3);
+  entry.set_data("foo");
+
+  raftpb::hard_state hs;
+  hs.set_term(1);
+  hs.set_commit(3);
+
+  ready want_rd;
+  // No HardState is emitted because nothing changed relative to what is
+  // already persisted.
+  want_rd.hard_state = raftpb::hard_state{};
+  // commit up to index commit index in st
+  want_rd.committed_entries = entries;
+  // MustSync is only true when there is a new HardState or new entries;
+  // neither is the case here.
+  want_rd.must_sync = false;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+  mm_storage.set_hard_state(hs);
+  ASSERT_TRUE(mm_storage.apply_snapshot(std::move(snap)));
+  ASSERT_TRUE(mm_storage.append(std::move(entries)));
+
+  asio::io_context io_context;
+  auto n = lepton::restart_node(io_context.get_executor(), new_test_config(1, 10, 1, std::move(storage_proxy)));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto rd_result = co_await n->ready_handle().async_receive();
+        EXPECT_TRUE(rd_result);
+        auto& rd = rd_result.value();
+        EXPECT_TRUE(compare_ready(want_rd, rd));
+        co_await n->advance();
+
+        asio::steady_timer timeout_timer(io_context.get_executor(), std::chrono::milliseconds(1));
+        auto [order, msg_ec, msg_result, timer_ec] =
+            co_await asio::experimental::make_parallel_group(
+                // 1. 从 channel 接收消息
+                [&](auto token) { return n->ready_handle().raw_channel().async_receive(token); },
+                [&](auto token) { return timeout_timer.async_wait(token); })
+                .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+        switch (order[0]) {
+          case 0: {
+            EXPECT_FALSE(true);
+            break;
+          }
+          case 1: {
+            SPDLOG_INFO("timeout.....");
+            break;
+          }
+        }
+        co_await n->stop();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(node_test_suit, test_node_advance) {
+  asio::io_context io_context;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto cfg = new_test_config(1, 10, 1, std::move(storage_proxy));
+  auto node_handle = new_node_test_harness(io_context.get_executor(), std::move(cfg), {});
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        // 发起竞选
+        co_await node_handle->campaign();
+        // Persist vote.
+        auto rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                    mm_storage.last_index().value(), rd.entries.size());
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                    mm_storage.last_index().value());
+        co_await node_handle->advance();
+
+        // Append empty entry.
+        rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await node_handle->advance();
+
+        co_await node_handle->propose("foo");
+        rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await node_handle->advance();
+
+        co_await ready_with_timeout(io_context.get_executor(), *node_handle, std::chrono::milliseconds(100));
+        co_await node_handle->stop();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(node_test_suit, test_soft_state_equal) {
+  struct test_case {
+    lepton::soft_state st;
+    bool wt;
+  };
+  std::vector<test_case> tests = {
+      {.st = lepton::soft_state{}, .wt = true},
+      {.st = lepton::soft_state{.leader_id = 1}, .wt = false},
+      {.st = lepton::soft_state{.raft_state = lepton::state_type::LEADER}, .wt = false},
+  };
+  for (const auto& iter : tests) {
+    ASSERT_EQ(iter.wt, iter.st == lepton::soft_state{});
+  }
+}
+
+TEST_F(node_test_suit, test_is_hard_state_equal) {
+  struct test_case {
+    raftpb::hard_state hs;
+    bool wt;
+  };
+
+  std::vector<test_case> tests;
+  tests.emplace_back(test_case{.wt = true});
+  {
+    raftpb::hard_state hs;
+    hs.set_vote(1);
+    tests.emplace_back(test_case{.hs = hs, .wt = false});
+  }
+  {
+    raftpb::hard_state hs;
+    hs.set_commit(1);
+    tests.emplace_back(test_case{.hs = hs, .wt = false});
+  }
+  {
+    raftpb::hard_state hs;
+    hs.set_term(1);
+    tests.emplace_back(test_case{.hs = hs, .wt = false});
+  }
+  for (const auto& iter : tests) {
+    ASSERT_EQ(iter.wt, lepton::pb::is_empty_hard_state(iter.hs));
+  }
+}
+
+TEST_F(node_test_suit, test_node_propose_add_learner_node) {
+  asio::io_context io_context;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto cfg = new_test_config(1, 10, 1, std::move(storage_proxy));
+  auto node_handle = new_node_test_harness(io_context.get_executor(), std::move(cfg), {});
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        // 发起竞选
+        co_await node_handle->campaign();
+        asio::steady_timer timer(io_context.get_executor());
+        timer.expires_after(std::chrono::milliseconds(100));
+        lepton::signal_channel goroutine_stopped_chan(io_context.get_executor());
+        lepton::signal_channel apply_conf_chan(io_context.get_executor());
+        lepton::signal_channel cancel_chan(io_context.get_executor());
+
+        auto running_loop = true;
+        auto sub_loop = [&]() -> asio::awaitable<void> {
+          while (running_loop) {
+            auto [order, cancel_ec, timer_ec, msg_ec, msg_result] =
+                co_await asio::experimental::make_parallel_group(
+                    [&](auto token) { return cancel_chan.async_receive(token); },
+                    [&](auto token) { return timer.async_wait(token); },
+                    [&](auto token) { return node_handle->ready_handle().raw_channel().async_receive(token); })
+                    .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+            switch (order[0]) {
+              case 0: {
+                SPDLOG_INFO("receive cancel siganl and ready to stop running loop");
+                running_loop = false;
+                break;
+              }
+              case 1: {
+                SPDLOG_INFO("node is ticking");
+                node_handle->tick();
+                timer.expires_after(std::chrono::milliseconds(100));
+                break;
+              }
+              case 2: {
+                SPDLOG_INFO("receive new ready:\n{}", lepton::describe_ready(msg_result));
+
+                EXPECT_TRUE(mm_storage.append(lepton::pb::repeated_entry{msg_result.entries}));
+
+                for (auto& entry : msg_result.entries) {
+                  auto entry_type = entry.type();
+                  switch (entry_type) {
+                    case raftpb::ENTRY_CONF_CHANGE: {
+                      raftpb::conf_change cc;
+                      EXPECT_TRUE(cc.ParseFromString(entry.data()));
+                      co_await node_handle->apply_conf_change(lepton::pb::conf_change_var_as_v2(cc));
+                      co_await apply_conf_chan.async_send(asio::error_code{});
+                      break;
+                    }
+                    default:
+                      break;
+                  }
+                }
+                co_await node_handle->advance();
+                break;
+              }
+            }
+          }
+          co_await goroutine_stopped_chan.async_send(asio::error_code{});
+        };
+        SPDLOG_INFO("[main logic]ready to start sub loop");
+        asio::co_spawn(
+            io_context,
+            [&]() -> asio::awaitable<void> {
+              co_await sub_loop();
+              co_return;
+            },
+            asio::detached);
+        SPDLOG_INFO("[main logic]start sub loop successful");
+
+        raftpb::conf_change cc1;
+        cc1.set_type(::raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE);
+        cc1.set_node_id(2);
+        SPDLOG_INFO("[main logic]first times ready to propose conf change");
+        co_await node_handle->propose_conf_change(cc1);
+        SPDLOG_INFO("[main logic]first times propose conf change success");
+        co_await apply_conf_chan.async_receive();
+        SPDLOG_INFO("[main logic]first times apply conf change success");
+
+        co_await cancel_chan.async_send(asio::error_code{});
+        SPDLOG_INFO("[main logic]cancel_chan send cancel signal success...");
+        co_await goroutine_stopped_chan.async_receive();
+        co_await node_handle->stop();
+        SPDLOG_INFO("[main logic]sub loop has finished");
+        co_return;
+      },
+      asio::detached);
+  io_context.run();
+}
+
+TEST_F(node_test_suit, test_append_pagination) {
+  constexpr auto max_size_per_msg = 2048;
+
+  std::vector<state_machine_builer_pair> peers;
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  emplace_nil_peer(peers);
+  auto n = new_network_with_config([](lepton::config& c) { c.max_size_per_msg = max_size_per_msg; }, std::move(peers));
+
+  auto seen_full_message = false;
+
+  // Inspect all messages to see that we never exceed the limit, but
+  // we do see messages of larger than half the limit.
+  n.msg_hook = [&](const raftpb::message& m) -> bool {
+    if (m.type() == raftpb::message_type::MSG_APP) {
+      std::size_t size = 0;
+      for (const auto& entry : m.entries()) {
+        size += entry.data().size();
+      }
+      EXPECT_LE(size, max_size_per_msg) << "sent MsgApp that is too large";
+      if (size > max_size_per_msg / 2) {
+        seen_full_message = true;
+      }
+    }
+    return true;
+  };
+
+  n.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+
+  // Partition the network while we make our proposals. This forces
+  // the entries to be batched into larger messages.
+  n.isolate(1);
+  for (auto i = 0; i < 5; ++i) {
+    n.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, std::string(1000, 'a'))});
+  }
+  n.recover();
+
+  // After the partition recovers, tick the clock to wake everything
+  // back up and send the messages.
+  n.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+  ASSERT_TRUE(seen_full_message)
+      << "didn't see any messages more than half the max size; something is wrong with this test";
+}
+
+TEST_F(node_test_suit, test_commit_pagination) {
+  asio::io_context io_context;
+
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto cfg = new_test_config(1, 10, 1, std::move(storage_proxy));
+  // 设置每条消息的最大大小为 2048 字节
+  cfg.max_committed_size_per_ready = 2048;
+  auto node_handle = new_node_test_harness(io_context.get_executor(), std::move(cfg), {});
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        // 发起竞选
+        co_await node_handle->campaign();
+
+        // Persist vote.
+        auto rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                    mm_storage.last_index().value(), rd.entries.size());
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                    mm_storage.last_index().value());
+        co_await node_handle->advance();
+
+        // Append empty entry.
+        rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await node_handle->advance();
+
+        // Apply empty entry.
+        rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        EXPECT_EQ(1, rd.committed_entries.size());
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await node_handle->advance();
+
+        // =========================== 完成leader 的选举 ===============================
+
+        std::string str(1000, 'a');
+        for (std::size_t i = 0; i < 3; ++i) {
+          co_await node_handle->propose(std::string{str});
+        }
+
+        // First the three proposals have to be appended.
+        rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        EXPECT_EQ(3, rd.entries.size());
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await node_handle->advance();
+
+        // The 3 proposals will commit in two batches.
+        rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        EXPECT_EQ(2, rd.committed_entries.size());
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await node_handle->advance();
+
+        rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
+        EXPECT_EQ(1, rd.committed_entries.size());
+        EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+        co_await node_handle->advance();
+
+        co_await node_handle->stop();
+        co_return;
+      },
+      asio::detached);
   io_context.run();
 }
