@@ -44,7 +44,7 @@ asio::awaitable<void> node::run() {
   signal_channel_endpoint_handle advance_chan = nullptr;
   signal_channel active_advance_chan(executor_);
 
-  std::optional<ready> rd;
+  std::optional<ready_handle> rd;
   auto& r = raw_node_.raft_;
 
   auto lead = NONE;
@@ -74,7 +74,7 @@ asio::awaitable<void> node::run() {
       // if (!raw_node_.async_storage_writes()) {
       //   advance_chan = &advance_chan_;
       // }
-      rd = raw_node_.ready_without_accept();
+      rd = std::make_shared<ready>(raw_node_.ready_without_accept());
       has_ready = true;
     }
     SPDLOG_INFO("run main loop, continue main loop logic ......");
@@ -168,7 +168,7 @@ asio::awaitable<expected<void>> node::propose_conf_change(const pb::conf_change_
   co_return result;
 }
 
-ready_channel& node::ready_handle() { return ready_chan_; }
+ready_channel& node::ready_chan_handle() { return ready_chan_; }
 
 asio::awaitable<void> node::advance() {
   auto ec = co_await advance_chan_.async_send();
@@ -277,20 +277,19 @@ asio::awaitable<expected<void>> node::read_index(std::string&& data) {
   co_return result;
 }
 
-asio::awaitable<void> node::receive_ready(std::optional<ready>& rd, signal_channel& token_chan,
+asio::awaitable<void> node::receive_ready(std::optional<ready_handle>& rd, signal_channel& token_chan,
                                           signal_channel_endpoint_handle& advance_chan,
                                           signal_channel& active_advance_chan) {
   assert(rd.has_value());
-  SPDLOG_INFO("ready to send ready by ready_channel, {}", describe_ready(*rd));
+  SPDLOG_INFO("ready to send ready by ready_channel, {}", describe_ready(*rd->get()));
   auto ec = co_await async_select_done(
-      [&](auto token) { return ready_chan_.raw_channel().async_send(asio::error_code{}, rd->clone(), token); },
-      token_chan);
+      [&](auto token) { return ready_chan_.raw_channel().async_send(asio::error_code{}, *rd, token); }, token_chan);
   if (!ec) {
     SPDLOG_ERROR("Failed to send ready, error: {}", ec.error().message());
     co_return;
   }
   assert(rd.has_value());
-  raw_node_.accept_ready(*rd);
+  raw_node_.accept_ready(*rd->get());
   if (!raw_node_.async_storage_writes()) {
     advance_chan = &advance_chan_;
   } else {
@@ -301,7 +300,7 @@ asio::awaitable<void> node::receive_ready(std::optional<ready>& rd, signal_chann
   co_return;
 }
 
-asio::awaitable<void> node::listen_advance(std::optional<ready>& rd, signal_channel& token_chan,
+asio::awaitable<void> node::listen_advance(std::optional<ready_handle>& rd, signal_channel& token_chan,
                                            signal_channel& active_advance_chan,
                                            signal_channel_endpoint_handle& advance_chan) {
   while (done_chan_.is_open() && token_chan.is_open() && advance_chan_.is_open()) {

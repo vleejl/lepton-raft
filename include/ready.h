@@ -4,6 +4,7 @@
 #include <proxy.h>
 #include <raft.pb.h>
 
+#include <memory>
 #include <vector>
 
 #include "channel_endpoint.h"
@@ -91,7 +92,8 @@ struct ready {
   bool must_sync = false;
 };
 
-using ready_channel = channel_endpoint<ready>;
+using ready_handle = std::shared_ptr<ready>;
+using ready_channel = channel_endpoint<ready_handle>;
 using ready_channel_handle = ready_channel *;
 }  // namespace lepton
 

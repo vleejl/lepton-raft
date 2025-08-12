@@ -78,7 +78,7 @@ class node {
 
   asio::awaitable<expected<void>> propose_conf_change(const pb::conf_change_var& cc);
 
-  ready_channel& ready_handle();
+  ready_channel& ready_chan_handle();
 
   asio::awaitable<void> advance();
 
@@ -97,11 +97,11 @@ class node {
   asio::awaitable<expected<void>> read_index(std::string&& data);
 
  private:
-  asio::awaitable<void> receive_ready(std::optional<ready>& rd, signal_channel& token_chan,
+  asio::awaitable<void> receive_ready(std::optional<ready_handle>& rd, signal_channel& token_chan,
                                       signal_channel_endpoint_handle& advance_chan,
                                       signal_channel& active_advance_chan);
 
-  asio::awaitable<void> listen_advance(std::optional<ready>& rd, signal_channel& token_chan,
+  asio::awaitable<void> listen_advance(std::optional<ready_handle>& rd, signal_channel& token_chan,
                                        signal_channel& active_advance_chan,
                                        signal_channel_endpoint_handle& advance_chan);
 
