@@ -9,7 +9,7 @@
 
 #include "absl/types/span.h"
 #include "config.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
 #include "protobuf.h"
@@ -381,7 +381,7 @@ leaf::result<void> raft_log::scan(std::uint64_t lo, std::uint64_t hi, pb::entry_
     if (v.empty()) {
       return new_error(logic_error::EMPTY_ARRAY);
     }
-    BOOST_LEAF_CHECK(callback(v));
+    LEPTON_LEAF_CHECK(callback(v));
     lo += static_cast<std::uint64_t>(v.size());
   }
   return {};
@@ -389,7 +389,7 @@ leaf::result<void> raft_log::scan(std::uint64_t lo, std::uint64_t hi, pb::entry_
 
 leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t hi,
                                                  pb::entry_encoding_size max_size) const {
-  BOOST_LEAF_CHECK(must_check_out_of_bounds(lo, hi));
+  LEPTON_LEAF_CHECK(must_check_out_of_bounds(lo, hi));
   if (lo == hi) {
     return {};
   }
@@ -407,7 +407,7 @@ leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t
   auto storage_entries = leaf::try_handle_some(
       [&]() -> leaf::result<pb::repeated_entry> {
         BOOST_LEAF_AUTO(v, storage_->entries(lo, cut, max_size););
-        return std::move(v);
+        return v;
       },
       [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
         if (e.err_code.category() == storage_error_category()) {

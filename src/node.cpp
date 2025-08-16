@@ -378,7 +378,7 @@ asio::awaitable<void> node::listen_propose(signal_channel& token_chan, signal_ch
     SPDLOG_INFO("receive msg by prop_chan and ready to process, {}", msg.DebugString());
     msg.set_from(raw_node_.raft_.id());
     auto step_result = leaf_to_expected_void([&]() -> leaf::result<void> {
-      BOOST_LEAF_CHECK(raw_node_.raft_.step(std::move(msg)));
+      LEPTON_LEAF_CHECK(raw_node_.raft_.step(std::move(msg)));
       return {};
     });
     if (msg_result->err_chan.has_value()) {
@@ -598,7 +598,7 @@ node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, 
   assert(raw_node_result);
   auto _ = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(raw_node_result->bootstrap(std::move(peers)));
+        LEPTON_LEAF_CHECK(raw_node_result->bootstrap(std::move(peers)));
         return {};
       },
       [&](const lepton_error& e) -> leaf::result<void> {

@@ -2,12 +2,12 @@
 #include <gtest/gtest.h>
 #include <proxy.h>
 
-#include "test_utility_macros.h"
 #include <cstdint>
 #include <utility>
 
 #include "majority.h"
 #include "quorum.h"
+#include "test_utility_macros.h"
 using namespace lepton;
 using namespace lepton::quorum;
 

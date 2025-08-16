@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "config.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "memory_storage.h"
 #include "test_raft_protobuf.h"
@@ -205,7 +205,7 @@ TEST_F(memory_storage_test_suit, test_storage_compact) {
     lepton::memory_storage mm_storage{ents};
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(mm_storage.compact(iter_test.i));
+          LEPTON_LEAF_CHECK(mm_storage.compact(iter_test.i));
           return {};
         },
         [&](const lepton::lepton_error &err) -> leaf::result<void> {
@@ -309,7 +309,7 @@ TEST_F(memory_storage_test_suit, test_storage_append) {
     lepton::memory_storage mm_storage{ents};
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(mm_storage.append(std::move(iter_test.entries)));
+          LEPTON_LEAF_CHECK(mm_storage.append(std::move(iter_test.entries)));
           return {};
         },
         [&](const lepton::lepton_error &err) -> leaf::result<void> {
@@ -352,7 +352,7 @@ TEST_F(memory_storage_test_suit, test_storage_apply_snapshot) {
     auto has_called_error = false;
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(mm_storage.apply_snapshot(std::move(iter_test.snap)));
+          LEPTON_LEAF_CHECK(mm_storage.apply_snapshot(std::move(iter_test.snap)));
           return {};
         },
         [&](const lepton::lepton_error &err) -> leaf::result<void> {

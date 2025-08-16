@@ -135,6 +135,8 @@ awaitable<void> run(io_context& ctx) {
 }
 
 int main(int argc, char* argv[]) {
+  LEPTON_UNUSED(argc);
+  LEPTON_UNUSED(argv);
   try {
     std::vector<int> arr;
     arr.push_back(1);

@@ -6,16 +6,11 @@
 #include <string>
 #include <system_error>
 
-#include "leaf.hpp"
+#include "leaf.h"
 #include "logic_error.h"
 #include "raft_error.h"
 #include "storage_error.h"
 namespace lepton {
-namespace leaf {
-using namespace boost::leaf;
-template <typename T>
-using result = boost::leaf::result<T>;
-}  // namespace leaf
 
 template <typename error_code_type>
 concept err_types =
@@ -87,23 +82,6 @@ auto new_error(error_code_type code, std::source_location location = std::source
 }
 
 inline auto new_error(const lepton::lepton_error& err) { return leaf::new_error(err); }
-
-// template <typename T, typename F>
-// expected<T> leaf_to_expected(F&& fn) {
-//   std::error_code ec;
-
-//   auto result = leaf::try_handle_some([&]() -> leaf::result<T> { return std::forward<F>(fn)(); },
-//                                       [&](const lepton_error& e) -> leaf::result<T> {
-//                                         ec = e.err_code;
-//                                         return new_error(e);
-//                                       });
-
-//   if (!result) {
-//     return tl::unexpected{ec ? ec : std::make_error_code(std::errc::invalid_argument)};
-//   }
-
-//   return *result;
-// }
 
 }  // namespace lepton
 

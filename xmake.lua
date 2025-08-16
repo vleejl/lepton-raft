@@ -3,36 +3,53 @@ add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
 set_languages("cxx2b")
 set_warnings("all", "extra")
 set_policy("build.warning", true)
+add_cxflags("-fno-permissive", "-std=c++20", "-pedantic", "-Wall", "-Wextra", "-Wconversion", {force = true})
 
--- 基础内存检测 (GCC/Clang 通用)
-set_policy("build.sanitizer.address", true)
-set_policy("build.sanitizer.undefined", true)
-set_policy("build.sanitizer.leak", true)
--- 编译器差异化配置
 if is_plat("linux", "macosx") then
-    -- 公共选项
     add_cxflags("-fno-omit-frame-pointer")
-    
-    -- Clang 专属增强检测
     if is_kind("clang", "clangxx") then
         add_cxflags("-fsanitize-address-use-after-return=always")
         add_cxflags("-fsanitize-address-use-odr-indicator")
-    end
-    
-    -- GCC 替代方案
-    if is_kind("gcc", "gxx") then
+    elseif is_kind("gcc", "gxx") then
         add_cxflags("-fsanitize-address-use-after-scope")
-        add_cxflags("-static-libasan")  -- 确保链接 ASan 库
+        add_cxflags("-static-libasan")
     end
 end
--- set_policy("build.sanitizer.address", true)
-    -- set_policy("build.sanitizer.thread", true)
-    -- set_policy("build.sanitizer.memory", true)
--- set_policy("build.sanitizer.leak", true)
--- set_policy("build.sanitizer.undefined", true)
-add_cxflags("-fno-permissive", {force = true})
-add_cxflags("-std=c++20 -pedantic", {force = true})
-add_cxflags("-Wconversion", {force = true})
+
+-- ========== 定义编译选项 ==========
+option("asan")
+    set_showmenu(true)
+    set_default(false)
+    add_defines("USE_ASAN")
+option_end()
+
+option("tsan")
+    set_showmenu(true)
+    set_default(false)
+    add_defines("USE_TSAN")
+option_end()
+
+option("msan")
+    set_showmenu(true)
+    set_default(false)
+    add_defines("USE_MSAN")
+option_end()
+
+-- ========== 通用函数：应用 Sanitizer ==========
+function apply_sanitizers(target)
+    if has_config("asan") then
+        target:add("cxflags", "-fsanitize=address", "-fsanitize=undefined", "-fno-omit-frame-pointer", {force = true})
+        target:add("ldflags", "-fsanitize=address", "-fsanitize=undefined")
+    end
+    if has_config("tsan") then
+        target:add("cxflags", "-fsanitize=thread", "-fno-omit-frame-pointer", {force = true})
+        target:add("ldflags", "-fsanitize=thread")
+    end
+    if has_config("msan") then
+        target:add("cxflags", "-fsanitize=memory", "-fno-omit-frame-pointer")
+        target:add("ldflags", "-fsanitize=memory")
+    end
+end
 
 add_requires("abseil")
 add_requires("asio")
@@ -58,6 +75,7 @@ add_includedirs("include/tracker")
 
 target("lepton-raft")
     set_kind("binary")
+    on_load(apply_sanitizers)
     -- lepton-raft protobuf file
     add_rules("protobuf.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
@@ -69,8 +87,11 @@ target("lepton-raft")
     add_files("src/*.cpp")
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog", "tl_expected")
 
+local test_cxflags = {"-Wno-unused-result", "-Wno-unused-parameter", "-Wno-unused-variable", "-Wno-missing-field-initializers"}
+
 target("lepton-unit-test")
-    set_policy("build.sanitizer.leak", true)
+    -- set_policy("build.sanitizer.leak", true)
+    on_load(apply_sanitizers)
     add_defines("LEPTON_TEST")
     add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
     add_includedirs("test/utility/include")
@@ -86,15 +107,15 @@ target("lepton-unit-test")
     add_files("src/tracker/*.cpp")
     add_files("src/*.cpp|main.cpp")
     -- lepton-raft basic utility unit test file
-    add_files("test/utility/src/*.cpp")
+    add_files("test/utility/src/*.cpp", {cxflags = test_cxflags})
     -- lepton-raft unit test file
-    add_files("test/unit_test.cpp")
-    add_files("test/asio/*.cpp")
-    add_files("test/confchange/*.cpp")
-    add_files("test/quorum/*.cpp")
-    add_files("test/raft/*.cpp")
-    add_files("test/third_party/*.cpp")
-    add_files("test/tracker/*.cpp")
+    add_files("test/unit_test.cpp", {cxflags = test_cxflags})
+    add_files("test/asio/*.cpp", {cxflags = test_cxflags})
+    add_files("test/confchange/*.cpp", {cxflags = test_cxflags})
+    add_files("test/quorum/*.cpp", {cxflags = test_cxflags})
+    add_files("test/raft/*.cpp", {cxflags = test_cxflags})
+    add_files("test/third_party/*.cpp", {cxflags = test_cxflags})
+    add_files("test/tracker/*.cpp", {cxflags = test_cxflags})
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
 
@@ -116,11 +137,11 @@ target("lepton-benchmark-test")
     add_files("src/tracker/*.cpp")
     add_files("src/*.cpp|main.cpp")
     -- lepton-raft basic utility unit test file
-    add_files("test/utility/src/*.cpp")    
+    add_files("test/utility/src/*.cpp", {cxflags = test_cxflags})    
     -- lepton-raft benchmark test file
     add_files("test/benchmark.cpp")
-    add_files("test/quorum/test_quorum_benchmark.cpp")
-    add_files("test/raft/test_raw_node_benchmark.cpp")
+    add_files("test/quorum/test_quorum_benchmark.cpp", {cxflags = test_cxflags})
+    add_files("test/raft/test_raw_node_benchmark.cpp", {cxflags = test_cxflags})
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")    
 

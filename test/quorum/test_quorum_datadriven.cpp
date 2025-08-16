@@ -104,7 +104,7 @@ quorum::log_index alternative_majority_committed_index(const quorum::majority_co
   // Find the maximum index that has achieved quorum.
   auto q = c.size() / 2 + 1;
   for (auto&& [log_index, n] : idx_to_votes) {
-    if (n >= q && log_index > max_quorum_idx) {
+    if (n >= static_cast<int>(q) && log_index > max_quorum_idx) {
       max_quorum_idx = log_index;
     }
   }

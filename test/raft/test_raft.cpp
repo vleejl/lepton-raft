@@ -228,7 +228,7 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
   auto has_called_error = false;
   auto step_resilt = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(r.step(raftpb::message{prop_msg}));
+        LEPTON_LEAF_CHECK(r.step(raftpb::message{prop_msg}));
         return {};
       },
       [&](const lepton_error &e) -> leaf::result<void> {
@@ -263,7 +263,7 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
   has_called_error = false;
   step_resilt = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(r.step(raftpb::message{prop_msg}));
+        LEPTON_LEAF_CHECK(r.step(raftpb::message{prop_msg}));
         return {};
       },
       [&](const lepton_error &e) -> leaf::result<void> {
@@ -3181,7 +3181,6 @@ TEST_F(raft_test_suit, recv_msg_beat) {
 }
 
 TEST_F(raft_test_suit, leader_increase_next) {
-  auto previous_ents = create_entries(1, {1, 2, 3});
   struct test_case {
     // progress
     lepton::tracker::state_type state;
@@ -4349,7 +4348,7 @@ TEST_F(raft_test_suit, test_leader_transfer_ignore_proposal) {
   auto has_called_error = false;
   auto step_resilt = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(lead.step(convert_test_pb_message(
+        LEPTON_LEAF_CHECK(lead.step(convert_test_pb_message(
             {.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})));
         return {};
       },

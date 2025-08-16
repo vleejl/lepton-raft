@@ -1,5 +1,9 @@
 #ifndef _LEPTON_STATE_TRACE_H_
 #define _LEPTON_STATE_TRACE_H_
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 #include <raft.pb.h>
 
 #include "tracker.h"
@@ -27,5 +31,7 @@ void trace_send_message(raft& r, const raftpb::message& m);
 void trace_receive_message(raft& r, const raftpb::message& m);
 
 }  // namespace lepton
+
+#pragma GCC diagnostic pop
 
 #endif  // _LEPTON_STATE_TRACE_H_

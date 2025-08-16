@@ -1,5 +1,8 @@
 #include "state_trace.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 namespace lepton {
 
 void trace_init_state(raft& r) {}
@@ -21,3 +24,5 @@ void trace_send_message(raft& r, const raftpb::message& m) {}
 void trace_receive_message(raft& r, const raftpb::message& m) {}
 
 }  // namespace lepton
+
+#pragma GCC diagnostic pop

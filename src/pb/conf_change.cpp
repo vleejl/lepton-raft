@@ -5,7 +5,7 @@
 #include <cassert>
 #include <system_error>
 
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
 #include "logic_error.h"
@@ -106,10 +106,6 @@ raftpb::conf_change_v2 conf_change_as_v2(raftpb::conf_change&& cc) {
   changes->set_node_id(cc.node_id());
   obj.set_allocated_context(cc.release_context());
   return obj;
-}
-
-std::tuple<raftpb::conf_change, bool> conf_change_as_v1(raftpb::conf_change_v2&& _) {
-  return {raftpb::conf_change{}, false};
 }
 
 raftpb::conf_change_v2 conf_change_as_v2(raftpb::conf_change_v2&& cc) { return cc; }

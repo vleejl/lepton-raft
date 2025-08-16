@@ -15,7 +15,7 @@
 #include "confchange.h"
 #include "data_driven.h"
 #include "fmt/format.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "progress.h"
 #include "test_utility_data.h"

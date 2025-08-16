@@ -2,7 +2,7 @@
 #include <tl/expected.hpp>
 #include <type_traits>
 
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 
 #ifndef _LEPTON_LEAF_EXPECTED_H_

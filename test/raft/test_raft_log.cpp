@@ -685,14 +685,14 @@ TEST_F(raft_log_test_suit, next_unstable_ents) {
   for (auto &iter_test : tests) {
     lepton::memory_storage mm_storage;
     lepton::pb::repeated_entry ents;
-    for (int i = 0; i < iter_test.unstable - 1; ++i) {
+    for (int i = 0; i < static_cast<int>(iter_test.unstable - 1); ++i) {
       ents.Add()->CopyFrom(previous_ents[i]);
     }
     mm_storage.append(std::move(ents));
     auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     ASSERT_TRUE(raft_log.has_value());
     ents.Clear();
-    for (std::uint64_t i = iter_test.unstable - 1; i < previous_ents.size(); ++i) {
+    for (int i = static_cast<int>(iter_test.unstable - 1); i < previous_ents.size(); ++i) {
       ents.Add()->CopyFrom(previous_ents[i]);
     }
     raft_log->append(std::move(ents));
@@ -920,7 +920,7 @@ TEST_F(raft_log_test_suit, is_out_of_bounds) {
     auto has_called_error = false;
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(raft_log->must_check_out_of_bounds(iter_test.lo, iter_test.hi));
+          LEPTON_LEAF_CHECK(raft_log->must_check_out_of_bounds(iter_test.lo, iter_test.hi));
           return {};
         },
         [&](const lepton::lepton_error &err) -> leaf::result<void> {
@@ -1170,7 +1170,7 @@ TEST_F(raft_log_test_suit, scan) {
   auto iters = 0;
   auto result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(
+        LEPTON_LEAF_CHECK(
             raft_log->scan(offset + 1, half, 0, [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
               iters++;
               if (iters == 2) {
@@ -1197,15 +1197,15 @@ TEST_F(raft_log_test_suit, scan) {
   has_occured_error = false;
   result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(raft_log->scan(offset + 1, offset + 11, entry_size * 2,
-                                        [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
-                                          SPDLOG_INFO("entries size: {}", entries.size());
-                                          if (entries.size() != 2) {
-                                            assert(entries.size() == 2);
-                                          }
-                                          assert(lepton::pb::ent_size(entries) == entry_size * 2);
-                                          return {};
-                                        }));
+        LEPTON_LEAF_CHECK(raft_log->scan(offset + 1, offset + 11, entry_size * 2,
+                                         [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
+                                           SPDLOG_INFO("entries size: {}", entries.size());
+                                           if (entries.size() != 2) {
+                                             assert(entries.size() == 2);
+                                           }
+                                           assert(lepton::pb::ent_size(entries) == entry_size * 2);
+                                           return {};
+                                         }));
         return {};
       },
       [&](const lepton::lepton_error &err) -> leaf::result<void> {

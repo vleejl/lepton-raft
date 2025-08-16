@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "config.h"
-#include "lepton_error.h"
 #include "progress.h"
 #include "quorum.h"
 #include "raft_log.h"

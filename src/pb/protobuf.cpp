@@ -148,7 +148,7 @@ repeated_entry extend(repeated_entry& dst, pb::span_entry vals) {
 void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::conf_state& rhs) {
   auto result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(conf_state_equivalent(lhs, rhs));
+        LEPTON_LEAF_CHECK(conf_state_equivalent(lhs, rhs));
         return {};
       },
       [&](const lepton::lepton_error& err) -> leaf::result<void> {

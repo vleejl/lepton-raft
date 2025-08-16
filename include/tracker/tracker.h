@@ -5,7 +5,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <set>
 #include <tuple>
 #include <unordered_map>
@@ -22,26 +21,12 @@ namespace tracker {
 // Config reflects the configuration tracked in a ProgressTracker.
 struct config {
  private:
-  config(quorum::joint_config&& voters, bool auto_leave, std::optional<std::set<std::uint64_t>>&& learners,
-         std::optional<std::set<std::uint64_t>>&& learners_next)
+  config(quorum::joint_config&& voters, bool auto_leave, std::set<std::uint64_t>&& learners,
+         std::set<std::uint64_t>&& learners_next)
       : voters(std::move(voters)),
         auto_leave(auto_leave),
         learners(std::move(learners)),
         learners_next(std::move(learners_next)) {}
-  void remove_id_set(std::uint64_t id, std::optional<std::set<std::uint64_t>>& id_set) {
-    if (id_set && id_set->contains(id)) {
-      // 如果 id_set 有值，并且 id 存在于 id_set 中，删除该元素
-      id_set->erase(id);
-    }
-  }
-
-  void add_id_set(std::uint64_t id, std::optional<std::set<std::uint64_t>>& id_set) {
-    if (!id_set) {
-      id_set = std::set<std::uint64_t>{id};
-    } else {
-      id_set->insert(id);
-    }
-  }
 
  public:
   NOT_COPYABLE(config)
@@ -51,19 +36,19 @@ struct config {
   auto operator<=>(const config&) const = default;
 
   config clone() const {
-    return config{voters.clone(), auto_leave, std::optional<std::set<std::uint64_t>>{learners},
-                  std::optional<std::set<std::uint64_t>>{learners_next}};
+    return config{voters.clone(), auto_leave, std::set<std::uint64_t>{learners},
+                  std::set<std::uint64_t>{learners_next}};
   }
 
   bool joint() const { return voters.joint(); }
 
-  void add_leaner_node(std::uint64_t id) { add_id_set(id, learners); }
+  void add_leaner_node(std::uint64_t id) { learners.insert(id); }
 
-  void delete_learner(std::uint64_t id) { return remove_id_set(id, learners); }
+  void delete_learner(std::uint64_t id) { learners.erase(id); }
 
-  void add_leaner_next_node(std::uint64_t id) { add_id_set(id, learners_next); }
+  void add_leaner_next_node(std::uint64_t id) { learners_next.insert(id); }
 
-  void delete_learner_next(std::uint64_t id) { return remove_id_set(id, learners_next); }
+  void delete_learner_next(std::uint64_t id) { learners_next.erase(id); }
 
   quorum::joint_config voters;
 
@@ -81,7 +66,7 @@ struct config {
   // learner it can't be in either half of the joint config. This invariant
   // simplifies the implementation since it allows peers to have clarity about
   // its current role without taking into account joint consensus.
-  std::optional<std::set<std::uint64_t>> learners;
+  std::set<std::uint64_t> learners;
 
   // When we turn a voter into a learner during a joint consensus transition,
   // we cannot add the learner directly when entering the joint state. This is
@@ -117,18 +102,18 @@ struct config {
   // also a voter in the joint config. In this case, the learner is added
   // right away when entering the joint configuration, so that it is caught up
   // as soon as possible.
-  std::optional<std::set<std::uint64_t>> learners_next;
+  std::set<std::uint64_t> learners_next;
 
   std::string string() const {
     fmt::memory_buffer buf;
     fmt::format_to(std::back_inserter(buf), "voters={}", voters.string());
 
-    if (learners && !learners->empty()) {
-      auto learners_str = quorum::majority_config{learners.value()}.string();
+    if (!learners.empty()) {
+      auto learners_str = quorum::majority_config{learners}.string();
       fmt::format_to(std::back_inserter(buf), " learners={}", learners_str);
     }
-    if (learners_next && !learners_next->empty()) {
-      auto learners_next_str = quorum::majority_config{learners_next.value()}.string();
+    if (!learners_next.empty()) {
+      auto learners_next_str = quorum::majority_config{learners_next}.string();
       fmt::format_to(std::back_inserter(buf), " learners_next={}", learners_next_str);
     }
     if (auto_leave) {
@@ -198,13 +183,13 @@ class progress_tracker {
       cs.mutable_voters_outgoing()->Add(secondary_config_slice.begin(), secondary_config_slice.end());
     }
 
-    if (config_.learners) {
-      auto learners_slice = quorum::majority_config{config_.learners.value()}.slice();
+    if (!config_.learners.empty()) {
+      auto learners_slice = quorum::majority_config{config_.learners}.slice();
       cs.mutable_learners()->Add(learners_slice.begin(), learners_slice.end());
     }
 
-    if (config_.learners_next) {
-      auto learners_next_slice = quorum::majority_config{config_.learners_next.value()}.slice();
+    if (!config_.learners_next.empty()) {
+      auto learners_next_slice = quorum::majority_config{config_.learners_next}.slice();
       cs.mutable_learners_next()->Add(learners_next_slice.begin(), learners_next_slice.end());
     }
 
@@ -300,8 +285,8 @@ class progress_tracker {
   std::vector<std::uint64_t> voter_nodes() const { return config_.voters.ids(); }
 
   std::vector<std::uint64_t> learner_nodes() const {
-    if (config_.learners) {
-      return std::vector<std::uint64_t>{config_.learners->begin(), config_.learners->end()};
+    if (!config_.learners.empty()) {
+      return std::vector<std::uint64_t>{config_.learners.begin(), config_.learners.end()};
     }
     return std::vector<std::uint64_t>{};
   }

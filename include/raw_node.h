@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "conf_change.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "node_interface.h"
 #include "protobuf.h"
@@ -147,8 +147,9 @@ class raw_node {
   // ReportUnreachable reports the given node is not reachable for the last send.
   void report_unreachable(std::uint64_t id) {
     raftpb::message msg;
+    msg.set_type(::raftpb::message_type::MSG_UNREACHABLE);
     msg.set_from(id);
-    raft_.step(std::move(msg));
+    discard(raft_.step(std::move(msg)));
   }
 
   // ReportSnapshot reports the status of the sent snapshot.
@@ -158,7 +159,7 @@ class raw_node {
     msg.set_type(raftpb::message_type::MSG_SNAP_STATUS);
     msg.set_from(id);
     msg.set_reject(rej);
-    raft_.step(std::move(msg));
+    discard(raft_.step(std::move(msg)));
   }
 
   // TransferLeader tries to transfer leadership to the given transferee.
@@ -166,7 +167,7 @@ class raw_node {
     raftpb::message msg;
     msg.set_type(raftpb::message_type::MSG_TRANSFER_LEADER);
     msg.set_from(transferee);
-    raft_.step(std::move(msg));
+    discard(raft_.step(std::move(msg)));
   }
 
   // ForgetLeader forgets a follower's current leader, changing it to None.
@@ -174,7 +175,7 @@ class raw_node {
   void forget_leader() {
     raftpb::message msg;
     msg.set_type(raftpb::message_type::MSG_FORGET_LEADER);
-    raft_.step(std::move(msg));
+    discard(raft_.step(std::move(msg)));
   }
 
   // ReadIndex requests a read state. The read state will be set in ready.
@@ -185,7 +186,7 @@ class raw_node {
     raftpb::message msg;
     msg.set_type(raftpb::message_type::MSG_READ_INDEX);
     *msg.mutable_entries()->Add()->mutable_data() = std::move(rctx);
-    raft_.step(std::move(msg));
+    discard(raft_.step(std::move(msg)));
   }
 
   // Bootstrap initializes the RawNode for first use by appending configuration

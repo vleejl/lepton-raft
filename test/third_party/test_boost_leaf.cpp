@@ -4,12 +4,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <expected>
-#include <leaf.hpp>
 #include <stdexcept>
 #include <system_error>
 #include <tl/expected.hpp>
 
 #include "asio/awaitable.hpp"
+#include "leaf.h"
 #include "leaf_expected.h"
 #include "lepton_error.h"
 #include "raft.pb.h"
@@ -77,7 +77,7 @@ TEST(boost_leaaf_try, test_normal_code_with_leaf) {
     std::error_code step_err_code1;
     auto _ = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(func());
+          LEPTON_LEAF_CHECK(func());
           assert(false);  // unreachable
           return {};
         },
@@ -95,7 +95,7 @@ TEST(boost_leaaf_try, test_normal_code_with_leaf) {
     EXPECT_FALSE(step_result);
     auto _ = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(step_result);
+          LEPTON_LEAF_CHECK(step_result);
           assert(false);  // unreachable
           return {};
         },
@@ -174,7 +174,7 @@ TEST(boost_leaaf_try, test_leaf_result_to_expected_void) {
   auto func = []() -> leaf::result<void> { return lepton::new_error(lepton::raft_error::STOPPED); };
 
   auto result = lepton::leaf_to_expected_void([&]() -> leaf::result<void> {
-    BOOST_LEAF_CHECK(func());
+    LEPTON_LEAF_CHECK(func());
     return {};
   });
 

@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "confchange.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "types.h"
 namespace lepton {
 

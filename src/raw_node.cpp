@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "describe.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
 #include "protobuf.h"
@@ -403,7 +403,7 @@ void raw_node::advance(/*ready*/) {
     LEPTON_CRITICAL("Advance must not be called when using AsyncStorageWrites");
   }
   for (auto &msg : steps_on_advance_) {
-    raft_.step(std::move(msg));
+    discard(raft_.step(std::move(msg)));
   }
   steps_on_advance_.Clear();
 }

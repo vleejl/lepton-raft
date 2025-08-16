@@ -111,16 +111,14 @@ network new_network_with_config(std::function<void(lepton::config &)> config_fun
         // TODO(tbg): this is all pretty confused. Clean this up.
         std::map<std::uint64_t, bool> learners;
         auto &learners_view = raft_handle.trk_.config_view().learners;
-        if (learners_view) {
-          for (auto id : *learners_view) {
-            learners[id] = true;
-          }
+        for (auto id : learners_view) {
+          learners[id] = true;
         }
         const_cast<std::uint64_t &>(raft_handle.id_) = id;
         raft_handle.trk_ =
             lepton::tracker::progress_tracker(raft_handle.trk_.max_inflight(), raft_handle.trk_.max_inflight_bytes());
         if (!learners.empty()) {
-          raft_handle.trk_.mutable_config_view().learners.reset();
+          raft_handle.trk_.mutable_config_view().learners.clear();
         }
         for (std::size_t j = 0; j < size; ++j) {
           auto peer_id = peer_addrs[j];

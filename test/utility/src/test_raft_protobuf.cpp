@@ -294,7 +294,7 @@ bool compare_repeated_entry(const lepton::pb::span_entry &lhs, const lepton::pb:
     }
     return false;
   }
-  for (int i = 0; i < lhs_size; ++i) {
+  for (std::size_t i = 0; i < lhs_size; ++i) {
     if (*lhs[i] != *rhs[i]) {
       SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i]->DebugString());
       SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i]->DebugString());

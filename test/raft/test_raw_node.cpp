@@ -126,7 +126,7 @@ TEST_F(raw_node_test_suit, test_raw_node_step) {
     auto has_called_error = false;
     auto step_resilt = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(raw_node.step(std::move(msg)));
+          LEPTON_LEAF_CHECK(raw_node.step(std::move(msg)));
           return {};
         },
         [&](const lepton_error& e) -> leaf::result<void> {

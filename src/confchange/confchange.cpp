@@ -9,7 +9,7 @@
 
 #include "fmt/format.h"
 #include "inflights.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "majority.h"
 #include "progress.h"
@@ -63,10 +63,10 @@ leaf::result<void> check_invariants(const tracker::config &cfg, const tracker::p
   const quorum::majority_config &empty_config_view = empty_config;
   // Any staged learner was staged because it could not be directly added due
   // to a conflicting voter in the outgoing config.
-  if (cfg.learners_next) {
+  if (!cfg.learners_next.empty()) {
     const quorum::majority_config &secondary_config =
         cfg.voters.is_secondary_config_valid() ? cfg.voters.secondary_config_view() : empty_config_view;
-    for (const auto &id : cfg.learners_next.value()) {
+    for (const auto &id : cfg.learners_next) {
       if (!secondary_config.view().contains(id)) {
         return new_error(raft_error::CONFIG_INVALID, fmt::format("{} is in LearnersNext, but not Voters[1]", id));
       }
@@ -78,11 +78,11 @@ leaf::result<void> check_invariants(const tracker::config &cfg, const tracker::p
   }
 
   // Conversely Learners and Voters doesn't intersect at all.
-  if (cfg.learners) {
+  if (!cfg.learners.empty()) {
     const quorum::majority_config &primary_config = cfg.voters.primary_config_view();
     const quorum::majority_config &secondary_config =
         cfg.voters.is_secondary_config_valid() ? cfg.voters.secondary_config_view() : empty_config_view;
-    for (const auto &id : cfg.learners.value()) {
+    for (const auto &id : cfg.learners) {
       if (primary_config.view().contains(id)) {
         return new_error(raft_error::CONFIG_INVALID, fmt::format("{} is in Learners and Voters[1]", id));
       }
@@ -101,7 +101,7 @@ leaf::result<void> check_invariants(const tracker::config &cfg, const tracker::p
     if (cfg.voters.is_secondary_config_valid()) {
       return new_error(raft_error::CONFIG_INVALID, "cfg.Voters[1] must be nil when not joint");
     }
-    if (cfg.learners_next) {
+    if (!cfg.learners_next.empty()) {
       return new_error(raft_error::CONFIG_INVALID, "cfg.LearnersNext must be nil when not joint");
     }
     if (cfg.auto_leave) {
@@ -114,7 +114,7 @@ leaf::result<void> check_invariants(const tracker::config &cfg, const tracker::p
 // checkAndReturn calls checkInvariants on the input and returns either the
 // resulting error or the input.
 changer::result check_and_return(tracker::config &&cfg, tracker::progress_map &&prs) {
-  BOOST_LEAF_CHECK(check_invariants(cfg, prs));
+  LEPTON_LEAF_CHECK(check_invariants(cfg, prs));
   return {std::move(cfg), std::move(prs)};
 }
 
@@ -262,7 +262,7 @@ changer::result changer::enter_joint(bool auto_leave, absl::Span<const raftpb::c
   }
   // Copy incoming to outgoing.
   cfg.voters.sync_secondary_with_primary();
-  BOOST_LEAF_CHECK(apply(ccs, cfg, prs));
+  LEPTON_LEAF_CHECK(apply(ccs, cfg, prs));
 
   cfg.auto_leave = auto_leave;
   return check_and_return(std::move(cfg), std::move(prs));
@@ -277,17 +277,15 @@ changer::result changer::leave_joint() const {
   if (!cfg.voters.is_secondary_config_valid()) {
     return new_error(raft_error::CONFIG_INVALID, "configuration is not joint");
   }
-  if (cfg.learners_next) {
-    for (const auto &id : cfg.learners_next.value()) {
-      cfg.add_leaner_node(id);
-      prs.refresh_learner(id, true);
-    }
+  for (const auto &id : cfg.learners_next) {
+    cfg.add_leaner_node(id);
+    prs.refresh_learner(id, true);
   }
-  cfg.learners_next.reset();
+  cfg.learners_next.clear();
 
   for (const auto &id : cfg.voters.secondary_config_view().view()) {
     auto is_voter = cfg.voters.primary_config_view().view().contains(id);
-    auto is_learner = cfg.learners->contains(id);
+    auto is_learner = cfg.learners.contains(id);
     if (!is_voter && !is_learner) {
       prs.delete_progress(id);
     }
@@ -318,7 +316,7 @@ changer::result changer::simple(absl::Span<const raftpb::conf_change_single *con
   if (cfg.joint()) {
     return new_error(raft_error::CONFIG_INVALID, "can't apply simple config change in joint config");
   }
-  BOOST_LEAF_CHECK(apply(ccs, cfg, prs));
+  LEPTON_LEAF_CHECK(apply(ccs, cfg, prs));
   // 这里约束了投票数的前后变化小于等于1，也就是能保证多数派的 voter 没有变化
   if (auto n =
           symdiff(tracker_.config_view().voters.primary_config_view().view(), cfg.voters.primary_config_view().view());

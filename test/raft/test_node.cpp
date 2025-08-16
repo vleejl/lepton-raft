@@ -26,7 +26,7 @@
 #include "fmt/format.h"
 #include "gtest/gtest.h"
 #include "joint.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
 #include "magic_enum.hpp"

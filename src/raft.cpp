@@ -15,7 +15,7 @@
 #include "config.h"
 #include "fmt/format.h"
 #include "inflights.h"
-#include "leaf.hpp"
+#include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
 #include "magic_enum.hpp"
@@ -34,7 +34,7 @@
 
 namespace lepton {
 leaf::result<raft> new_raft(config&& c) {
-  BOOST_LEAF_CHECK(c.validate());
+  LEPTON_LEAF_CHECK(c.validate());
   pro::proxy_view<storage_builer> storage_view = c.storage;
   BOOST_LEAF_AUTO(raftlog, new_raft_log_with_size(std::move(c.storage), static_cast<pb::entry_encoding_size>(
                                                                             c.max_committed_size_per_ready)));
@@ -1094,11 +1094,9 @@ bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
   }
 
   auto sindex = snap_result->metadata().index();
-  auto sterm = snap_result->metadata().term();
-  auto first_index = raft_log_handle_.first_index();
-  auto committed = raft_log_handle_.committed();
-  SPDLOG_DEBUG("{} [firstindex: {}, commit: {}] sent snapshot[index: {}, term: {}] to {} [{}]", id_, first_index,
-               committed, sindex, sterm, to, pr.string());
+  SPDLOG_DEBUG("{} [firstindex: {}, commit: {}] sent snapshot[index: {}, term: {}] to {} [{}]", id_,
+               raft_log_handle_.first_index(), raft_log_handle_.committed(), sindex, snap_result->metadata().term(), to,
+               pr.string());
   pr.become_snapshot(sindex);
   SPDLOG_DEBUG("{} paused sending replication messages to {} [{}]", id_, to, pr.string());
 
@@ -1182,11 +1180,12 @@ void raft::applied_to(std::uint64_t index, pb::entry_encoding_size size) {
     // and we will propose the config change on the next advance.
     auto _ = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(step(std::move(m.value())));
+          LEPTON_LEAF_CHECK(step(std::move(m.value())));
           SPDLOG_INFO("initiating automatic transition out of joint configuration {}", trk_.config_view().string());
           return {};
         },
         [&](const lepton::lepton_error& err) -> leaf::result<void> {
+          LEPTON_UNUSED(err);
           SPDLOG_DEBUG("not initiating automatic transition out of joint configuration {}: {}",
                        trk_.config_view().string(), err.message);
           return {};
@@ -1277,7 +1276,7 @@ void raft::tick_election() {
     raftpb::message m;
     m.set_from(id_);
     m.set_type(raftpb::message_type::MSG_HUP);
-    step(std::move(m));
+    discard(step(std::move(m)));
   }
 }
 
@@ -1293,10 +1292,11 @@ void raft::tick_heartbeat() {
       m.set_type(raftpb::message_type::MSG_CHECK_QUORUM);
       auto _ = leaf::try_handle_some(
           [&]() -> leaf::result<void> {
-            BOOST_LEAF_CHECK(step(std::move(m)));
+            LEPTON_LEAF_CHECK(step(std::move(m)));
             return {};
           },
           [&](const lepton::lepton_error& err) -> leaf::result<void> {
+            LEPTON_UNUSED(err);
             SPDLOG_DEBUG("{} failed to send check quorum message: {}", id_, err.message);
             return {};
           });
@@ -1318,10 +1318,11 @@ void raft::tick_heartbeat() {
     m.set_type(raftpb::message_type::MSG_BEAT);
     auto _ = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
-          BOOST_LEAF_CHECK(step(std::move(m)));
+          LEPTON_LEAF_CHECK(step(std::move(m)));
           return {};
         },
         [&](const lepton::lepton_error& err) -> leaf::result<void> {
+          LEPTON_UNUSED(err);
           SPDLOG_DEBUG("{} error occurred during checking sending heartbeat: {}", id_, err.message);
           return {};
         });
@@ -1450,7 +1451,7 @@ bool raft::has_unapplied_conf_change() const {
   auto page_size = raft_log_handle_.max_applying_ents_size();
   auto result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        BOOST_LEAF_CHECK(
+        LEPTON_LEAF_CHECK(
             raft_log_handle_.scan(lo, hi, page_size, [&](const pb::repeated_entry& entries) -> leaf::result<void> {
               for (auto& iter : entries) {
                 if (iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE ||
@@ -1675,6 +1676,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       if (m.has_snapshot()) {
         applied_snap(m.snapshot());
       }
+      break;
     }
     case raftpb::message_type::MSG_STORAGE_APPLY_RESP: {
       if (m.entries_size() > 0) {
@@ -2139,7 +2141,7 @@ void raft::advance_messages_after_append() {
     if (msgs.empty()) {
       break;
     }
-    step_or_send(std::move(msgs));
+    discard(step_or_send(std::move(msgs)));
   }
 }
 
