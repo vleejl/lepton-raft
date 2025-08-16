@@ -3,6 +3,7 @@
 #include <raft.pb.h>
 
 #include <cstdint>
+#include <memory>
 
 #include "channel_endpoint.h"
 #include "tracker.h"
@@ -41,10 +42,7 @@ struct status {
   tracker::progress_map progress;
 };
 
-struct status_with_channel {
-  std::optional<std::reference_wrapper<channel<status>>> chan;
-};
-using status_channel = channel_endpoint<status_with_channel>;
+using status_channel = channel_endpoint<std::weak_ptr<channel_endpoint<status>>>;
 
 }  // namespace lepton
 

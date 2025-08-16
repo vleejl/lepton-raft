@@ -45,6 +45,7 @@ static bool need_storage_append_msg(const raft &r, const ready &rd) {
   // Return true if log entries, hard state, or a snapshot need to be written
   // to stable storage. Also return true if any messages are contingent on all
   // prior MsgStorageAppend being processed.
+  SPDLOG_INFO("needStorageAppendMsg rd:\n{}", describe_ready(rd));
   if (rd.entries.size() > 0) {
     return true;
   }
@@ -224,9 +225,11 @@ static raftpb::message new_storage_append_msg(const raft &r, const ready &rd) {
   // handling to use a fast-path in r.raftLog.term() before the newly appended
   // entries are removed from the unstable log.
   *m.mutable_responses() = r.msgs_after_append();
+  SPDLOG_DEBUG(m.DebugString());
   if (need_storage_append_msg(r, rd)) {
     m.mutable_responses()->Add(new_storage_append_resp_msg(r, rd));
   }
+  SPDLOG_DEBUG(m.DebugString());
   return m;
 }
 
@@ -259,11 +262,19 @@ static raftpb::message new_storage_apply_msg(const raft &r, const ready &rd) {
   m.set_term(0);  // committed entries don't apply under a specific term
   *m.mutable_entries() = rd.committed_entries;
   m.mutable_responses()->Add(new_storage_apply_resp_msg(r, rd.entries));
+  SPDLOG_DEBUG(m.DebugString());
   return m;
+}
+
+std::string get_highres_nanoseconds() {
+  auto now = std::chrono::high_resolution_clock::now();
+  auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch());
+  return std::to_string(ns.count());
 }
 
 lepton::ready raw_node::ready_without_accept() const {
   lepton::ready rd;
+  rd.timestamp_id = get_highres_nanoseconds();
   rd.entries = pb::convert_span_entry(raft_.raft_log_handle_.next_unstable_ents());
   rd.committed_entries = raft_.raft_log_handle_.next_committed_ents(this->apply_unstable_entries());
   rd.messages = std::move(raft_.msgs_);
@@ -307,10 +318,12 @@ lepton::ready raw_node::ready_without_accept() const {
       }
     }
   }
+  SPDLOG_DEBUG("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd));
   return rd;
 }
 
 void raw_node::accept_ready(const lepton::ready &rd) {
+  SPDLOG_DEBUG("accept ready, content:\n{}", describe_ready(rd));
   if (rd.soft_state) {
     prev_soft_state_ = *rd.soft_state;
   }
@@ -355,7 +368,7 @@ bool raw_node::has_ready() const {
     return true;
   }
   if (auto hard_state = raft_.hard_state(); !pb::is_empty_hard_state(hard_state) && hard_state != prev_hard_state_) {
-    SPDLOG_DEBUG("hard state has changed, hard_state:{}, prev_hard_state_:{}", hard_state.DebugString(),
+    SPDLOG_DEBUG("hard state has changed, hafrd_state:{}, prev_hard_state_:{}", hard_state.DebugString(),
                  prev_hard_state_.DebugString());
     return true;
   }
@@ -370,7 +383,7 @@ bool raw_node::has_ready() const {
   }
   if (raft_.raft_log_handle().has_next_unstable_ents() ||
       raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries())) {
-    SPDLOG_DEBUG("has next unstable ents:%{}, has next committed ents:%{}",
+    SPDLOG_DEBUG("has next unstable ents:{}, has next committed ents:{}",
                  raft_.raft_log_handle().has_next_unstable_ents(),
                  raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries()));
     return true;

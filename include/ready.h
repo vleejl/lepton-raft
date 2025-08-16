@@ -27,6 +27,8 @@ struct ready {
   ready &operator=(ready &&) = default;
   ready clone() const { return ready{*this}; }
 
+  std::string timestamp_id;
+
   // The current volatile state of a Node.
   // SoftState will be nil if there is no update.
   // It is not required to consume or store SoftState.
@@ -74,11 +76,18 @@ struct ready {
   // 这些日志之前已经被存储到稳定存储，只是还没有执行。
   pb::repeated_entry committed_entries;
 
-  // Messages specifies outbound messages to be sent AFTER Entries are
-  // committed to stable storage.
+  // Messages specifies outbound messages.
+  //
+  // If async storage writes are not enabled, these messages must be sent
+  // AFTER Entries are appended to stable storage.
+  //
+  // If async storage writes are enabled, these messages can be sent
+  // immediately as the messages that have the completion of the async writes
+  // as a precondition are attached to the individual MsgStorage{Append,Apply}
+  // messages instead.
+  //
   // If it contains a MsgSnap message, the application MUST report back to raft
-  // when the snapshot has been received or has failed by calling
-  // ReportSnapshot.
+  // when the snapshot has been received or has failed by calling ReportSnapshot.
   // 需要发送到其他 Raft 节点的消息，但必须在日志条目（Entries）持久化后发送。
   // 如果其中包含 MsgSnap（快照消息），应用层必须在快照被接收或失败后调用
   // ReportSnapshot 进行反馈。
@@ -94,7 +103,7 @@ struct ready {
 
 using ready_handle = std::shared_ptr<ready>;
 using ready_channel = channel_endpoint<ready_handle>;
-using ready_channel_handle = ready_channel *;
+using ready_channel_handle = std::shared_ptr<ready_channel>;
 }  // namespace lepton
 
 #endif  // _LEPTON_READY_H_

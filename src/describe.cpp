@@ -146,6 +146,8 @@ std::string describe_message(const raftpb::message &m) { return describe_message
 std::string describe_ready(const ready &rd) {
   fmt::memory_buffer buf;
 
+  fmt::format_to(std::back_inserter(buf), "timestamp_id: {}\n", rd.timestamp_id);
+
   // Handle soft_state
   if (rd.soft_state) {
     auto soft_state_str = describe_soft_state(*rd.soft_state);

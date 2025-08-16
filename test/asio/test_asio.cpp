@@ -731,3 +731,177 @@ TEST(asio_test_suit, lepton_parallel_send_msg) {
 
   io.run();
 }
+
+// 测试验证使用 make_parallel_group 进行消息发送时，预期被done signal已发送消息后，msg channel的接收端不应该收到消息
+TEST(asio_test_suit, async_send_msg_with_done_signal) {
+  asio::io_context io;
+  lepton::channel<std::string> ready_chan_(io.get_executor());
+  lepton::signal_channel token_chan(io.get_executor());
+  asio::cancellation_signal sig;
+
+  auto main_op_with_cancel = [&](auto token) {
+    // 用 bind_cancellation_slot 把信号插到 token 上
+    auto t = asio::bind_cancellation_slot(sig.slot(), token);
+    return ready_chan_.async_send(asio::error_code{}, "msg", t);
+  };
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to send msg");
+        auto [order, ec1, ec2] = co_await asio::experimental::make_parallel_group(main_op_with_cancel, [&](auto token) {
+                                   return token_chan.async_receive(token);
+                                 }).async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+
+        if (order[0] == 1) {  // done_chan 先完成
+          sig.emit(asio::cancellation_type::all);
+          // ready_chan_.reset();
+          SPDLOG_ERROR("Failed to send ready, error: {}", ec2.message());
+          co_return;
+        }
+        SPDLOG_INFO("async send msg by ready chan successful");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to send token siganl");
+        co_await token_chan.async_send(asio::error_code{});
+        SPDLOG_INFO("async send token siganl by token_chan successful");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to receive msg");
+        asio::steady_timer timeout_timer(io.get_executor(), std::chrono::seconds(1));
+        auto [order, msg_ec, msg_result, timer_ec] =
+            co_await asio::experimental::make_parallel_group(
+                // 1. 从 channel 接收消息
+                [&](auto token) { return ready_chan_.async_receive(token); },
+                [&](auto token) { return timeout_timer.async_wait(token); })
+                .async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
+        switch (order[0]) {
+          case 0: {
+            // EXPECT_TRUE(msg_ec.)
+            if (msg_ec) {
+              SPDLOG_ERROR("receive msg error:{}", msg_ec.message());
+            } else {
+              SPDLOG_INFO("receive msg successful, content {}", msg_result);
+            }
+            break;
+          }
+          case 1: {
+            SPDLOG_INFO("timed out waiting for ready");
+            break;
+          }
+        }
+        co_return;
+      },
+      asio::detached);
+
+  io.run();
+}
+
+#include <asio/experimental/awaitable_operators.hpp>
+using asio::as_tuple;
+using asio::awaitable;
+using asio::use_awaitable;
+using namespace asio::experimental::awaitable_operators;  // ② 引入 operator||
+using namespace asio;
+using namespace asio::experimental::awaitable_operators;
+
+#include <asio/experimental/awaitable_operators.hpp>  // ① 必须包含
+using asio::as_tuple;
+using asio::awaitable;
+using asio::use_awaitable;
+using namespace asio::experimental::awaitable_operators;  // ② 引入 operator||
+
+TEST(asio_test_suit, async_send_msg_with_done_signal1) {
+  asio::io_context io;
+
+  // ③ 容量=0，非缓冲，避免 async_send 同步完成
+  lepton::channel<std::string> ready_chan_(io.get_executor(), /*capacity=*/0);
+  lepton::signal_channel cancel_ready_chan(io.get_executor());
+  lepton::signal_channel token_chan(io.get_executor());
+
+  asio::co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        SPDLOG_INFO("ready to send msg");
+
+        // ④ 两个 awaitable 都用 as_tuple(use_awaitable)
+        // auto send_op = ready_chan_.async_send(asio::error_code{}, "msg", as_tuple(use_awaitable));
+        // auto done_op = token_chan.async_receive(as_tuple(use_awaitable));
+
+        // ⑤ 用 awaitable_operators 的 ||
+        // 若担心 ADL，再保险写法：asio::experimental::awaitable_operators::operator||(send_op, done_op)
+        auto result = co_await (ready_chan_.async_send(asio::error_code{}, "msg", as_tuple(use_awaitable)) ||
+                                token_chan.async_receive(as_tuple(use_awaitable)));
+
+        if (result.index() == 0) {  // send 赢了
+          auto [ec] = std::get<0>(result);
+          if (ec) {
+            SPDLOG_ERROR("send failed: {}", ec.message());
+          } else {
+            SPDLOG_INFO("async send msg by ready chan successful");
+          }
+        } else {  // done 赢了 -> send 被自动终止取消
+          auto [ec] = std::get<1>(result);
+          (void)ec;
+          co_await cancel_ready_chan.async_send(asio::error_code{});
+          SPDLOG_ERROR("Failed to send ready, stopped by done");
+        }
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        SPDLOG_INFO("ready to send token siganl");
+        token_chan.close();
+        co_await token_chan.async_send(asio::error_code{});
+        SPDLOG_INFO("async send token siganl by token_chan successful");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        SPDLOG_INFO("ready to receive msg");
+        asio::steady_timer timeout_timer(io.get_executor(), std::chrono::seconds(1));
+
+        // auto recv_op = ready_chan_.async_receive(as_tuple(use_awaitable));
+        // auto timer_op = timeout_timer.async_wait(as_tuple(use_awaitable));
+
+        auto r = co_await (cancel_ready_chan.async_receive(as_tuple(use_awaitable)) ||
+                           ready_chan_.async_receive(as_tuple(use_awaitable)) ||
+                           timeout_timer.async_wait(as_tuple(use_awaitable)));
+        if (r.index() == 0) {
+          auto [timer_ec] = std::get<2>(r);
+          (void)timer_ec;
+          SPDLOG_INFO("cancel ready chan");
+        } else if (r.index() == 1) {
+          auto [msg_ec, msg] = std::get<1>(r);
+          if (msg_ec) {
+            SPDLOG_ERROR("receive msg error: {}", msg_ec.message());
+          } else {
+            SPDLOG_INFO("receive msg successful, content {}", msg);
+          }
+        } else {
+          auto [timer_ec] = std::get<2>(r);
+          (void)timer_ec;
+          SPDLOG_INFO("timed out waiting for ready");
+        }
+        co_return;
+      },
+      asio::detached);
+
+  io.run();
+}

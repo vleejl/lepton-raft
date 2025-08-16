@@ -10,7 +10,6 @@
 #include <asio/io_context.hpp>
 #include <cassert>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -35,7 +34,7 @@ namespace lepton {
 
 struct msg_with_result {
   raftpb::message msg;
-  std::optional<std::reference_wrapper<channel<std::error_code>>> ec_chan;
+  std::optional<std::weak_ptr<channel_endpoint<std::error_code>>> err_chan;
 };
 
 using msg_with_result_channel_handle = channel_endpoint<msg_with_result>*;
@@ -51,6 +50,7 @@ class node {
         conf_chan_(executor),
         conf_state_chan_(executor),
         ready_chan_(executor),
+        ready_request_chan_(executor),
         advance_chan_(executor),
         tick_chan_(executor, 128),
         done_chan_(executor),
@@ -78,13 +78,13 @@ class node {
 
   asio::awaitable<expected<void>> propose_conf_change(const pb::conf_change_var& cc);
 
-  ready_channel& ready_chan_handle();
+  asio::awaitable<expected<ready_handle>> async_receive_ready(asio::any_io_executor executor);
 
   asio::awaitable<void> advance();
 
   asio::awaitable<expected<raftpb::conf_state>> apply_conf_change(raftpb::conf_change_v2&& cc);
 
-  asio::awaitable<lepton::status> status();
+  asio::awaitable<expected<lepton::status>> status();
 
   asio::awaitable<void> report_unreachable(std::uint64_t id);
 
@@ -97,9 +97,8 @@ class node {
   asio::awaitable<expected<void>> read_index(std::string&& data);
 
  private:
-  asio::awaitable<void> receive_ready(std::optional<ready_handle>& rd, signal_channel& token_chan,
-                                      signal_channel_endpoint_handle& advance_chan,
-                                      signal_channel& active_advance_chan);
+  asio::awaitable<void> listen_ready(signal_channel& token_chan, signal_channel& active_ready_chan,
+                                     signal_channel_endpoint_handle& advance_chan, signal_channel& active_advance_chan);
 
   asio::awaitable<void> listen_advance(std::optional<ready_handle>& rd, signal_channel& token_chan,
                                        signal_channel& active_advance_chan,
@@ -116,8 +115,7 @@ class node {
 
   asio::awaitable<void> listen_status(signal_channel& token_chan);
 
-  asio::awaitable<void> listen_stop(signal_channel& token_chan, signal_channel& active_prop_chan,
-                                    signal_channel& active_advance_chan);
+  asio::awaitable<void> listen_stop(std::array<signal_channel_handle, 4>& signal_chan_group);
 
   asio::awaitable<expected<void>> handle_non_prop_msg(raftpb::message&& msg);
 
@@ -139,6 +137,7 @@ class node {
   channel_endpoint<raftpb::conf_change_v2> conf_chan_;
   channel_endpoint<raftpb::conf_state> conf_state_chan_;
   ready_channel ready_chan_;
+  channel_endpoint<std::weak_ptr<ready_channel>> ready_request_chan_;
   signal_channel_endpoint advance_chan_;
   signal_channel_endpoint tick_chan_;
   signal_channel done_chan_;

@@ -974,3 +974,78 @@ TEST_F(raw_node_test_suit, test_raw_node_consume_ready) {
   ASSERT_EQ(1, raw_node.raft_.msgs_.size());
   ASSERT_EQ(m2.DebugString(), raw_node.raft_.msgs_[0].DebugString());
 }
+
+TEST_F(raw_node_test_suit, test_commit_pagination_with_async_storage_writes) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  auto& mm_storage = *mm_storage_ptr;
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto cfg = new_test_config(1, 10, 1, std::move(storage_proxy));
+  cfg.max_committed_size_per_ready = 2048;
+  cfg.async_storage_writes = true;
+
+  auto raw_node_result = lepton::new_raw_node(std::move(cfg));
+  ASSERT_TRUE(raw_node_result);
+  auto& raw_node = *raw_node_result;
+
+  ASSERT_TRUE(raw_node.campaign());
+
+  {
+    ASSERT_TRUE(raw_node.has_ready());
+    auto rd = raw_node.ready_without_accept();
+    raw_node.accept_ready(rd);
+    EXPECT_EQ(1, rd.messages.size());
+    auto& m = rd.messages[0];
+    EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
+    EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
+    for (auto& resp : *m.mutable_responses()) {
+      SPDLOG_INFO("ready step message:\n{}", lepton::describe_message(resp));
+      auto step_result = raw_node.step(std::move(resp));
+      EXPECT_TRUE(step_result);
+    }
+  }
+
+  {
+    // Append empty entry.
+    ASSERT_TRUE(raw_node.has_ready());
+    auto rd = raw_node.ready_without_accept();
+    raw_node.accept_ready(rd);
+    EXPECT_EQ(1, rd.messages.size());
+    auto& m = rd.messages[0];
+    EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
+    EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
+    for (auto& resp : *m.mutable_responses()) {
+      auto step_result = raw_node.step(std::move(resp));
+      EXPECT_TRUE(step_result);
+    }
+  }
+
+  {
+    // Apply empty entry.
+    ASSERT_TRUE(raw_node.has_ready());
+    auto rd = raw_node.ready_without_accept();
+    raw_node.accept_ready(rd);
+    SPDLOG_INFO("[Apply empty entry] ready content:\n{}", lepton::describe_ready(rd));
+    for (auto& m : rd.messages) {
+      SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::describe_message(m));
+    }
+    EXPECT_EQ(2, rd.messages.size());
+    for (auto& m : rd.messages) {
+      if (m.type() == raftpb::message_type::MSG_STORAGE_APPEND) {
+        EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
+        for (auto& resp : *m.mutable_responses()) {
+          auto step_result = raw_node.step(std::move(resp));
+          EXPECT_TRUE(step_result);
+        }
+      } else if (m.type() == raftpb::message_type::MSG_STORAGE_APPLY) {
+        EXPECT_EQ(1, m.entries_size());
+        EXPECT_EQ(1, m.responses_size());
+        auto step_result = raw_node.step(std::move(*m.mutable_responses(0)));
+        EXPECT_TRUE(step_result);
+      } else {
+        assert(false);
+      }
+    }
+  }
+}
