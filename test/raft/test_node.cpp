@@ -1158,7 +1158,7 @@ TEST_F(node_test_suit, test_node_restart) {
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  mm_storage.set_hard_state(hs);
+  mm_storage.set_hard_state(std::move(hs));
   ASSERT_TRUE(mm_storage.append(std::move(entries)));
 
   asio::io_context io_context;
@@ -1207,7 +1207,7 @@ TEST_F(node_test_suit, test_node_restart_from_snapshot) {
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  mm_storage.set_hard_state(hs);
+  mm_storage.set_hard_state(std::move(hs));
   ASSERT_TRUE(mm_storage.apply_snapshot(std::move(snap)));
   ASSERT_TRUE(mm_storage.append(std::move(entries)));
 
@@ -1781,7 +1781,7 @@ TEST_F(node_test_suit, test_node_commit_pagination_after_restart) {
   persisted_hard_state.set_term(1);
   persisted_hard_state.set_commit(1);
   persisted_hard_state.set_commit(10);
-  mm_storage.set_hard_state(persisted_hard_state);
+  mm_storage.set_hard_state(raftpb::hard_state{persisted_hard_state});
 
   auto& ents = mm_storage.mutable_ents();
   std::uint64_t size = 0;

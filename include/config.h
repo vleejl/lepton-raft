@@ -32,6 +32,9 @@ enum class read_only_option : int {
 
 // Config contains the parameters to start a raft.
 struct config {
+#ifdef LEPTON_TEST
+  config() = default;
+#endif
   config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy<storage_builer> &&storage,
          std::uint64_t applied_index, std::uint64_t max_size_per_msg, std::uint64_t max_committed_size_per_ready,
          std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes,

@@ -86,10 +86,10 @@ enum message_type {
 }
 
 message message {
-  required message_type type          = 1;
-  required uint64 to                  = 2;  // 目标节点 ID
-  required uint64 from                = 3;  // 发送方节点 ID
-  required uint64 term                = 4;  // 当前任期
+  optional message_type type          = 1;
+  optional uint64 to                  = 2;  // 目标节点 ID
+  optional uint64 from                = 3;  // 发送方节点 ID
+  optional uint64 term                = 4;  // 当前任期
   // logTerm is generally used for appending Raft logs to followers. For example,
   // (type=MsgApp,index=100,logTerm=5) means the leader appends entries starting
   // at index=101, and the term of the entry at index 100 is 5.
@@ -101,9 +101,9 @@ message message {
   // message was the one that carried these entries, just that those entries were
   // stable at the time of processing the corresponding MsgStorageAppend.  
   optional uint64 log_term            = 5;  // 日志任期（用于一致性检查）
-  required uint64 index               = 6;  // 日志索引
+  optional uint64 index               = 6;  // 日志索引
   repeated entry entries              = 7;  // 日志条目列表
-  required uint64 commit              = 8;  // 已提交索引
+  optional uint64 commit              = 8;  // 已提交索引
   // (type=MsgStorageAppend,vote=5,term=10) means the local node is voting for
 	// peer 5 in term 10. For MsgStorageAppends, the term, vote, and commit fields
 	// will either all be set (to facilitate the construction of a HardState) if

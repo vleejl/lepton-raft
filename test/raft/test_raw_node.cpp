@@ -683,9 +683,9 @@ TEST_F(raw_node_test_suit, test_raw_node_restart) {
     entry2->set_data("foo");
   }
 
-  raftpb::hard_state st;
-  st.set_term(1);
-  st.set_commit(1);
+  raftpb::hard_state hs;
+  hs.set_term(1);
+  hs.set_commit(1);
 
   lepton::ready want;
   {
@@ -698,7 +698,7 @@ TEST_F(raw_node_test_suit, test_raw_node_restart) {
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  mm_storage.set_hard_state(st);
+  mm_storage.set_hard_state(std::move(hs));
   mm_storage.append(std::move(entries));
 
   auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
@@ -720,9 +720,9 @@ TEST_F(raw_node_test_suit, test_raw_node_restart_from_snapshot) {
     entry1->set_data("foo");
   }
 
-  raftpb::hard_state st;
-  st.set_term(1);
-  st.set_commit(3);
+  raftpb::hard_state hs;
+  hs.set_term(1);
+  hs.set_commit(3);
 
   lepton::ready want;
   want.committed_entries = entries;
@@ -730,7 +730,7 @@ TEST_F(raw_node_test_suit, test_raw_node_restart_from_snapshot) {
   auto mm_storage_ptr = new_test_memory_storage_ptr({});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  mm_storage.set_hard_state(st);
+  mm_storage.set_hard_state(std::move(hs));
   mm_storage.apply_snapshot(std::move(snap));
   mm_storage.append(std::move(entries));
 
@@ -816,7 +816,7 @@ TEST_F(raw_node_test_suit, test_raw_node_commit_pagination_after_restart) {
   persisted_hard_state.set_term(1);
   persisted_hard_state.set_commit(1);
   persisted_hard_state.set_commit(10);
-  mm_storage.set_hard_state(persisted_hard_state);
+  mm_storage.set_hard_state(std::move(persisted_hard_state));
 
   auto& ents = mm_storage.mutable_ents();
   std::uint64_t size = 0;

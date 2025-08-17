@@ -1350,7 +1350,7 @@ TEST_F(raft_test_suit, commit) {
     mm_storage.append(std::move(iter.logs));
     raftpb::hard_state hs;
     hs.set_term(iter.sm_term);
-    mm_storage.set_hard_state(hs);
+    mm_storage.set_hard_state(std::move(hs));
 
     auto sm = new_test_raft(1, 10, 2, pro::make_proxy<storage_builer>(std::move(mm_storage)));
     for (std::size_t j = 0; j < iter.matches.size(); ++j) {

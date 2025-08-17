@@ -32,6 +32,7 @@ using entry_ptr = std::unique_ptr<raftpb::entry>;
 using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::entry>;
 using span_entry = absl::Span<const raftpb::entry* const>;
 using repeated_message = google::protobuf::RepeatedPtrField<raftpb::message>;
+using repeated_snapshot = google::protobuf::RepeatedPtrField<raftpb::snapshot>;
 using repeated_conf_change = google::protobuf::RepeatedPtrField<raftpb::conf_change_single>;
 using repeated_uint64 = google::protobuf::RepeatedField<std::uint64_t>;
 
