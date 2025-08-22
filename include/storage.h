@@ -81,7 +81,7 @@ struct storage_builer : pro::facade_builder
   ::add_convention<storage_last_index, leaf::result<std::uint64_t>() const> 
   ::add_convention<storage_first_index, leaf::result<std::uint64_t>() const> 
   ::add_convention<storage_snapshot, leaf::result<raftpb::snapshot>() const> 
-  ::support_view
+  ::add_skill<pro::skills::as_view>
   ::build{};
 // clang-format on
 }  // namespace lepton

@@ -88,16 +88,6 @@ class RaftNode {
   steady_timer timer_;  // 定时器对象
 };
 
-// TEST(test_event_driven, asio_io_context) {
-//   io_context io_context;
-//   RaftNode raft_node(io_context);
-
-//   raft_node.start();
-
-//   // 运行事件循环，协程会在这里执行
-//   io_context.run();
-// }
-
 TEST(asio_test_suit, asio_io_context) {
   io_context io;
   lepton::channel<int> proc_chan(io.get_executor());
@@ -899,6 +889,63 @@ TEST(asio_test_suit, async_send_msg_with_done_signal1) {
           (void)timer_ec;
           SPDLOG_INFO("timed out waiting for ready");
         }
+        co_return;
+      },
+      asio::detached);
+
+  io.run();
+}
+
+// 验证如果同时收到相应时，是否会把另外一个channel的消息清空
+// 确认会清空
+TEST(asio_test_suit, concurrency_receive_msg) {
+  asio::io_context io;
+
+  // ③ 容量=0，非缓冲，避免 async_send 同步完成
+  lepton::channel<std::string> ready_chan_(io.get_executor(), /*capacity=*/0);
+  lepton::signal_channel token_chan(io.get_executor());
+  auto called_times = 0;
+
+  asio::co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        SPDLOG_INFO("ready to send msg");
+
+        while (called_times < 2) {
+          called_times++;
+          asio::steady_timer timeout_timer(io.get_executor(), std::chrono::seconds(1));
+          auto result = co_await (ready_chan_.async_receive(as_tuple(use_awaitable)) ||
+                                  token_chan.async_receive(as_tuple(use_awaitable)) ||
+                                  timeout_timer.async_wait(as_tuple(use_awaitable)));
+
+          if (result.index() == 0) {  // ready 赢了
+            auto [ec, msg] = std::get<0>(result);
+            if (ec) {
+              SPDLOG_ERROR("send failed: {}", ec.message());
+            } else {
+              SPDLOG_INFO("async receive msg by ready chan successful, {}", msg);
+            }
+          } else if (result.index() == 1) {  // token_chan 赢了 -> ready 被自动终止取消
+            auto [ec] = std::get<1>(result);
+            (void)ec;
+            SPDLOG_ERROR("Failed to receive ready, stopped by token_chan");
+          } else {
+            SPDLOG_WARN("timeout....");
+            co_return;
+          }
+        }
+        EXPECT_EQ(2, called_times);
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io,
+      [&]() -> awaitable<void> {
+        SPDLOG_INFO("ready to send token siganl");
+        token_chan.try_send(asio::error_code{});
+        ready_chan_.try_send(asio::error_code{}, "测试消息");
+        SPDLOG_INFO("async send token siganl by token_chan successful");
         co_return;
       },
       asio::detached);

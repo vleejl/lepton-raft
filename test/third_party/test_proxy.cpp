@@ -32,15 +32,13 @@ struct proxy_test_state_machine_builer {
 TEST_F(proxy_test_suit, test_rtti) {
   auto p = pro::make_proxy<state_machine_builer, proxy_test_state_machine_builer>();
   pro::proxy_view<state_machine_builer> pro_view = p;
-  std::cout << proxy_typeid(p).name() << "\n";
   std::cout << proxy_typeid(*pro_view).name() << "\n";
   pro::proxy_view<state_machine_builer> empty_pro_view;
-  if (empty_pro_view) {
+  if (empty_pro_view.has_value()) {
     std::cout << proxy_typeid(*empty_pro_view).name() << "\n";
   } else {
     std::cout << "empty proxy\n";
   }
-  std::cout << proxy_typeid(*empty_pro_view).name() << "\n";
 }
 
 void test_proxy_lifetime(pro::proxy<state_machine_builer> &&p) {

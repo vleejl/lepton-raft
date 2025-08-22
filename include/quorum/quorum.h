@@ -40,7 +40,7 @@ PRO_DEF_MEM_DISPATCH(acked_indexer, acked_index);
 // clang-format off
 struct acked_indexer_builder : pro::facade_builder 
   ::add_convention<acked_indexer, leaf::result<log_index>(std::uint64_t id)>
-  ::support_view
+  ::add_skill<pro::skills::as_view>
   ::build{};
 // clang-format on
 

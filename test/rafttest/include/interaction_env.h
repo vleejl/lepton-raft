@@ -9,7 +9,7 @@
 #include "storage.h"
 #include "types.h"
 
-namespace rafttest {
+namespace interaction {
 
 PRO_DEF_MEM_DISPATCH(storage_set_hard_state, set_hard_state);
 
@@ -34,7 +34,7 @@ struct storage_builer : pro::facade_builder
   ::add_convention<storage_apply_snapshot, lepton::leaf::result<void>(raftpb::snapshot &&snapshot)>
   ::add_convention<storage_compact, lepton::leaf::result<void>(std::uint64_t compact_index)>
   ::add_convention<storage_append, lepton::leaf::result<void>(lepton::pb::repeated_entry&& entries)>
-  ::support_view
+  ::add_skill<pro::skills::as_view>
   ::build{};
 // clang-format on
 
@@ -62,10 +62,10 @@ struct node {
 // InteractionEnv facilitates testing of complex interactions between the
 // members of a raft group.
 struct interaction_env {
-  interaction_env() : output(redirect_logger::DEBUG, &logger_buffer) {}
+  interaction_env() : output(rafttest::redirect_logger::DEBUG, &logger_buffer) {}
 
   explicit interaction_env(interaction_opts &&opts)
-      : options(std::move(opts)), output(redirect_logger::DEBUG, &logger_buffer) {}
+      : options(std::move(opts)), output(rafttest::redirect_logger::DEBUG, &logger_buffer) {}
 
   void with_indent(std::function<void()> f) {
     // 保存原始 builder
@@ -94,7 +94,7 @@ struct interaction_env {
   lepton::pb::repeated_message messages;  // in-flight messages
 
   std::ostringstream logger_buffer;
-  redirect_logger output;
+  rafttest::redirect_logger output;
 };
 
 // raftConfigStub sets up a raft.Config stub with reasonable testing defaults.
@@ -109,6 +109,6 @@ inline lepton::config raft_config_stub() {
   return config;
 }
 
-}  // namespace rafttest
+}  // namespace interaction
 
 #endif  // _LEPTON_INTERACTION_ENV_H_
