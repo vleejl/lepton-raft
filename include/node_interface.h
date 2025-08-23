@@ -51,14 +51,24 @@ PRO_DEF_MEM_DISPATCH(node_propose_conf_change, propose_conf_change);
 // 根据 message 类型，轮转当前节点的状态机
 PRO_DEF_MEM_DISPATCH(node_step, step);
 
-// Ready returns a channel that returns the current point-in-time state.
-// Users of the Node must call Advance after retrieving the state returned by
-// Ready.
-//
-// NOTE: No committed entries from the next Ready may be applied until all
-// committed entries and snapshots from the previous one have finished.
-// TODO: C++ 中没有直接类似 golang 的 channel 机制替代。需要考虑替代方案
-PRO_DEF_MEM_DISPATCH(node_ready, ready);
+/// Asynchronously request and wait for the next Raft Ready state.
+///
+/// This is the C++/Asio equivalent of etcd-raft's `Ready() <-chan Ready`.
+/// It sends an internal request for a Ready callback channel, then suspends
+/// until the Raft node produces the next point-in-time state.
+///
+/// **Usage contract**:
+/// - The caller must fully process the returned `ready_handle`
+///   (apply committed entries, persist snapshots, etc.).
+/// - Once processing completes, the caller must invoke `advance()`
+///   to notify the node, unless async storage writes are enabled.
+/// - No entries from the next Ready will be delivered until all
+///   items from the previous Ready are fully handled.
+///
+/// \param exec The executor on which the internal callback channel will run.
+/// \return An awaitable that yields `ready_handle` on success,
+///         or an error if the node is stopped or the channel is closed.
+PRO_DEF_MEM_DISPATCH(node_wait_ready, wait_ready);
 
 // Advance notifies the Node that the application has saved progress up to the
 // last Ready. It prepares the node to return the next available Ready.
@@ -123,21 +133,22 @@ PRO_DEF_MEM_DISPATCH(node_stop, stop);
 
 // Node represents a node in a raft cluster.
 // clang-format off
-struct node_builer : pro::facade_builder 
+struct node_builder : pro::facade_builder 
   ::add_convention<node_tick, void()> 
-  ::add_convention<node_campaign, leaf::result<void>()>
-  ::add_convention<node_propose, leaf::result<void>(std::string &&data)>
-  ::add_convention<node_propose_conf_change, leaf::result<void>(const pb::conf_change_var &cc)>
-  ::add_convention<node_step, leaf::result<void>(raftpb::message &&msg)>
-  ::add_convention<node_ready, ready_channel_handle()>
-  ::add_convention<node_advance, void()>
-  ::add_convention<node_apply_conf_change, raftpb::conf_state(raftpb::conf_change_v2 &&cc)>
-  ::add_convention<node_transfer_leadership, void(std::uint64_t leader_id, std::uint64_t transferee)>
-  ::add_convention<node_read_index, leaf::result<void>(std::string &&rctx)>
-  ::add_convention<node_status, status() const>
-  ::add_convention<node_report_unreachable, void(std::uint64_t id)>
-  ::add_convention<node_report_snapshot, void(std::uint64_t id, snapshot_status status)>
-  ::add_convention<node_stop, void()>
+  ::add_convention<node_campaign, asio::awaitable<expected<void>>()>
+  ::add_convention<node_propose, asio::awaitable<expected<void>>(std::string &&data)>
+  ::add_convention<node_propose_conf_change, asio::awaitable<expected<void>>(const pb::conf_change_var &cc)>
+  ::add_convention<node_step, asio::awaitable<expected<void>>(raftpb::message &&msg)>
+  ::add_convention<node_wait_ready, asio::awaitable<expected<ready_handle>>(asio::any_io_executor executor)>
+  ::add_convention<node_advance, asio::awaitable<void>()>
+  ::add_convention<node_apply_conf_change, asio::awaitable<expected<raftpb::conf_state>>(raftpb::conf_change_v2 &&cc)>
+  ::add_convention<node_transfer_leadership, asio::awaitable<void>(std::uint64_t leader_id, std::uint64_t transferee)>
+  ::add_convention<node_read_index, asio::awaitable<expected<void>>(std::string &&rctx)>
+  ::add_convention<node_status, asio::awaitable<expected<lepton::status>>()>
+  ::add_convention<node_report_unreachable, asio::awaitable<void>(std::uint64_t id)>
+  ::add_convention<node_report_snapshot, asio::awaitable<void>(std::uint64_t id, snapshot_status status)>
+  ::add_convention<node_stop, asio::awaitable<void>()>
+  ::add_skill<pro::skills::as_view>
   ::build{};
 // clang-format on
 

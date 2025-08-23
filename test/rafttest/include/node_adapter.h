@@ -22,9 +22,9 @@
 #include "types.h"
 namespace rafttest {
 
-struct node {
-  node(asio::any_io_executor executor, lepton::node_handle &&node_handle, std::uint64_t id,
-       std::unique_ptr<iface> &&iface, std::unique_ptr<lepton::memory_storage> &&storage)
+struct node_adapter {
+  node_adapter(asio::any_io_executor executor, lepton::node_proxy &&node_handle, std::uint64_t id,
+               std::unique_ptr<iface> &&iface, std::unique_ptr<lepton::memory_storage> &&storage)
       : executor_(executor),
         node_handle_(std::move(node_handle)),
         id_(id),
@@ -71,6 +71,60 @@ struct node {
   // resume resumes the paused node.
   asio::awaitable<void> resumes() { co_await pause_chan_.async_send(asio::error_code{}, false); }
 
+  void tick();
+
+  asio::awaitable<lepton::expected<void>> campaign() { co_return co_await node_handle_->campaign(); }
+
+  asio::awaitable<lepton::expected<void>> propose(std::string &&data) {
+    co_return co_await node_handle_->propose(std::move(data));
+  }
+
+  asio::awaitable<lepton::expected<void>> propose(asio::any_io_executor executor, std::string &&data) {
+    co_return co_await node_handle_->propose(std::move(data));
+  }
+
+  asio::awaitable<lepton::expected<void>> step(raftpb::message &&msg) {
+    co_return co_await node_handle_->step(std::move(msg));
+  }
+
+  asio::awaitable<lepton::expected<void>> propose_conf_change(const lepton::pb::conf_change_var &cc) {
+    co_return co_await node_handle_->propose_conf_change(cc);
+  }
+
+  asio::awaitable<lepton::expected<lepton::ready_handle>> wait_ready(asio::any_io_executor executor) {
+    co_return co_await node_handle_->wait_ready(executor);
+  }
+
+  asio::awaitable<void> advance() {
+    co_await node_handle_->advance();
+    co_return;
+  }
+
+  asio::awaitable<lepton::expected<raftpb::conf_state>> apply_conf_change(raftpb::conf_change_v2 &&cc) {
+    co_return co_await node_handle_->apply_conf_change(std::move(cc));
+  }
+
+  asio::awaitable<lepton::expected<lepton::status>> status() { co_return co_await node_handle_->status(); }
+
+  asio::awaitable<void> report_unreachable(std::uint64_t id) {
+    co_await node_handle_->report_unreachable(id);
+    co_return;
+  }
+
+  asio::awaitable<void> report_snapshot(std::uint64_t id, lepton::snapshot_status status) {
+    co_await node_handle_->report_snapshot(id, status);
+    co_return;
+  }
+
+  asio::awaitable<void> transfer_leadership(std::uint64_t lead, std::uint64_t transferee) {
+    co_await node_handle_->transfer_leadership(lead, transferee);
+    co_return;
+  }
+
+  asio::awaitable<lepton::expected<void>> read_index(std::string &&data) {
+    co_return co_await node_handle_->read_index(std::move(data));
+  }
+
  private:
   asio::awaitable<void> start_impl() {
     lepton::signal_channel token_chan(executor_);
@@ -104,7 +158,7 @@ struct node {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dist(0, 9);  // [0, 9]的均匀分布
     while (stop_chan_.is_open() && token_chan.is_open()) {
-      auto rd_handle_result = co_await node_handle_->async_receive_ready(executor_);
+      auto rd_handle_result = co_await node_handle_->wait_ready(executor_);
       assert(rd_handle_result);
       auto rd_handle = rd_handle_result.value();
       auto &rd = *rd_handle.get();
@@ -189,9 +243,9 @@ struct node {
     co_return;
   }
 
- private:
+ public:
   asio::any_io_executor executor_;
-  lepton::node_handle node_handle_;
+  lepton::node_proxy node_handle_;
   std::uint64_t id_;
   std::unique_ptr<rafttest::iface> iface_;
   lepton::signal_channel stop_chan_;
@@ -204,8 +258,8 @@ struct node {
   raftpb::hard_state state;
 };
 
-inline std::unique_ptr<node> start_node(asio::any_io_executor executor, std::uint64_t id,
-                                        std::vector<lepton::peer> &&peers, std::unique_ptr<iface> &&iface) {
+inline std::unique_ptr<node_adapter> start_node(asio::any_io_executor executor, std::uint64_t id,
+                                                std::vector<lepton::peer> &&peers, std::unique_ptr<iface> &&iface) {
   auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
   lepton::config c;
   c.id = id;
@@ -213,11 +267,12 @@ inline std::unique_ptr<node> start_node(asio::any_io_executor executor, std::uin
   c.heartbeat_tick = 1;
   c.storage = mm_storage_ptr.get();
   c.max_size_per_msg = 1024 * 1024;
+  c.max_committed_size_per_ready = c.max_size_per_msg;
   c.max_inflight_msgs = 256;
+  c.max_inflight_bytes = lepton::NO_LIMIT;
   c.max_uncommitted_entries_size = 1 << 30;
   auto rn = lepton::start_node(executor, std::move(c), std::move(peers));
-  rn->start_run();
-  auto n = std::make_unique<node>(executor, std::move(rn), id, std::move(iface), std::move(mm_storage_ptr));
+  auto n = std::make_unique<node_adapter>(executor, std::move(rn), id, std::move(iface), std::move(mm_storage_ptr));
   n->start();
   return n;
 }

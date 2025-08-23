@@ -14,6 +14,7 @@
 #include "expected.h"
 #include "leaf_expected.h"
 #include "magic_enum.hpp"
+#include "node_interface.h"
 #include "raft.pb.h"
 #include "raft_error.h"
 #include "raw_node.h"
@@ -22,6 +23,7 @@
 #include "spdlog/spdlog.h"
 #include "state.h"
 #include "tl/expected.hpp"
+#include "v4/proxy.h"
 
 namespace lepton {
 
@@ -178,8 +180,7 @@ asio::awaitable<expected<void>> node::propose_conf_change(const pb::conf_change_
   co_return result;
 }
 
-asio::awaitable<expected<ready_handle>> node::async_receive_ready(asio::any_io_executor executor) {
-  // ready_channel receive_ready_chan(executor);
+asio::awaitable<expected<ready_handle>> node::wait_ready(asio::any_io_executor executor) {
   auto receive_ready_chan = std::make_shared<ready_channel>(executor);
   SPDLOG_INFO("prepare to request ready");
   auto result = co_await ready_request_chan_.async_send(std::weak_ptr(receive_ready_chan));
@@ -608,13 +609,13 @@ node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, 
   return std::make_unique<node>(executor, std::move(*raw_node_result));
 }
 
-node_handle start_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers) {
+node_proxy start_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers) {
   auto node_handler = setup_node(executor, std::move(config), std::move(peers));
   node_handler->start_run();
   return node_handler;
 }
 
-node_handle restart_node(asio::any_io_executor executor, lepton::config&& config) {
+node_proxy restart_node(asio::any_io_executor executor, lepton::config&& config) {
   auto raw_node_result = leaf::try_handle_some(
       [&]() -> leaf::result<lepton::raw_node> {
         BOOST_LEAF_AUTO(v, new_raw_node(std::move(config)));

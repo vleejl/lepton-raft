@@ -29,6 +29,7 @@
 #include "signal_channel_endpoint.h"
 #include "state.h"
 #include "utility_macros.h"
+#include "v4/proxy.h"
 
 namespace lepton {
 
@@ -78,7 +79,7 @@ class node {
 
   asio::awaitable<expected<void>> propose_conf_change(const pb::conf_change_var& cc);
 
-  asio::awaitable<expected<ready_handle>> async_receive_ready(asio::any_io_executor executor);
+  asio::awaitable<expected<ready_handle>> wait_ready(asio::any_io_executor executor);
 
   asio::awaitable<void> advance();
 
@@ -150,17 +151,19 @@ using node_handle = std::unique_ptr<node>;
 
 node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers);
 
+using node_proxy = pro::proxy<node_builder>;
+
 // StartNode returns a new Node given configuration and a list of raft peers.
 // It appends a ConfChangeAddNode entry for each given peer to the initial log.
 //
 // Peers must not be zero length; call RestartNode in that case.
-node_handle start_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers);
+node_proxy start_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers);
 
 // RestartNode is similar to StartNode but does not take a list of peers.
 // The current membership of the cluster will be restored from the Storage.
 // If the caller has an existing state machine, pass in the last log index that
 // has been applied to it; otherwise use zero.
-node_handle restart_node(asio::any_io_executor executor, lepton::config&& config);
+node_proxy restart_node(asio::any_io_executor executor, lepton::config&& config);
 }  // namespace lepton
 
 #endif  // _LEPTON_NODE_
