@@ -318,12 +318,12 @@ lepton::ready raw_node::ready_without_accept() const {
       }
     }
   }
-  SPDLOG_DEBUG("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd));
+  SPDLOG_TRACE("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd));
   return rd;
 }
 
 void raw_node::accept_ready(const lepton::ready &rd) {
-  SPDLOG_DEBUG("accept ready, content:\n{}", describe_ready(rd));
+  SPDLOG_TRACE("accept ready, content:\n{}", describe_ready(rd));
   if (rd.soft_state) {
     prev_soft_state_ = *rd.soft_state;
   }

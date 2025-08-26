@@ -1,5 +1,6 @@
 #ifndef _LEPTON_NODE_H_
 #define _LEPTON_NODE_H_
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -19,6 +20,7 @@
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "raft_network.h"
+#include "spdlog/spdlog.h"
 #include "types.h"
 namespace rafttest {
 
@@ -43,6 +45,7 @@ struct node_adapter {
     co_await stop_chan_.async_send(asio::error_code{});
     // wait for the shutdown
     co_await stop_chan_.async_receive();
+    stop_chan_.close();
   }
 
   // restart restarts the node. restart a started node
@@ -71,7 +74,7 @@ struct node_adapter {
   // resume resumes the paused node.
   asio::awaitable<void> resumes() { co_await pause_chan_.async_send(asio::error_code{}, false); }
 
-  void tick();
+  void tick() { node_handle_->tick(); }
 
   asio::awaitable<lepton::expected<void>> campaign() { co_return co_await node_handle_->campaign(); }
 
@@ -125,16 +128,19 @@ struct node_adapter {
     co_return co_await node_handle_->read_index(std::move(data));
   }
 
+  ~node_adapter() { stop_source_.request_stop(); }
+
  private:
   asio::awaitable<void> start_impl() {
     lepton::signal_channel token_chan(executor_);
     async_mutex m(executor_);
-    co_spawn(executor_, listen_tick(token_chan), asio::detached);
-    co_spawn(executor_, listen_ready(token_chan), asio::detached);
-    co_spawn(executor_, listen_recv(token_chan, m), asio::detached);
+    // co_spawn(executor_, listen_tick(token_chan), asio::detached);
+    // co_spawn(executor_, listen_ready(token_chan), asio::detached);
+    // co_spawn(executor_, listen_recv(token_chan, m), asio::detached);
     co_spawn(executor_, listen_stop(token_chan), asio::detached);
     co_spawn(executor_, listen_pause(token_chan, m), asio::detached);
-    while (stop_chan_.is_open()) {
+    while (!stop_source_.stop_requested() && stop_chan_.is_open() && token_chan.is_open()) {
+      SPDLOG_TRACE("node {} waiting for events", id_);
       co_await token_chan.async_receive();
     }
     co_return;
@@ -154,11 +160,25 @@ struct node_adapter {
   }
 
   asio::awaitable<void> listen_ready(lepton::signal_channel &token_chan) {
+    auto send_msg = [](asio::any_io_executor executor, std::weak_ptr<rafttest::iface> iface_handle, std::size_t id,
+                       raftpb::message msg, int wait_ms) -> asio::awaitable<void> {
+      asio::steady_timer timer(executor, asio::chrono::milliseconds(wait_ms));
+      co_await timer.async_wait(asio::use_awaitable);
+      SPDLOG_DEBUG("node {} sending msg: {}", id, msg.DebugString());
+      if (auto iface = iface_handle.lock()) {
+        iface->send(msg);
+      }
+      co_return;
+    };
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dist(0, 9);  // [0, 9]的均匀分布
     while (stop_chan_.is_open() && token_chan.is_open()) {
       auto rd_handle_result = co_await node_handle_->wait_ready(executor_);
+      if (!rd_handle_result) {
+        SPDLOG_ERROR("node {} wait_ready failed: {}", id_, rd_handle_result.error().message());
+        co_return;
+      }
       assert(rd_handle_result);
       auto rd_handle = rd_handle_result.value();
       auto &rd = *rd_handle.get();
@@ -174,18 +194,15 @@ struct node_adapter {
       // simulate async send, more like real world...
       for (auto &msg : rd.messages) {
         int wait_ms = dist(gen);
-        asio::steady_timer timer(executor_, asio::chrono::milliseconds(wait_ms));
-        co_spawn(
-            executor_,
-            [&msg, &timer, this]() -> asio::awaitable<void> {
-              co_await timer.async_wait();
-              iface_->send(msg);
-              co_return;
-            },
-            asio::detached);
+        co_spawn(executor_, send_msg(executor_, iface_, id_, msg, wait_ms), asio::detached);
       }
       co_await node_handle_->advance();
-      co_await token_chan.async_send(asio::error_code{});
+      std::error_code ec;
+      co_await token_chan.async_send(asio::error_code{}, asio::redirect_error(asio::use_awaitable, ec));
+      if (ec) {
+        SPDLOG_DEBUG("Failed to send token: {}", ec.message());
+        break;
+      }
     }
     co_return;
   }
@@ -208,9 +225,9 @@ struct node_adapter {
   asio::awaitable<void> listen_stop(lepton::signal_channel &token_chan) {
     co_await stop_chan_.async_receive();
     token_chan.close();
+    pause_chan_.close();
     co_await node_handle_->stop();
     co_await stop_chan_.async_send(asio::error_code{});
-    stop_chan_.close();
     co_return;
   }
 
@@ -228,7 +245,7 @@ struct node_adapter {
       }
       co_return;
     };
-    while (stop_chan_.is_open() && token_chan.is_open()) {
+    while (!stop_source_.stop_requested() && stop_chan_.is_open() && token_chan.is_open()) {
       lepton::pb::repeated_message recvms;
       auto p = co_await pause_chan_.async_receive();
       co_await m.async_lock(asio::use_awaitable);
@@ -245,9 +262,11 @@ struct node_adapter {
 
  public:
   asio::any_io_executor executor_;
+  std::stop_source stop_source_;
+
   lepton::node_proxy node_handle_;
   std::uint64_t id_;
-  std::unique_ptr<rafttest::iface> iface_;
+  std::shared_ptr<rafttest::iface> iface_;
   lepton::signal_channel stop_chan_;
   lepton::channel<bool> pause_chan_;
 

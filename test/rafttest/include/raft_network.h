@@ -1,6 +1,7 @@
 #pragma once
 
 #include <asio/error_code.hpp>
+#include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <map>
@@ -17,10 +18,14 @@
 
 namespace rafttest {
 
+using channel_msg = lepton::channel<raftpb::message>;
+
+using channel_msg_handle = lepton::channel<raftpb::message>*;
+
 // 基础网络接口 (等价于 Go iface)
 struct iface {
   virtual void send(const raftpb::message& m) = 0;
-  virtual std::shared_ptr<lepton::channel<raftpb::message>> recv() = 0;
+  virtual channel_msg_handle recv() = 0;
   virtual void disconnect() = 0;
   virtual void connect() = 0;
   virtual ~iface() = default;
@@ -43,13 +48,13 @@ class raft_network {
  public:
   explicit raft_network(asio::any_io_executor executor, const std::vector<uint64_t>& nodes) : rng_(1) {
     for (auto n : nodes) {
-      recv_queues_[n] = std::make_shared<lepton::channel<raftpb::message>>(executor, 1024);
+      recv_queues_[n] = std::make_unique<channel_msg>(executor, 1024);
       disconnected_[n] = false;
     }
   }
 
   void send(const raftpb::message& m) {
-    std::shared_ptr<lepton::channel<raftpb::message>> to;
+    channel_msg_handle to = nullptr;
     bool disconnected = false;
     double drop = 0.0;
     struct delay dl;
@@ -57,7 +62,9 @@ class raft_network {
     {
       std::unique_lock lk(mu_);
       auto it = recv_queues_.find(m.to());
-      if (it != recv_queues_.end()) to = it->second;
+      if (it != recv_queues_.end()) {
+        to = it->second.get();
+      }
       disconnected = disconnected_[m.to()];
       drop = dropmap_[{m.from(), m.to()}];
       dl = delaymap_[{m.from(), m.to()}];
@@ -87,16 +94,22 @@ class raft_network {
     auto debug_str = cm.DebugString();
     if (auto result = to->try_send(asio::error_code{}, std::move(cm)); !result) {
       SPDLOG_DEBUG("send msg:{} failed", debug_str);
+    } else {
+      SPDLOG_INFO("send msg:{} successful", debug_str);
     }
   }
 
-  std::shared_ptr<lepton::channel<raftpb::message>> recv_from(uint64_t from) {
+  channel_msg_handle recv_from(uint64_t from) {
     std::unique_lock lk(mu_);
-    auto q = recv_queues_[from];
     if (disconnected_[from]) {
       return nullptr;
     }
-    return q;
+    auto it = recv_queues_.find(from);
+    if (it != recv_queues_.end()) {
+      return it->second.get();
+    }
+    assert(false);
+    return nullptr;
   }
 
   void drop(uint64_t from, uint64_t to, double rate) {
@@ -121,7 +134,7 @@ class raft_network {
 
  private:
   std::mutex mu_;
-  std::map<uint64_t, std::shared_ptr<lepton::channel<raftpb::message>>> recv_queues_;
+  std::map<uint64_t, std::unique_ptr<channel_msg>> recv_queues_;
   std::map<uint64_t, bool> disconnected_;
   std::map<conn, double> dropmap_;
   std::map<conn, struct delay> delaymap_;
@@ -138,7 +151,7 @@ class node_network : public iface {
   void connect() override { net_->connect(id_); }
   void disconnect() override { net_->disconnect(id_); }
   void send(const raftpb::message& m) override { net_->send(m); }
-  std::shared_ptr<lepton::channel<raftpb::message>> recv() override { return net_->recv_from(id_); }
+  channel_msg_handle recv() override { return net_->recv_from(id_); }
 
  private:
   uint64_t id_;

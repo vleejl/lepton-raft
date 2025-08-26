@@ -38,6 +38,7 @@ TEST_F(raft_network_test_suit, test_network_drop) {
       io_context,
       [&]() -> asio::awaitable<void> {
         auto c = nt.recv_from(2);
+        EXPECT_NE(c, nullptr);
         auto done = false;
         auto received = 0;
         while (!done) {

@@ -7,6 +7,7 @@
 #include <asio/co_spawn.hpp>
 #include <asio/experimental/awaitable_operators.hpp>
 #include <asio/experimental/channel.hpp>
+#include <cassert>
 #include <cstddef>
 
 #include "asio/error_code.hpp"
@@ -23,8 +24,18 @@ class signal_channel_endpoint {
   signal_channel_endpoint(asio::any_io_executor executor, std::size_t max_buffer_size)
       : chan_(executor, max_buffer_size), cancel_chan_(executor) {}
 
+  void try_send() {
+    if (stop_source_.stop_requested()) {
+      return;
+    }
+    chan_.try_send(asio::error_code{});
+  }
+
   // 发送信号
   asio::awaitable<lepton::expected<void>> async_send() {
+    if (stop_source_.stop_requested()) {
+      co_return tl::unexpected(raft_error::STOPPED);
+    }
     auto result = co_await async_select_done([&](auto token) { return chan_.async_send(asio::error_code{}, token); },
                                              cancel_chan_);
     co_return result;
@@ -32,22 +43,27 @@ class signal_channel_endpoint {
 
   // 接收信号
   asio::awaitable<lepton::expected<void>> async_receive() {
+    if (stop_source_.stop_requested()) {
+      co_return tl::unexpected(raft_error::STOPPED);
+    }
     auto result = co_await async_select_done([&](auto token) { return chan_.async_receive(token); }, cancel_chan_);
     co_return result;
   }
 
   void close() {
+    stop_source_.request_stop();
     cancel_chan_.close();
     chan_.close();
   }
 
-  auto is_open() const { return chan_.is_open(); }
+  auto is_open() const { return stop_source_.stop_requested(); }
 
   auto& raw_channel() { return chan_; }
 
  private:
   signal_channel chan_;
   signal_channel cancel_chan_;
+  std::stop_source stop_source_;
 };
 
 using signal_channel_endpoint_handle = signal_channel_endpoint*;

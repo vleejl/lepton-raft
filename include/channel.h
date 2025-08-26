@@ -25,7 +25,6 @@ asio::awaitable<expected<void>> async_select_done(async_func &&main_op, signal_c
       co_await asio::experimental::make_parallel_group(std::forward<async_func>(main_op), [&](auto token) {
         return done_chan.async_receive(token);
       }).async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
-  SPDLOG_DEBUG("this times receive order:{}", order[0]);
   switch (order[0]) {
     case 0:
       if (ec1) {

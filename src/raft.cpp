@@ -1276,7 +1276,16 @@ void raft::tick_election() {
     raftpb::message m;
     m.set_from(id_);
     m.set_type(raftpb::message_type::MSG_HUP);
-    discard(step(std::move(m)));
+    auto _ = leaf::try_handle_some(
+        [&]() -> leaf::result<void> {
+          LEPTON_LEAF_CHECK(step(std::move(m)));
+          return {};
+        },
+        [&](const lepton::lepton_error& err) -> leaf::result<void> {
+          LEPTON_UNUSED(err);
+          SPDLOG_DEBUG("error occurred during election: {}", err.message);
+          return {};
+        });
   }
 }
 

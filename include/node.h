@@ -46,6 +46,10 @@ class node {
  public:
   node(asio::any_io_executor executor, raw_node&& raw_node)
       : executor_(executor),
+        token_chan_(executor),
+        active_prop_chan_(executor),
+        active_ready_chan_(executor),
+        active_advance_chan_(executor),
         prop_chan_(executor),
         recv_chan_(executor),
         conf_chan_(executor),
@@ -97,32 +101,39 @@ class node {
 
   asio::awaitable<expected<void>> read_index(std::string&& data);
 
+#ifdef LEPTON_TEST
+ public:
+#else
  private:
-  asio::awaitable<void> listen_ready(signal_channel& token_chan, signal_channel& active_ready_chan,
-                                     signal_channel_endpoint_handle& advance_chan, signal_channel& active_advance_chan);
+#endif
+  asio::awaitable<void> listen_ready(signal_channel_endpoint& token_chan, signal_channel_endpoint& active_ready_chan,
+                                     signal_channel_endpoint_handle& advance_chan,
+                                     signal_channel_endpoint& active_advance_chan);
 
-  asio::awaitable<void> listen_advance(std::optional<ready_handle>& rd, signal_channel& token_chan,
-                                       signal_channel& active_advance_chan,
+  asio::awaitable<void> listen_advance(std::optional<ready_handle>& rd, signal_channel_endpoint& token_chan,
+                                       signal_channel_endpoint& active_advance_chan,
                                        signal_channel_endpoint_handle& advance_chan);
 
-  asio::awaitable<void> listen_propose(signal_channel& token_chan, signal_channel& active_prop_chan,
+  asio::awaitable<void> listen_propose(signal_channel_endpoint& token_chan, signal_channel_endpoint& active_prop_chan,
                                        bool& is_active_prop_chan);
 
-  asio::awaitable<void> listen_receive(signal_channel& token_chan);
+  asio::awaitable<void> listen_receive(signal_channel_endpoint& token_chan);
 
-  asio::awaitable<void> listen_conf_change(signal_channel& token_chan, bool& is_active_prop_chan);
+  asio::awaitable<void> listen_conf_change(signal_channel_endpoint& token_chan, bool& is_active_prop_chan);
 
-  asio::awaitable<void> listen_tick(signal_channel& token_chan);
+  asio::awaitable<void> listen_tick(signal_channel_endpoint& token_chan);
 
-  asio::awaitable<void> listen_status(signal_channel& token_chan);
+  asio::awaitable<void> listen_status(signal_channel_endpoint& token_chan);
 
-  asio::awaitable<void> listen_stop(std::array<signal_channel_handle, 4>& signal_chan_group);
+  asio::awaitable<void> listen_stop();
 
   asio::awaitable<expected<void>> handle_non_prop_msg(raftpb::message&& msg);
 
   asio::awaitable<expected<void>> step_impl(raftpb::message&& msg);
 
   asio::awaitable<expected<void>> step_with_wait_impl(asio::any_io_executor executor, raftpb::message&& msg);
+
+  bool is_running() const { return !stop_source_.stop_requested(); }
 
 // 为了方便单元测试 修改私有成员函数作用域
 #ifdef LEPTON_TEST
@@ -132,6 +143,11 @@ class node {
 #endif
   asio::any_io_executor executor_;
   std::stop_source stop_source_;
+
+  signal_channel_endpoint token_chan_;
+  signal_channel_endpoint active_prop_chan_;
+  signal_channel_endpoint active_ready_chan_;
+  signal_channel_endpoint active_advance_chan_;
 
   channel_endpoint<msg_with_result> prop_chan_;
   channel_endpoint<raftpb::message> recv_chan_;

@@ -863,6 +863,40 @@ TEST_F(node_test_suit, test_node_tick) {
   io_context.run();
 }
 
+TEST_F(node_test_suit, test_node_simple_stop) {
+  auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
+  pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
+
+  // 创建配置和节点
+  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  ASSERT_TRUE(raw_node_result);
+  auto raw_node = *std::move(raw_node_result);
+
+  asio::io_context io_context;
+  lepton::node n(io_context.get_executor(), std::move(raw_node));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to listen stop node.......");
+        co_await n.listen_stop();
+        SPDLOG_INFO("node has stopped.......");
+        co_return;
+      },
+      asio::detached);
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        SPDLOG_INFO("ready to stop node.......");
+        co_await n.stop();
+        SPDLOG_INFO("stop node successfully.......");
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
 // TestNodeStop ensures that node.Stop() blocks until the node has stopped
 // processing, and that it is idempotent
 TEST_F(node_test_suit, test_node_stop) {
