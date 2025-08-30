@@ -13,6 +13,7 @@
 #include "asio/use_future.hpp"
 #include "async_mutex.h"
 #include "channel.h"
+#include "co_spawn_waiter.h"
 #include "config.h"
 #include "memory_storage.h"
 #include "node.h"
@@ -28,6 +29,7 @@ struct node_adapter {
   node_adapter(asio::any_io_executor executor, lepton::node_proxy &&node_handle, std::uint64_t id,
                std::unique_ptr<iface> &&iface, std::unique_ptr<lepton::memory_storage> &&storage)
       : executor_(executor),
+        token_chan_(executor),
         node_handle_(std::move(node_handle)),
         id_(id),
         iface_(std::move(iface)),
@@ -41,10 +43,19 @@ struct node_adapter {
   // All in memory state of node is discarded.
   // All stable MUST be unchanged.
   asio::awaitable<void> stop() {
+    if (stop_source_.stop_requested()) {
+      // Node has already been stopped - no need to do anything
+      SPDLOG_INFO("{} node has already been stopped, just return", id_);
+      co_return;
+    }
     iface_->disconnect();
+    iface_->close();
+    SPDLOG_INFO("{} ready to send stop signal", id_);
     co_await stop_chan_.async_send(asio::error_code{});
+    SPDLOG_INFO("{} Block until the stop has been acknowledged by run()", id_);
     // wait for the shutdown
     co_await stop_chan_.async_receive();
+    SPDLOG_INFO("{} receive stop siganl and stop has been acknowledged by run()", id_);
     stop_chan_.close();
   }
 
@@ -131,18 +142,24 @@ struct node_adapter {
   ~node_adapter() { stop_source_.request_stop(); }
 
  private:
+  bool is_running() const { return !stop_source_.stop_requested(); }
+
   asio::awaitable<void> start_impl() {
-    lepton::signal_channel token_chan(executor_);
+    lepton::signal_channel &token_chan = token_chan_;
     async_mutex m(executor_);
-    // co_spawn(executor_, listen_tick(token_chan), asio::detached);
-    // co_spawn(executor_, listen_ready(token_chan), asio::detached);
-    // co_spawn(executor_, listen_recv(token_chan, m), asio::detached);
+
+    auto waiter = lepton::make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_tick(token_chan); });
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_ready(token_chan); });
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_recv(token_chan, m); });
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_pause(token_chan, m); });
     co_spawn(executor_, listen_stop(token_chan), asio::detached);
-    co_spawn(executor_, listen_pause(token_chan, m), asio::detached);
-    while (!stop_source_.stop_requested() && stop_chan_.is_open() && token_chan.is_open()) {
+    while (is_running()) {
       SPDLOG_TRACE("node {} waiting for events", id_);
       co_await token_chan.async_receive();
     }
+    co_await waiter->wait_all();
+    SPDLOG_INFO("node {} all listeners exited", id_);
     co_return;
   }
 
@@ -150,7 +167,7 @@ struct node_adapter {
     auto interval = std::chrono::milliseconds(5);
     asio::steady_timer timer(executor_, interval);
     timer.expires_after(interval);
-    while (stop_chan_.is_open() && token_chan.is_open()) {
+    while (is_running()) {
       co_await timer.async_wait();
       node_handle_->tick();
       co_await token_chan.async_send(asio::error_code{});
@@ -173,7 +190,7 @@ struct node_adapter {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dist(0, 9);  // [0, 9]的均匀分布
-    while (stop_chan_.is_open() && token_chan.is_open()) {
+    while (is_running()) {
       auto rd_handle_result = co_await node_handle_->wait_ready(executor_);
       if (!rd_handle_result) {
         SPDLOG_ERROR("node {} wait_ready failed: {}", id_, rd_handle_result.error().message());
@@ -212,9 +229,15 @@ struct node_adapter {
       co_await node_handle_->step(std::move(msg));
       co_return;
     };
-    while (stop_chan_.is_open() && token_chan.is_open()) {
+    while (is_running()) {
       co_await m.async_lock(asio::use_awaitable);
-      auto msg = co_await iface_->recv()->async_receive();
+      auto recv_chan_handle = iface_->recv();
+      if (recv_chan_handle == nullptr) {
+        m.unlock();
+        SPDLOG_ERROR("node {} recv channel is nullptr, maybe disconnected", id_);
+        continue;
+      }
+      auto msg = co_await recv_chan_handle->async_receive();
       m.unlock();
       co_spawn(executor_, async_step_func(std::move(msg)), asio::detached);
       co_await token_chan.async_send(asio::error_code{});
@@ -224,6 +247,7 @@ struct node_adapter {
 
   asio::awaitable<void> listen_stop(lepton::signal_channel &token_chan) {
     co_await stop_chan_.async_receive();
+    stop_source_.request_stop();
     token_chan.close();
     pause_chan_.close();
     co_await node_handle_->stop();
@@ -234,7 +258,12 @@ struct node_adapter {
   asio::awaitable<void> listen_pause(lepton::signal_channel &token_chan, async_mutex &m) {
     auto recv_func = [this](bool &pause, lepton::pb::repeated_message &recvms) -> asio::awaitable<void> {
       while (pause) {
-        auto msg = co_await iface_->recv()->async_receive();
+        auto recv_chan_handle = iface_->recv();
+        if (recv_chan_handle == nullptr) {
+          SPDLOG_ERROR("node {} recv channel is nullptr, maybe disconnected", id_);
+          continue;
+        }
+        auto msg = co_await recv_chan_handle->async_receive();
         recvms.Add(std::move(msg));
       }
       co_return;
@@ -245,7 +274,7 @@ struct node_adapter {
       }
       co_return;
     };
-    while (!stop_source_.stop_requested() && stop_chan_.is_open() && token_chan.is_open()) {
+    while (is_running()) {
       lepton::pb::repeated_message recvms;
       auto p = co_await pause_chan_.async_receive();
       co_await m.async_lock(asio::use_awaitable);
@@ -263,6 +292,7 @@ struct node_adapter {
  public:
   asio::any_io_executor executor_;
   std::stop_source stop_source_;
+  lepton::signal_channel token_chan_;
 
   lepton::node_proxy node_handle_;
   std::uint64_t id_;

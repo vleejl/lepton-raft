@@ -1,6 +1,7 @@
 #include "node.h"
 
 #include <cassert>
+#include <functional>
 #include <memory>
 #include <system_error>
 #include <utility>
@@ -9,6 +10,7 @@
 #include "asio/error_code.hpp"
 #include "channel.h"
 #include "channel_endpoint.h"
+#include "co_spawn_waiter.h"
 #include "describe.h"
 #include "expected.h"
 #include "leaf_expected.h"
@@ -23,14 +25,14 @@
 #include "state.h"
 #include "tl/expected.hpp"
 #include "v4/proxy.h"
-
 namespace lepton {
 
 asio::awaitable<void> node::stop() {
-  SPDLOG_INFO("ready to send stop signal");
+  const auto id = raw_node_.raft_.id();
+  SPDLOG_INFO("{} ready to send stop signal", id);
   if (stop_source_.stop_requested()) {
     // Node has already been stopped - no need to do anything
-    SPDLOG_INFO("node has already been stopped, just return");
+    SPDLOG_INFO("{} node has already been stopped, just return", id);
     co_return;
   }
   // Not already stopped, so trigger it
@@ -40,11 +42,11 @@ asio::awaitable<void> node::stop() {
     // Node has already been stopped - no need to do anything
     co_return;
   }
-  SPDLOG_INFO("Block until the stop has been acknowledged by run()");
+  SPDLOG_INFO("{} Block until the stop has been acknowledged by run()", id);
   // Block until the stop has been acknowledged by run()
   co_await done_chan_.async_receive();
   done_chan_.close();
-  SPDLOG_INFO("receive done siganl and stop has been acknowledged by run()");
+  SPDLOG_INFO("{} receive done siganl and stop has been acknowledged by run()", id);
   co_return;
 }
 
@@ -63,16 +65,21 @@ asio::awaitable<void> node::run() {
 
   auto lead = NONE;
 
-  co_spawn(executor_, listen_propose(token_chan, active_prop_chan, is_active_prop_chan), asio::detached);
-  co_spawn(executor_, listen_receive(token_chan), asio::detached);
-  co_spawn(executor_, listen_conf_change(token_chan, is_active_prop_chan), asio::detached);
-  co_spawn(executor_, listen_tick(token_chan), asio::detached);
-  co_spawn(executor_, listen_ready(token_chan, active_ready_chan, advance_chan, active_advance_chan), asio::detached);
-  co_spawn(executor_, listen_advance(rd, token_chan, active_advance_chan, advance_chan), asio::detached);
-  co_spawn(executor_, listen_status(token_chan), asio::detached);
+  auto waiter = make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
+  waiter->add(
+      [&]() -> asio::awaitable<void> { co_await listen_propose(token_chan_, active_prop_chan_, is_active_prop_chan); });
+  waiter->add([&]() -> asio::awaitable<void> { co_await listen_receive(token_chan); });
+  waiter->add([&]() -> asio::awaitable<void> { co_await listen_conf_change(token_chan, is_active_prop_chan); });
+  waiter->add([&]() -> asio::awaitable<void> { co_await listen_tick(token_chan); });
+  waiter->add([&]() -> asio::awaitable<void> {
+    co_await listen_ready(token_chan, active_ready_chan, advance_chan, active_advance_chan);
+  });
+  waiter->add(
+      [&]() -> asio::awaitable<void> { co_await listen_advance(rd, token_chan, active_advance_chan, advance_chan); });
+  waiter->add([&]() -> asio::awaitable<void> { co_await listen_status(token_chan); });
   co_spawn(executor_, listen_stop(), asio::detached);
 
-  while (!stop_source_.stop_requested()) {
+  while (is_running()) {
     auto has_ready = false;
     SPDLOG_DEBUG("run main loop ......");
     if ((advance_chan == nullptr) && raw_node_.has_ready()) {
@@ -116,7 +123,8 @@ asio::awaitable<void> node::run() {
     }
     co_await token_chan.async_receive();
   }
-  SPDLOG_DEBUG("receive stop signal and exit run loop");
+  co_await waiter->wait_all();
+  SPDLOG_DEBUG("{} receive stop signal and exit run loop", r.id());
   co_return;
 }
 

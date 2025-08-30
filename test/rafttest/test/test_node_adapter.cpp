@@ -75,7 +75,7 @@ static asio::awaitable<int> wait_leader(std::vector<std::unique_ptr<rafttest::no
     if (loop_times > 9451) {
       assert(false);
     }
-    // SPDLOG_INFO("loop_times:{}, waiting for leader to be elected", loop_times);
+    SPDLOG_INFO("loop_times:{}, waiting for leader to be elected", loop_times);
     std::set<std::uint64_t> l;
     for (std::size_t i = 0; i < nodes.size(); ++i) {
       auto status = co_await nodes[i]->status();
@@ -83,6 +83,7 @@ static asio::awaitable<int> wait_leader(std::vector<std::unique_ptr<rafttest::no
       if (lead != 0) {
         l.insert(lead);
         if (nodes[i]->id_ == lead) {
+          SPDLOG_INFO("leader elected: {}, loop_times: {}", nodes[i]->id_, loop_times);
           index = static_cast<int>(i);
         }
       }
@@ -148,6 +149,7 @@ TEST_F(node_adapter_test_suit, test_network_delay) {
 
         for (auto &node : nodes) {
           co_await node->stop();
+          SPDLOG_INFO("node {} stopped", node->id_);
         }
         co_return;
       },

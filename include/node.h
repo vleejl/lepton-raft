@@ -10,6 +10,7 @@
 #include <asio/io_context.hpp>
 #include <cassert>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>

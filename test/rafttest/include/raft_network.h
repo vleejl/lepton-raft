@@ -27,6 +27,7 @@ struct iface {
   virtual void send(const raftpb::message& m) = 0;
   virtual channel_msg_handle recv() = 0;
   virtual void disconnect() = 0;
+  virtual void close() = 0;
   virtual void connect() = 0;
   virtual ~iface() = default;
 };
@@ -112,6 +113,14 @@ class raft_network {
     return nullptr;
   }
 
+  void close(uint64_t from) {
+    std::unique_lock lk(mu_);
+    auto it = recv_queues_.find(from);
+    if (it != recv_queues_.end()) {
+      it->second.get()->close();
+    }
+  }
+
   void drop(uint64_t from, uint64_t to, double rate) {
     std::unique_lock lk(mu_);
     dropmap_[{from, to}] = rate;
@@ -150,6 +159,7 @@ class node_network : public iface {
 
   void connect() override { net_->connect(id_); }
   void disconnect() override { net_->disconnect(id_); }
+  void close() override { net_->close(id_); }
   void send(const raftpb::message& m) override { net_->send(m); }
   channel_msg_handle recv() override { return net_->recv_from(id_); }
 
