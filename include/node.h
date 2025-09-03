@@ -108,12 +108,7 @@ class node {
  private:
 #endif
   asio::awaitable<void> listen_ready(signal_channel_endpoint& token_chan, signal_channel_endpoint& active_ready_chan,
-                                     signal_channel_endpoint_handle& advance_chan,
-                                     signal_channel_endpoint& active_advance_chan);
-
-  asio::awaitable<void> listen_advance(std::optional<ready_handle>& rd, signal_channel_endpoint& token_chan,
-                                       signal_channel_endpoint& active_advance_chan,
-                                       signal_channel_endpoint_handle& advance_chan);
+                                     std::atomic<bool>& ready_inflight);
 
   asio::awaitable<void> listen_propose(signal_channel_endpoint& token_chan, signal_channel_endpoint& active_prop_chan,
                                        bool& is_active_prop_chan);

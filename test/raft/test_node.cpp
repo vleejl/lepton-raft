@@ -320,6 +320,7 @@ TEST_F(node_test_suit, test_node_propose) {
             co_await n.advance();
             break;
           } else {
+            SPDLOG_INFO("Node {} is not leader, continue wait...", n.raw_node_.raft_.id());
             co_await n.advance();
           }
         }
@@ -1297,15 +1298,25 @@ TEST_F(node_test_suit, test_node_advance) {
           // Append empty entry.
           auto rd_result = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
           auto& rd = *rd_result;
+          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                      mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                      mm_storage.last_index().value());
           co_await node_handle->advance();
         }
 
         {
+          SPDLOG_INFO("try to propose foo");
           co_await node_handle->propose("foo");
+          SPDLOG_INFO("propose foo successful and wait for ready");
           auto rd_result = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
           auto& rd = *rd_result;
+          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                      mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
+          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                      mm_storage.last_index().value());
           co_await node_handle->advance();
         }
 

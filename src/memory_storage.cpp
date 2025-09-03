@@ -188,13 +188,18 @@ leaf::result<void> memory_storage::append(pb::repeated_entry&& entries) {
   const auto first = _first_index();
   const auto entries_last = entries[0].index() + static_cast<std::uint64_t>(entries.size()) - 1;
   // shortcut if there is no new entry.
+  // 如果待追加日志的最大索引小于存储的最小索引，说明这些日志已被压缩丢弃，直接返回
   if (entries_last < first) {
     return {};
   }
   if (first > entries[0].index()) {  // truncate compacted entries
+    // 如果存储的最小索引大于待追加日志的起始索引（例如存储最小索引=5，日志起始索引=3），说明日志的前半部分已被压缩。
+    // 截断日志切片，只保留索引大于等于 first 的部分。
     entries = pb::extract_range_without_copy(entries, static_cast<int>(first - entries[0].index()), entries.size());
   }
-  const auto offset = entries[0].index() - ents_[0].index();
+  const auto entries_first_index = entries[0].index();
+  const auto ents_first_index = ents_[0].index();
+  const auto offset = entries_first_index - ents_first_index;
   const auto ents_size = static_cast<std::uint64_t>(ents_.size());
   if (offset < ents_size) {
     ents_ = pb::extract_range_without_copy(ents_, 0, static_cast<int>(offset));
@@ -202,7 +207,8 @@ leaf::result<void> memory_storage::append(pb::repeated_entry&& entries) {
   } else if (offset == ents_size) {
     ents_.Add(std::make_move_iterator(entries.begin()), std::make_move_iterator(entries.end()));
   } else {
-    LEPTON_CRITICAL("offset({}) is out of range [len({})]", offset, ents_.size());
+    LEPTON_CRITICAL("entries_first_index: {}, ents_first_index: {}, offset({}) is out of range [len({})]",
+                    entries_first_index, ents_first_index, offset, ents_.size());
   }
   return {};
 }

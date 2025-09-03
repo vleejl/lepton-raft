@@ -15,6 +15,7 @@
 #include "channel.h"
 #include "co_spawn_waiter.h"
 #include "config.h"
+#include "describe.h"
 #include "memory_storage.h"
 #include "node.h"
 #include "node_interface.h"
@@ -199,6 +200,7 @@ struct node_adapter {
       assert(rd_handle_result);
       auto rd_handle = rd_handle_result.value();
       auto &rd = *rd_handle.get();
+      SPDLOG_INFO(lepton::describe_ready(rd));
       if (!lepton::pb::is_empty_hard_state(rd.hard_state)) {
         std::lock_guard<std::mutex> lock(mu);
         state = rd.hard_state;

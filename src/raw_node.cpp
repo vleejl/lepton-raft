@@ -356,7 +356,9 @@ void raw_node::accept_ready(const lepton::ready &rd) {
     const auto index = ents[ents.size() - 1].index();
     raft_.raft_log_handle_.accept_applying(index, pb::ent_size(ents), apply_unstable_entries());
   }
-
+  for (const auto &msg : steps_on_advance_) {
+    SPDLOG_INFO("{} carrying over stepOnAdvance msg: {}", rd.timestamp_id, msg.DebugString());
+  }
   trace_ready(raft_);
 }
 

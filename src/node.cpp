@@ -57,12 +57,9 @@ asio::awaitable<void> node::run() {
   signal_channel_endpoint& active_prop_chan = active_prop_chan_;
 
   signal_channel_endpoint& active_ready_chan = active_ready_chan_;
-  signal_channel_endpoint_handle advance_chan = nullptr;
-  signal_channel_endpoint& active_advance_chan = active_advance_chan_;
+  std::atomic<bool> ready_inflight{false};
 
-  std::optional<ready_handle> rd;
   auto& r = raw_node_.raft_;
-
   auto lead = NONE;
 
   auto waiter = make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
@@ -71,18 +68,13 @@ asio::awaitable<void> node::run() {
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_receive(token_chan); });
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_conf_change(token_chan, is_active_prop_chan); });
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_tick(token_chan); });
-  waiter->add([&]() -> asio::awaitable<void> {
-    co_await listen_ready(token_chan, active_ready_chan, advance_chan, active_advance_chan);
-  });
-  waiter->add(
-      [&]() -> asio::awaitable<void> { co_await listen_advance(rd, token_chan, active_advance_chan, advance_chan); });
+  waiter->add([&]() -> asio::awaitable<void> { co_await listen_ready(token_chan, active_ready_chan, ready_inflight); });
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_status(token_chan); });
   co_spawn(executor_, listen_stop(), asio::detached);
 
   while (is_running()) {
-    auto has_ready = false;
     SPDLOG_DEBUG("run main loop ......");
-    if ((advance_chan == nullptr) && raw_node_.has_ready()) {
+    if (!ready_inflight.load(std::memory_order_acquire) && raw_node_.has_ready()) {
       SPDLOG_DEBUG("run main loop has ready......");
       // Populate a Ready. Note that this Ready is not guaranteed to
       // actually be handled. We will arm readyc, but there's no guarantee
@@ -92,8 +84,7 @@ asio::awaitable<void> node::run() {
       // handled first, but it's generally good to emit larger Readys plus
       // it simplifies testing (by emitting less frequently and more
       // predictably).
-      // rd = std::make_shared<ready>(raw_node_.ready_without_accept());
-      has_ready = true;
+      active_ready_chan.try_send();
     }
     SPDLOG_DEBUG("run main loop, continue main loop logic ......");
     if (lead != r.lead()) {
@@ -116,10 +107,6 @@ asio::awaitable<void> node::run() {
       // 不能阻塞主循环
       active_prop_chan.try_send();
       SPDLOG_DEBUG("send active prop channel successful");
-    }
-    SPDLOG_DEBUG("has_ready: {}, waiting token async_receive", has_ready);
-    if (has_ready) {
-      active_ready_chan.try_send();
     }
     co_await token_chan.async_receive();
   }
@@ -188,18 +175,18 @@ asio::awaitable<expected<void>> node::propose_conf_change(const pb::conf_change_
 
 asio::awaitable<expected<ready_handle>> node::wait_ready(asio::any_io_executor executor) {
   auto receive_ready_chan = std::make_shared<ready_channel>(executor);
-  SPDLOG_TRACE("prepare to request ready");
+  SPDLOG_DEBUG("prepare to request ready");
   auto result = co_await ready_request_chan_.async_send(std::weak_ptr(receive_ready_chan));
   if (!result) {
     SPDLOG_ERROR("send callback channel failed, error:{}", result.error().message());
     co_return tl::unexpected{result.error()};
   }
-  SPDLOG_TRACE("request ready callback channel successful and prepare wait callback channel active");
+  SPDLOG_DEBUG("request ready callback channel successful and prepare wait callback channel active");
   auto ready = co_await receive_ready_chan->async_receive();
   if (!ready) {
     SPDLOG_ERROR("receive error when try to receive ready, error:{}", ready.error().message());
   } else {
-    SPDLOG_TRACE("callback channel actived and receive ready content:\n{}", describe_ready(*ready.value()));
+    SPDLOG_DEBUG("callback channel actived and receive ready content:\n{}", describe_ready(*ready.value()));
   }
   co_return ready;
 }
@@ -308,8 +295,7 @@ asio::awaitable<expected<void>> node::read_index(std::string&& data) {
 
 asio::awaitable<void> node::listen_ready(signal_channel_endpoint& token_chan,
                                          signal_channel_endpoint& active_ready_chan,
-                                         signal_channel_endpoint_handle& advance_chan,
-                                         signal_channel_endpoint& active_advance_chan) {
+                                         std::atomic<bool>& ready_inflight) {
   while (is_running()) {
     SPDLOG_DEBUG("waiting active_ready_chan signal......");
     if (auto result = co_await active_ready_chan.async_receive(); !result) {
@@ -326,53 +312,34 @@ asio::awaitable<void> node::listen_ready(signal_channel_endpoint& token_chan,
     if (auto chan = result->lock()) {
       auto rd = std::make_shared<ready>(raw_node_.ready_without_accept());
       SPDLOG_DEBUG("ready to send ready by ready_channel, {}", describe_ready(*rd.get()));
-      // TODO(vleejl) 增加超时逻辑兜底
+      // etcd raft 实现要求，收到 ready以后必须立马 accept_ready
+      // 为了避免使用 co_await 导致堆栈被切出去，所以先确认 (accept_ready) 再发送
+      raw_node_.accept_ready(*rd.get());
       co_await chan->async_send(rd);
       SPDLOG_DEBUG("send ready by ready_channel successful, {}", describe_ready(*rd.get()));
-      raw_node_.accept_ready(*rd.get());
       if (!raw_node_.async_storage_writes()) {
-        advance_chan = &advance_chan_;
-        co_await active_advance_chan.async_send();
+        ready_inflight.store(true, std::memory_order_release);
+        co_await token_chan.async_send();
+        if (auto ec = co_await advance_chan_.async_receive(); !ec) {
+          SPDLOG_ERROR("Failed to receive advance, error: {}", ec.error().message());
+          break;
+        }
+        SPDLOG_DEBUG("async_receive advance by advance_chan_ successfully");
+        raw_node_.advance();
+        ready_inflight.store(false, std::memory_order_release);
+        // advance 确认完成后需要立马开始监听 ready_chan，所以不能使用 co_await 避免堆栈被切出去
+        token_chan.try_send();
       } else {
         rd.reset();
+        co_await token_chan.async_send();
       }
       SPDLOG_DEBUG("finish send ready by ready_channel successfully");
     } else {
       SPDLOG_WARN("callback channel has been released, wait next loop");
+      co_await token_chan.async_send();
     }
-    co_await token_chan.async_send();
   }
   SPDLOG_INFO("[listen func]ready_request_chan_ closed, exit listen_ready loop");
-  co_return;
-}
-
-asio::awaitable<void> node::listen_advance(std::optional<ready_handle>& rd, signal_channel_endpoint& token_chan,
-                                           signal_channel_endpoint& active_advance_chan,
-                                           signal_channel_endpoint_handle& advance_chan) {
-  while (is_running()) {
-    if (advance_chan == nullptr) {
-      SPDLOG_DEBUG("waiting active_advance_chan signal......");
-      auto ec = co_await active_advance_chan.async_receive();
-      if (!ec) {
-        SPDLOG_ERROR("Failed to receive active_advance_chan, error: {}", ec.error().message());
-        break;
-      }
-      SPDLOG_DEBUG("receive active_advance_chan signal");
-    }
-    assert(advance_chan != nullptr);
-    SPDLOG_DEBUG("ready to async_receive advance by advance_chan_");
-    auto ec = co_await advance_chan_.async_receive();
-    if (!ec) {
-      SPDLOG_ERROR("Failed to receive advance, error: {}", ec.error().message());
-      co_return;
-    }
-    SPDLOG_DEBUG("async_receive advance by advance_chan_ successfully");
-    raw_node_.advance();
-    rd.reset();
-    advance_chan = nullptr;
-    co_await token_chan.async_send();
-  }
-  SPDLOG_INFO("[listen func]advance_chan_ closed, exit listen_advance loop");
   co_return;
 }
 

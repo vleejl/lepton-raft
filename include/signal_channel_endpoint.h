@@ -24,11 +24,11 @@ class signal_channel_endpoint {
   signal_channel_endpoint(asio::any_io_executor executor, std::size_t max_buffer_size)
       : chan_(executor, max_buffer_size), cancel_chan_(executor) {}
 
-  void try_send() {
+  bool try_send() {
     if (stop_source_.stop_requested()) {
-      return;
+      return false;
     }
-    chan_.try_send(asio::error_code{});
+    return chan_.try_send(asio::error_code{});
   }
 
   // 发送信号

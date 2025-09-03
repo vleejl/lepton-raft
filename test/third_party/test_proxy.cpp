@@ -57,6 +57,11 @@ TEST_F(proxy_test_suit, proxy_lifetime) {
       proxies.push_back(std::move(p));
       proxy_views.push_back(proxies.back());
     }
+    for (int i = 0; i < 10; ++i) {
+      auto p = std::make_unique<proxy_test_state_machine_builer>("test data");
+      proxies.push_back(std::move(p));
+      proxy_views.push_back(proxies.back());
+    }
   }
   for (auto &p : proxy_views) {
     p->advance_messages_after_append();

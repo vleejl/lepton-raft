@@ -30,6 +30,8 @@ class channel_endpoint {
     co_return result;
   }
 
+  bool try_send(T value) { return chan_.try_send(asio::error_code{}, std::move(value)); }
+
   auto& raw_channel() { return chan_; }
 
   auto is_open() const { return chan_.is_open(); }
