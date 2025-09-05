@@ -42,7 +42,7 @@ TEST_F(raft_network_test_suit, test_network_drop) {
         auto done = false;
         auto received = 0;
         while (!done) {
-          if (!c->try_receive([&](asio::error_code _, raftpb::message msg) { received++; })) {
+          if (!c->raw_channel().try_receive([&](asio::error_code _, raftpb::message msg) { received++; })) {
             done = true;
           }
         }

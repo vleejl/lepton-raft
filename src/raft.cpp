@@ -1234,6 +1234,7 @@ void raft::reset(std::uint64_t term) {
 bool raft::append_entry(pb::repeated_entry&& entries) {
   auto li = raft_log_handle_.last_index();
   for (int i = 0; i < entries.size(); ++i) {
+    entries[i].set_type(::raftpb::entry_type::ENTRY_NORMAL);
     entries[i].set_term(term_);
     entries[i].set_index(li + 1 + static_cast<std::uint64_t>(i));
   }

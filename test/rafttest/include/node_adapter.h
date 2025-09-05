@@ -1,10 +1,12 @@
 #ifndef _LEPTON_NODE_H_
 #define _LEPTON_NODE_H_
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "asio/awaitable.hpp"
@@ -13,6 +15,7 @@
 #include "asio/use_future.hpp"
 #include "async_mutex.h"
 #include "channel.h"
+#include "channel_endpoint.h"
 #include "co_spawn_waiter.h"
 #include "config.h"
 #include "describe.h"
@@ -22,15 +25,24 @@
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "raft_network.h"
+#include "ready.h"
+#include "signal_channel_endpoint.h"
 #include "spdlog/spdlog.h"
 #include "types.h"
 namespace rafttest {
+
+enum class event_type { tick, ready, recv, stop, pause };
+
+struct event {
+  event_type type;
+  std::variant<std::monostate, lepton::ready_handle, raftpb::message, bool> payload;
+};
 
 struct node_adapter {
   node_adapter(asio::any_io_executor executor, lepton::node_proxy &&node_handle, std::uint64_t id,
                std::unique_ptr<iface> &&iface, std::unique_ptr<lepton::memory_storage> &&storage)
       : executor_(executor),
-        token_chan_(executor),
+        event_chan_(executor),
         node_handle_(std::move(node_handle)),
         id_(id),
         iface_(std::move(iface)),
@@ -81,10 +93,10 @@ struct node_adapter {
   // pause pauses the node.
   // The paused node buffers the received messages and replies
   // all of them when it resumes.
-  asio::awaitable<void> pause() { co_await pause_chan_.async_send(asio::error_code{}, true); }
+  asio::awaitable<void> pause() { co_await pause_chan_.async_send(true); }
 
   // resume resumes the paused node.
-  asio::awaitable<void> resumes() { co_await pause_chan_.async_send(asio::error_code{}, false); }
+  asio::awaitable<void> resumes() { co_await pause_chan_.async_send(false); }
 
   void tick() { node_handle_->tick(); }
 
@@ -146,38 +158,6 @@ struct node_adapter {
   bool is_running() const { return !stop_source_.stop_requested(); }
 
   asio::awaitable<void> start_impl() {
-    lepton::signal_channel &token_chan = token_chan_;
-    async_mutex m(executor_);
-
-    auto waiter = lepton::make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
-    waiter->add([&]() -> asio::awaitable<void> { co_await listen_tick(token_chan); });
-    waiter->add([&]() -> asio::awaitable<void> { co_await listen_ready(token_chan); });
-    waiter->add([&]() -> asio::awaitable<void> { co_await listen_recv(token_chan, m); });
-    waiter->add([&]() -> asio::awaitable<void> { co_await listen_pause(token_chan, m); });
-    co_spawn(executor_, listen_stop(token_chan), asio::detached);
-    while (is_running()) {
-      SPDLOG_TRACE("node {} waiting for events", id_);
-      co_await token_chan.async_receive();
-    }
-    co_await waiter->wait_all();
-    SPDLOG_INFO("node {} all listeners exited", id_);
-    co_return;
-  }
-
-  asio::awaitable<void> listen_tick(lepton::signal_channel &token_chan) {
-    auto interval = std::chrono::milliseconds(5);
-    asio::steady_timer timer(executor_, interval);
-    timer.expires_after(interval);
-    while (is_running()) {
-      co_await timer.async_wait();
-      node_handle_->tick();
-      co_await token_chan.async_send(asio::error_code{});
-      timer.expires_after(interval);
-    }
-    co_return;
-  }
-
-  asio::awaitable<void> listen_ready(lepton::signal_channel &token_chan) {
     auto send_msg = [](asio::any_io_executor executor, std::weak_ptr<rafttest::iface> iface_handle, std::size_t id,
                        raftpb::message msg, int wait_ms) -> asio::awaitable<void> {
       asio::steady_timer timer(executor, asio::chrono::milliseconds(wait_ms));
@@ -191,6 +171,99 @@ struct node_adapter {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dist(0, 9);  // [0, 9]的均匀分布
+
+    auto waiter = lepton::make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_tick(); });
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_ready(); });
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_recv(); });
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_pause(); });
+    co_spawn(executor_, listen_stop(), asio::detached);
+    while (is_running()) {
+      SPDLOG_TRACE("node {} waiting for events", id_);
+      auto ev_result = co_await event_chan_.async_receive();
+      if (!ev_result) {
+        SPDLOG_INFO("node {} event channel closed, exiting", id_);
+        break;
+      }
+      auto ev = std::move(ev_result.value());
+      switch (ev.type) {
+        case event_type::tick:
+          node_handle_->tick();
+          break;
+        case event_type::ready: {
+          auto rd_handle = std::get<lepton::ready_handle>(ev.payload);
+          auto &rd = *rd_handle.get();
+          SPDLOG_INFO(lepton::describe_ready(rd));
+          if (!lepton::pb::is_empty_hard_state(rd.hard_state)) {
+            std::lock_guard<std::mutex> lock(mu);
+            state = rd.hard_state;
+            storage_->set_hard_state(std::move(state));
+          }
+          storage_->append(std::move(rd.entries));
+          asio::steady_timer timer(executor_, std::chrono::milliseconds(1));
+          co_await timer.async_wait();
+
+          // simulate async send, more like real world...
+          for (auto &msg : rd.messages) {
+            int wait_ms = dist(gen);
+            co_spawn(executor_, send_msg(executor_, iface_, id_, std::move(msg), wait_ms), asio::detached);
+          }
+          co_await node_handle_->advance();
+          break;
+        }
+        case event_type::recv:
+          co_spawn(executor_, node_handle_->step(std::move(std::get<raftpb::message>(ev.payload))), asio::detached);
+          break;
+        case event_type::stop:
+          co_return;
+        case event_type::pause: {
+          bool p = std::get<bool>(ev.payload);
+          if (!p) break;  // pause=false 直接忽略
+          lepton::pb::repeated_message recvms;
+          while (is_running()) {
+            auto ev2_result = co_await event_chan_.async_receive();
+            if (!ev2_result) {
+              SPDLOG_INFO("node {} event channel closed, exiting", id_);
+              co_return;
+            }
+            auto ev2 = std::move(ev2_result.value());
+            if (ev2.type == event_type::recv) {
+              recvms.Add(std::move(std::get<raftpb::message>(ev2.payload)));
+            } else if (ev2.type == event_type::pause) {
+              bool p2 = std::get<bool>(ev2.payload);
+              if (!p2) {
+                break;  // 退出 pause
+              }
+              // 如果再次 true，就继续收
+            } else {
+              // Go 实现是只 select {recv,pause}，所以这里我们丢掉其他事件
+            }
+          }
+          for (auto &m : recvms) {
+            co_await node_handle_->step(std::move(m));
+          }
+          break;
+        }
+      }
+    }
+    co_await waiter->wait_all();
+    SPDLOG_INFO("node {} all listeners exited", id_);
+    co_return;
+  }
+
+  asio::awaitable<void> listen_tick() {
+    auto interval = std::chrono::milliseconds(5);
+    asio::steady_timer timer(executor_, interval);
+    while (is_running()) {
+      timer.expires_after(interval);
+      co_await timer.async_wait();
+      co_await event_chan_.async_send(event{.type = event_type::tick, .payload = {}});
+    }
+    SPDLOG_INFO("node {} tick listener exited", id_);
+    co_return;
+  }
+
+  asio::awaitable<void> listen_ready() {
     while (is_running()) {
       auto rd_handle_result = co_await node_handle_->wait_ready(executor_);
       if (!rd_handle_result) {
@@ -199,108 +272,60 @@ struct node_adapter {
       }
       assert(rd_handle_result);
       auto rd_handle = rd_handle_result.value();
-      auto &rd = *rd_handle.get();
-      SPDLOG_INFO(lepton::describe_ready(rd));
-      if (!lepton::pb::is_empty_hard_state(rd.hard_state)) {
-        std::lock_guard<std::mutex> lock(mu);
-        state = rd.hard_state;
-        storage_->set_hard_state(std::move(state));
-      }
-      storage_->append(std::move(rd.entries));
-      asio::steady_timer timer(executor_, std::chrono::milliseconds(1));
-      co_await timer.async_wait();
+      co_await event_chan_.async_send(event{.type = event_type::ready, .payload = {rd_handle}});
+    }
+    SPDLOG_INFO("node {} ready listener exited", id_);
+    co_return;
+  }
 
-      // simulate async send, more like real world...
-      for (auto &msg : rd.messages) {
-        int wait_ms = dist(gen);
-        co_spawn(executor_, send_msg(executor_, iface_, id_, msg, wait_ms), asio::detached);
-      }
-      co_await node_handle_->advance();
-      std::error_code ec;
-      co_await token_chan.async_send(asio::error_code{}, asio::redirect_error(asio::use_awaitable, ec));
-      if (ec) {
-        SPDLOG_DEBUG("Failed to send token: {}", ec.message());
+  asio::awaitable<void> listen_recv() {
+    while (is_running()) {
+      auto recv_chan_handle = iface_->recv();
+      assert(recv_chan_handle != nullptr);
+      auto msg = co_await recv_chan_handle->async_receive();
+      if (!msg) {
+        SPDLOG_INFO("node {} iface recv channel closed, exiting", id_);
         break;
       }
+      co_await event_chan_.async_send(event{event_type::recv, std::move(msg.value())});
     }
+    SPDLOG_INFO("node {} recv listener exited", id_);
     co_return;
   }
 
-  asio::awaitable<void> listen_recv(lepton::signal_channel &token_chan, async_mutex &m) {
-    auto async_step_func = [this](raftpb::message &&msg) -> asio::awaitable<void> {
-      co_await node_handle_->step(std::move(msg));
-      co_return;
-    };
-    while (is_running()) {
-      co_await m.async_lock(asio::use_awaitable);
-      auto recv_chan_handle = iface_->recv();
-      if (recv_chan_handle == nullptr) {
-        m.unlock();
-        SPDLOG_ERROR("node {} recv channel is nullptr, maybe disconnected", id_);
-        continue;
-      }
-      auto msg = co_await recv_chan_handle->async_receive();
-      m.unlock();
-      co_spawn(executor_, async_step_func(std::move(msg)), asio::detached);
-      co_await token_chan.async_send(asio::error_code{});
-    }
-    co_return;
-  }
-
-  asio::awaitable<void> listen_stop(lepton::signal_channel &token_chan) {
+  asio::awaitable<void> listen_stop() {
     co_await stop_chan_.async_receive();
     stop_source_.request_stop();
-    token_chan.close();
+    event_chan_.close();
     pause_chan_.close();
     co_await node_handle_->stop();
     co_await stop_chan_.async_send(asio::error_code{});
     co_return;
   }
 
-  asio::awaitable<void> listen_pause(lepton::signal_channel &token_chan, async_mutex &m) {
-    auto recv_func = [this](bool &pause, lepton::pb::repeated_message &recvms) -> asio::awaitable<void> {
-      while (pause) {
-        auto recv_chan_handle = iface_->recv();
-        if (recv_chan_handle == nullptr) {
-          SPDLOG_ERROR("node {} recv channel is nullptr, maybe disconnected", id_);
-          continue;
-        }
-        auto msg = co_await recv_chan_handle->async_receive();
-        recvms.Add(std::move(msg));
-      }
-      co_return;
-    };
-    auto listen_pause = [this](bool &pause) -> asio::awaitable<void> {
-      while (pause) {
-        pause = co_await pause_chan_.async_receive();
-      }
-      co_return;
-    };
+  asio::awaitable<void> listen_pause() {
     while (is_running()) {
-      lepton::pb::repeated_message recvms;
-      auto p = co_await pause_chan_.async_receive();
-      co_await m.async_lock(asio::use_awaitable);
-      co_spawn(executor_, recv_func(p, recvms), asio::detached);
-      co_spawn(executor_, listen_pause(p), asio::use_future);
-      m.unlock();
-      // step all pending messages
-      for (auto &msg : recvms) {
-        co_await node_handle_->step(std::move(msg));
+      auto result = co_await pause_chan_.async_receive();
+      if (!result) {
+        SPDLOG_INFO("node {} pause channel closed, exiting", id_);
+        break;
       }
+      co_await event_chan_.async_send(event{event_type::pause, result.value()});
     }
+    SPDLOG_INFO("node {} pause listener exited", id_);
     co_return;
   }
 
  public:
   asio::any_io_executor executor_;
   std::stop_source stop_source_;
-  lepton::signal_channel token_chan_;
+  lepton::channel_endpoint<event> event_chan_;
 
   lepton::node_proxy node_handle_;
   std::uint64_t id_;
   std::shared_ptr<rafttest::iface> iface_;
   lepton::signal_channel stop_chan_;
-  lepton::channel<bool> pause_chan_;
+  lepton::channel_endpoint<bool> pause_chan_;
 
   // stable
   std::unique_ptr<lepton::memory_storage> storage_;

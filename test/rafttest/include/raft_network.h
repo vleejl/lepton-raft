@@ -13,14 +13,13 @@
 #include <thread>
 
 #include "channel.h"
+#include "channel_endpoint.h"
 #include "raft.pb.h"
 #include "spdlog/spdlog.h"
 
 namespace rafttest {
 
-using channel_msg = lepton::channel<raftpb::message>;
-
-using channel_msg_handle = lepton::channel<raftpb::message>*;
+using channel_msg_handle = std::shared_ptr<lepton::channel_endpoint<raftpb::message>>;
 
 // 基础网络接口 (等价于 Go iface)
 struct iface {
@@ -49,7 +48,7 @@ class raft_network {
  public:
   explicit raft_network(asio::any_io_executor executor, const std::vector<uint64_t>& nodes) : rng_(1) {
     for (auto n : nodes) {
-      recv_queues_[n] = std::make_unique<channel_msg>(executor, 1024);
+      recv_queues_[n] = std::make_shared<lepton::channel_endpoint<raftpb::message>>(executor, 1024);
       disconnected_[n] = false;
     }
   }
@@ -64,7 +63,7 @@ class raft_network {
       std::unique_lock lk(mu_);
       auto it = recv_queues_.find(m.to());
       if (it != recv_queues_.end()) {
-        to = it->second.get();
+        to = it->second;
       }
       disconnected = disconnected_[m.to()];
       drop = dropmap_[{m.from(), m.to()}];
@@ -93,7 +92,7 @@ class raft_network {
       throw std::runtime_error("failed to parse message");
     }
     auto debug_str = cm.DebugString();
-    if (auto result = to->try_send(asio::error_code{}, std::move(cm)); !result) {
+    if (auto result = to->try_send(std::move(cm)); !result) {
       SPDLOG_DEBUG("send msg:{} failed", debug_str);
     } else {
       SPDLOG_INFO("send msg:{} successful", debug_str);
@@ -102,12 +101,12 @@ class raft_network {
 
   channel_msg_handle recv_from(uint64_t from) {
     std::unique_lock lk(mu_);
-    if (disconnected_[from]) {
-      return nullptr;
-    }
+    // if (disconnected_[from]) {
+    //   return nullptr;
+    // }
     auto it = recv_queues_.find(from);
     if (it != recv_queues_.end()) {
-      return it->second.get();
+      return it->second;
     }
     assert(false);
     return nullptr;
@@ -143,7 +142,7 @@ class raft_network {
 
  private:
   std::mutex mu_;
-  std::map<uint64_t, std::unique_ptr<channel_msg>> recv_queues_;
+  std::map<uint64_t, std::shared_ptr<lepton::channel_endpoint<raftpb::message>>> recv_queues_;
   std::map<uint64_t, bool> disconnected_;
   std::map<conn, double> dropmap_;
   std::map<conn, struct delay> delaymap_;

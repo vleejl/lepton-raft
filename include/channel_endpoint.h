@@ -7,6 +7,7 @@
 #include <asio/co_spawn.hpp>
 #include <asio/experimental/awaitable_operators.hpp>
 #include <asio/experimental/channel.hpp>
+#include <cstddef>
 
 #include "asio/error_code.hpp"
 #include "channel.h"
@@ -16,7 +17,9 @@ namespace lepton {
 template <typename T>
 class channel_endpoint {
  public:
-  channel_endpoint(asio::any_io_executor executor) : chan_(executor, 0), cancel_chan_(executor) {}
+  explicit channel_endpoint(asio::any_io_executor executor) : chan_(executor, 0), cancel_chan_(executor) {}
+
+  channel_endpoint(asio::any_io_executor executor, std::size_t size) : chan_(executor, size), cancel_chan_(executor) {}
 
   asio::awaitable<lepton::expected<T>> async_receive() {
     auto result =

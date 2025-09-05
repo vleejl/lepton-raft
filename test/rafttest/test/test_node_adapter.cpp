@@ -75,7 +75,7 @@ static asio::awaitable<int> wait_leader(std::vector<std::unique_ptr<rafttest::no
     if (loop_times > 9451) {
       assert(false);
     }
-    SPDLOG_INFO("loop_times:{}, waiting for leader to be elected", loop_times);
+    // SPDLOG_INFO("loop_times:{}, waiting for leader to be elected", loop_times);
     std::set<std::uint64_t> l;
     for (std::size_t i = 0; i < nodes.size(); ++i) {
       auto status = co_await nodes[i]->status();
@@ -83,7 +83,7 @@ static asio::awaitable<int> wait_leader(std::vector<std::unique_ptr<rafttest::no
       if (lead != 0) {
         l.insert(lead);
         if (nodes[i]->id_ == lead) {
-          SPDLOG_INFO("leader elected: {}, loop_times: {}", nodes[i]->id_, loop_times);
+          // SPDLOG_INFO("leader elected: {}, loop_times: {}", nodes[i]->id_, loop_times);
           index = static_cast<int>(i);
         }
       }
@@ -98,7 +98,8 @@ static asio::awaitable<int> wait_leader(std::vector<std::unique_ptr<rafttest::no
 static asio::awaitable<bool> wait_commit_converge(asio::any_io_executor executor,
                                                   std::vector<std::unique_ptr<rafttest::node_adapter>> &nodes,
                                                   std::uint64_t target) {
-  for (std::size_t i = 0; i < 50; ++i) {
+  auto wait_loop_times = target;
+  for (std::size_t i = 0; i < wait_loop_times; ++i) {
     std::set<std::uint64_t> c;
     std::size_t good = 0;
     for (auto &node : nodes) {
@@ -120,7 +121,7 @@ static asio::awaitable<bool> wait_commit_converge(asio::any_io_executor executor
 }
 
 TEST_F(node_adapter_test_suit, test_network_delay) {
-  constexpr std::size_t node_count = 1;
+  constexpr std::size_t node_count = 5;
   asio::io_context io_context;
   std::vector<std::uint64_t> node_ids;
   std::vector<lepton::peer> peers;
@@ -140,11 +141,12 @@ TEST_F(node_adapter_test_suit, test_network_delay) {
       [&]() -> asio::awaitable<void> {
         co_await wait_leader(nodes);
 
-        for (auto i = 0; i < 100; ++i) {
+        std::size_t propose_num = 100;
+        for (std::size_t i = 0; i < propose_num; ++i) {
           co_await nodes[0]->propose(io_context.get_executor(), "index【" + std::to_string(i) + "】  somedata");
         }
 
-        auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 100);
+        auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, propose_num);
         EXPECT_TRUE(result);
 
         for (auto &node : nodes) {
