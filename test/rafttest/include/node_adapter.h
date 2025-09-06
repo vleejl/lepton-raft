@@ -19,6 +19,7 @@
 #include "co_spawn_waiter.h"
 #include "config.h"
 #include "describe.h"
+#include "magic_enum.hpp"
 #include "memory_storage.h"
 #include "node.h"
 #include "node_interface.h"
@@ -37,6 +38,10 @@ struct event {
   event_type type;
   std::variant<std::monostate, lepton::ready_handle, raftpb::message, bool> payload;
 };
+
+struct node_adapter;
+std::unique_ptr<node_adapter> start_node(asio::any_io_executor executor, std::uint64_t id,
+                                         std::unique_ptr<iface> &&iface);
 
 struct node_adapter {
   node_adapter(asio::any_io_executor executor, lepton::node_proxy &&node_handle, std::uint64_t id,
@@ -74,20 +79,29 @@ struct node_adapter {
 
   // restart restarts the node. restart a started node
   // blocks and might affect the future stop operation.
-  asio::awaitable<void> restart() {
-    // wait for the shutdown
-    co_await stop_chan_.async_receive();
+  static asio::awaitable<std::unique_ptr<node_adapter>> restart_node(std::unique_ptr<node_adapter> &&node,
+                                                                     raft_network *nt) {
+    co_await node->stop();
+    auto id = node->id_;
+    auto executor = node->executor_;
+    auto storage = std::move(node->storage_);
+    node.reset();
+    SPDLOG_INFO("node {} is stopped and ready to restart", id);
     lepton::config c;
-    c.id = id_;
+    c.id = id;
     c.election_tick = 10;
     c.heartbeat_tick = 1;
-    c.storage = storage_.get();
+    c.storage = storage.get();
     c.max_size_per_msg = 1024 * 1024;
+    c.max_committed_size_per_ready = c.max_size_per_msg;
     c.max_inflight_msgs = 256;
+    c.max_inflight_bytes = lepton::NO_LIMIT;
     c.max_uncommitted_entries_size = 1 << 30;
-    node_handle_ = lepton::restart_node(executor_, std::move(c));
-    start();
-    iface_->connect();
+    auto rn = lepton::restart_node(executor, std::move(c));
+    std::unique_ptr<iface> iface = std::make_unique<rafttest::node_network>(id, nt);
+    auto n = std::make_unique<node_adapter>(executor, std::move(rn), id, std::move(iface), std::move(storage));
+    n->start();
+    co_return n;
   }
 
   // pause pauses the node.
@@ -177,7 +191,8 @@ struct node_adapter {
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_ready(); });
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_recv(); });
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_pause(); });
-    co_spawn(executor_, listen_stop(), asio::detached);
+    waiter->add([&]() -> asio::awaitable<void> { co_await listen_stop(); });
+    // co_spawn(executor_, listen_stop(), asio::detached);
     while (is_running()) {
       SPDLOG_TRACE("node {} waiting for events", id_);
       auto ev_result = co_await event_chan_.async_receive();
@@ -186,6 +201,7 @@ struct node_adapter {
         break;
       }
       auto ev = std::move(ev_result.value());
+      SPDLOG_INFO("node {} received event: {}", id_, magic_enum::enum_name(ev.type));
       switch (ev.type) {
         case event_type::tick:
           node_handle_->tick();
@@ -268,7 +284,7 @@ struct node_adapter {
       auto rd_handle_result = co_await node_handle_->wait_ready(executor_);
       if (!rd_handle_result) {
         SPDLOG_ERROR("node {} wait_ready failed: {}", id_, rd_handle_result.error().message());
-        co_return;
+        break;
       }
       assert(rd_handle_result);
       auto rd_handle = rd_handle_result.value();

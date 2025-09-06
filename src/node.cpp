@@ -70,12 +70,12 @@ asio::awaitable<void> node::run() {
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_tick(token_chan); });
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_ready(token_chan, active_ready_chan, ready_inflight); });
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_status(token_chan); });
-  co_spawn(executor_, listen_stop(), asio::detached);
+  waiter->add([&]() -> asio::awaitable<void> { co_await listen_stop(); });
 
   while (is_running()) {
-    SPDLOG_DEBUG("run main loop ......");
+    SPDLOG_TRACE("run main loop ......");
     if (!ready_inflight.load(std::memory_order_acquire) && raw_node_.has_ready()) {
-      SPDLOG_DEBUG("run main loop has ready......");
+      SPDLOG_TRACE("run main loop has ready......");
       // Populate a Ready. Note that this Ready is not guaranteed to
       // actually be handled. We will arm readyc, but there's no guarantee
       // that we will actually send on it. It's possible that we will
@@ -86,7 +86,7 @@ asio::awaitable<void> node::run() {
       // predictably).
       active_ready_chan.try_send();
     }
-    SPDLOG_DEBUG("run main loop, continue main loop logic ......");
+    SPDLOG_TRACE("run main loop, continue main loop logic ......");
     if (lead != r.lead()) {
       if (r.has_leader()) {
         if (lead == NONE) {
