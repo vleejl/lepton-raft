@@ -28,8 +28,9 @@ class channel_endpoint {
   }
 
   asio::awaitable<lepton::expected<void>> async_send(T value) {
+    auto v = std::move(value);
     auto result = co_await async_select_done(
-        [&](auto token) { return chan_.async_send(asio::error_code{}, std::move(value), token); }, cancel_chan_);
+        [&](auto token) { return chan_.async_send(asio::error_code{}, std::move(v), token); }, cancel_chan_);
     co_return result;
   }
 

@@ -46,6 +46,7 @@ asio::awaitable<void> node::stop() {
   // Block until the stop has been acknowledged by run()
   co_await done_chan_.async_receive();
   done_chan_.close();
+  co_await wait_run_exit_chan_.async_receive();
   SPDLOG_INFO("{} receive done siganl and stop has been acknowledged by run()", id);
   co_return;
 }
@@ -112,6 +113,7 @@ asio::awaitable<void> node::run() {
   }
   co_await waiter->wait_all();
   SPDLOG_DEBUG("{} receive stop signal and exit run loop", r.id());
+  co_await wait_run_exit_chan_.async_send(asio::error_code{});
   co_return;
 }
 

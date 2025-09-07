@@ -1,0 +1,9 @@
+# 1. 带线程检测的debug构建
+./build.sh --clean -m debug -s asan
+./build.sh -m debug -s tsan
+
+# 2. 清理后执行release构建
+./build.sh --clean --mode release
+
+# 3. 显示帮助信息
+./build.sh -h

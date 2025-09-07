@@ -47,21 +47,22 @@ class node {
  public:
   node(asio::any_io_executor executor, raw_node&& raw_node)
       : executor_(executor),
-        token_chan_(executor),
-        active_prop_chan_(executor),
-        active_ready_chan_(executor),
-        active_advance_chan_(executor),
-        prop_chan_(executor),
-        recv_chan_(executor),
-        conf_chan_(executor),
-        conf_state_chan_(executor),
-        ready_chan_(executor),
-        ready_request_chan_(executor),
-        advance_chan_(executor),
-        tick_chan_(executor, 128),
-        done_chan_(executor),
-        stop_chan_(executor),
-        status_chan_(executor),
+        token_chan_(executor_),
+        active_prop_chan_(executor_),
+        active_ready_chan_(executor_),
+        active_advance_chan_(executor_),
+        prop_chan_(executor_),
+        recv_chan_(executor_),
+        conf_chan_(executor_),
+        conf_state_chan_(executor_),
+        ready_chan_(executor_),
+        ready_request_chan_(executor_),
+        advance_chan_(executor_),
+        tick_chan_(executor_, 128),
+        done_chan_(executor_),
+        stop_chan_(executor_),
+        wait_run_exit_chan_(executor_),
+        status_chan_(executor_),
         raw_node_(std::move(raw_node)) {}
 
   ~node() { stop_source_.request_stop(); }
@@ -155,6 +156,7 @@ class node {
   signal_channel_endpoint tick_chan_;
   signal_channel done_chan_;
   signal_channel stop_chan_;
+  signal_channel wait_run_exit_chan_;
   status_channel status_chan_;
   raw_node raw_node_;
 };

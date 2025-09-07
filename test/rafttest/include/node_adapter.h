@@ -47,12 +47,14 @@ struct node_adapter {
   node_adapter(asio::any_io_executor executor, lepton::node_proxy &&node_handle, std::uint64_t id,
                std::unique_ptr<iface> &&iface, std::unique_ptr<lepton::memory_storage> &&storage)
       : executor_(executor),
-        event_chan_(executor),
+        event_chan_(executor_),
         node_handle_(std::move(node_handle)),
         id_(id),
         iface_(std::move(iface)),
-        stop_chan_(executor),
-        pause_chan_(executor),
+        done_chan_(executor_),
+        stop_chan_(executor_),
+        wait_run_exit_chan_(executor_),
+        pause_chan_(executor_),
         storage_(std::move(storage)) {}
 
   void start() { co_spawn(executor_, start_impl(), asio::detached); }
@@ -71,8 +73,10 @@ struct node_adapter {
     SPDLOG_INFO("{} ready to send stop signal", id_);
     co_await stop_chan_.async_send(asio::error_code{});
     SPDLOG_INFO("{} Block until the stop has been acknowledged by run()", id_);
-    // wait for the shutdown
-    co_await stop_chan_.async_receive();
+    // Block until the stop has been acknowledged by run()
+    co_await done_chan_.async_receive();
+    done_chan_.close();
+    co_await wait_run_exit_chan_.async_receive();
     SPDLOG_INFO("{} receive stop siganl and stop has been acknowledged by run()", id_);
     stop_chan_.close();
   }
@@ -82,10 +86,11 @@ struct node_adapter {
   static asio::awaitable<std::unique_ptr<node_adapter>> restart_node(std::unique_ptr<node_adapter> &&node,
                                                                      raft_network *nt) {
     co_await node->stop();
+    // 确保所有操作在移动前完成
+    co_await asio::post(asio::bind_executor(node->executor_, asio::use_awaitable));
     auto id = node->id_;
     auto executor = node->executor_;
     auto storage = std::move(node->storage_);
-    node.reset();
     SPDLOG_INFO("node {} is stopped and ready to restart", id);
     lepton::config c;
     c.id = id;
@@ -182,6 +187,7 @@ struct node_adapter {
       }
       co_return;
     };
+    auto id = id_;
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dist(0, 9);  // [0, 9]的均匀分布
@@ -192,9 +198,8 @@ struct node_adapter {
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_recv(); });
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_pause(); });
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_stop(); });
-    // co_spawn(executor_, listen_stop(), asio::detached);
     while (is_running()) {
-      SPDLOG_TRACE("node {} waiting for events", id_);
+      SPDLOG_INFO("node {} waiting for events", id_);
       auto ev_result = co_await event_chan_.async_receive();
       if (!ev_result) {
         SPDLOG_INFO("node {} event channel closed, exiting", id_);
@@ -263,7 +268,8 @@ struct node_adapter {
       }
     }
     co_await waiter->wait_all();
-    SPDLOG_INFO("node {} all listeners exited", id_);
+    SPDLOG_INFO("node {} all listeners exited", id);
+    co_await wait_run_exit_chan_.async_send(asio::error_code{});
     co_return;
   }
 
@@ -315,7 +321,10 @@ struct node_adapter {
     event_chan_.close();
     pause_chan_.close();
     co_await node_handle_->stop();
-    co_await stop_chan_.async_send(asio::error_code{});
+    assert(done_chan_.is_open());
+    co_await done_chan_.async_send(asio::error_code{});
+    co_await asio::post(asio::bind_executor(executor_, asio::use_awaitable));
+    SPDLOG_INFO("node {} all chaneels has closed, and has send stop_chan response", id_);
     co_return;
   }
 
@@ -340,7 +349,9 @@ struct node_adapter {
   lepton::node_proxy node_handle_;
   std::uint64_t id_;
   std::shared_ptr<rafttest::iface> iface_;
+  lepton::signal_channel done_chan_;
   lepton::signal_channel stop_chan_;
+  lepton::signal_channel wait_run_exit_chan_;
   lepton::channel_endpoint<bool> pause_chan_;
 
   // stable

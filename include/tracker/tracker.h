@@ -124,6 +124,8 @@ struct config {
   }
 };
 
+static_assert(std::is_move_constructible<config>::value, "expectd tracker::confoig is is_move_constructible");
+
 // ProgressTracker tracks the currently active configuration and the information
 // known about the nodes and learners in it. In particular, it tracks the match
 // index for each peer which in turn allows reasoning about the committed index.
