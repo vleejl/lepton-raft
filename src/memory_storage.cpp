@@ -1,7 +1,5 @@
 #include "memory_storage.h"
 
-#include <error.h>
-
 #include <cassert>
 #include <cstdint>
 

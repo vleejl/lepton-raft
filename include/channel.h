@@ -55,7 +55,7 @@ asio::awaitable<expected<T>> async_select_done_with_value(AsyncFunc &&main_op, s
         SPDLOG_ERROR("main_op failed: {}", ec1.message());
         co_return tl::unexpected(ec1);
       }
-      co_return result1;
+      co_return tl::expected<T, std::error_code>(std::move(result1));
     }
     case 1:
       co_return tl::unexpected(make_error_code(raft_error::STOPPED));

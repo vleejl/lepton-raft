@@ -362,33 +362,33 @@ void raw_node::accept_ready(const lepton::ready &rd) {
 bool raw_node::has_ready() const {
   // TODO(nvanbenschoten): order these cases in terms of cost and frequency.
   if (auto soft_state = raft_.soft_state(); soft_state != prev_soft_state_) {
-    SPDLOG_DEBUG("soft state has changed, soft_state: {}, prev_soft_state_: {}", describe_soft_state(soft_state),
+    SPDLOG_TRACE("soft state has changed, soft_state: {}, prev_soft_state_: {}", describe_soft_state(soft_state),
                  describe_soft_state(prev_soft_state_));
     return true;
   }
   if (auto hard_state = raft_.hard_state(); !pb::is_empty_hard_state(hard_state) && hard_state != prev_hard_state_) {
-    SPDLOG_DEBUG("hard state has changed, hafrd_state:{}, prev_hard_state_:{}", hard_state.DebugString(),
+    SPDLOG_TRACE("hard state has changed, hafrd_state:{}, prev_hard_state_:{}", hard_state.DebugString(),
                  prev_hard_state_.DebugString());
     return true;
   }
   if (raft_.raft_log_handle_.has_next_unstable_snapshot()) {
-    SPDLOG_DEBUG("has next unstable snapshot");
+    SPDLOG_TRACE("has next unstable snapshot");
     return true;
   }
   if (!raft_.msgs_.empty() || !raft_.msgs_after_append().empty()) {
-    SPDLOG_DEBUG("msg not empty, msgs size:{}, msgs_after_append size:{}", raft_.msgs_.size(),
+    SPDLOG_TRACE("msg not empty, msgs size:{}, msgs_after_append size:{}", raft_.msgs_.size(),
                  raft_.msgs_after_append().size());
     return true;
   }
   if (raft_.raft_log_handle().has_next_unstable_ents() ||
       raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries())) {
-    SPDLOG_DEBUG("has next unstable ents:{}, has next committed ents:{}",
+    SPDLOG_TRACE("has next unstable ents:{}, has next committed ents:{}",
                  raft_.raft_log_handle().has_next_unstable_ents(),
                  raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries()));
     return true;
   }
   if (!raft_.read_states_.empty()) {
-    SPDLOG_DEBUG("read stattes not empty");
+    SPDLOG_TRACE("read stattes not empty");
     return true;
   }
   return false;

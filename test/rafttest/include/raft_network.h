@@ -14,6 +14,7 @@
 
 #include "channel.h"
 #include "channel_endpoint.h"
+#include "magic_enum.hpp"
 #include "raft.pb.h"
 #include "spdlog/spdlog.h"
 
@@ -46,9 +47,10 @@ struct delay {
 // 模拟网络
 class raft_network {
  public:
-  explicit raft_network(asio::any_io_executor executor, const std::vector<uint64_t>& nodes) : rng_(1) {
+  explicit raft_network(asio::any_io_executor executor, const std::vector<uint64_t>& nodes)
+      : executor_(executor), rng_(1) {
     for (auto n : nodes) {
-      recv_queues_[n] = std::make_shared<lepton::channel_endpoint<raftpb::message>>(executor, 1024);
+      recv_queues_[n] = std::make_shared<lepton::channel_endpoint<raftpb::message>>(executor_, 1024);
       disconnected_[n] = false;
     }
   }
@@ -70,7 +72,10 @@ class raft_network {
       dl = delaymap_[{m.from(), m.to()}];
     }
 
-    if (!to || disconnected) return;
+    if (!to || disconnected) {
+      SPDLOG_INFO("node {} is disconnected, drop msg type: {}", m.to(), magic_enum::enum_name(m.type()));
+      return;
+    }
 
     // 模拟丢包
     if (drop != 0.0 && dist_(rng_) < drop) return;
@@ -95,7 +100,7 @@ class raft_network {
     if (auto result = to->try_send(std::move(cm)); !result) {
       SPDLOG_DEBUG("send msg:{} failed", debug_str);
     } else {
-      SPDLOG_INFO("send msg:{} successful", debug_str);
+      SPDLOG_TRACE("send msg:{} successful", debug_str);
     }
   }
 
@@ -138,10 +143,12 @@ class raft_network {
   void connect(uint64_t id) {
     std::unique_lock lk(mu_);
     disconnected_[id] = false;
+    recv_queues_[id] = std::make_shared<lepton::channel_endpoint<raftpb::message>>(executor_, 1024);
   }
 
  private:
   std::mutex mu_;
+  asio::any_io_executor executor_;
   std::map<uint64_t, std::shared_ptr<lepton::channel_endpoint<raftpb::message>>> recv_queues_;
   std::map<uint64_t, bool> disconnected_;
   std::map<conn, double> dropmap_;

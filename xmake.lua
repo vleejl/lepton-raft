@@ -1,6 +1,6 @@
 add_rules("mode.debug", "mode.release")
 add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
-set_languages("cxx2b")
+set_languages("cxx23")
 set_warnings("all", "extra")
 set_policy("build.warning", true)
 add_cxflags("-fno-permissive", "-std=c++20", "-pedantic", "-Wall", "-Wextra", "-Wconversion", {force = true})

@@ -1549,7 +1549,7 @@ std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::ui
 leaf::result<void> raft::step(raftpb::message&& m) {
   trace_receive_message(*this, m);
   auto msg_type = m.type();
-  SPDLOG_DEBUG("{} [term {}] [commit {}] ready step message: {} {}", id_, term_, raft_log_handle_.committed(),
+  SPDLOG_TRACE("{} [term {}] [commit {}] ready step message: {} {}", id_, term_, raft_log_handle_.committed(),
                magic_enum::enum_name(msg_type), m.DebugString());
   // Handle the message term, which may result in our stepping down to a follower.
   if (m.term() == 0) {

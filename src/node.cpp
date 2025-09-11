@@ -91,23 +91,23 @@ asio::awaitable<void> node::run() {
     if (lead != r.lead()) {
       if (r.has_leader()) {
         if (lead == NONE) {
-          SPDLOG_INFO("raft.node: {} elected leader {} at term {}", r.id(), r.lead(), r.term());
+          SPDLOG_TRACE("raft.node: {} elected leader {} at term {}", r.id(), r.lead(), r.term());
         } else {
-          SPDLOG_INFO("raft.node: {} changed leader from {} to {} at term {}", r.id(), lead, r.lead(), r.term());
+          SPDLOG_TRACE("raft.node: {} changed leader from {} to {} at term {}", r.id(), lead, r.lead(), r.term());
         }
         is_active_prop_chan = true;
       } else {
-        SPDLOG_INFO("raft.node: {} lost leader {} at term {}", r.id(), lead, r.term());
+        SPDLOG_TRACE("raft.node: {} lost leader {} at term {}", r.id(), lead, r.term());
         is_active_prop_chan = false;
       }
       lead = r.lead();
     }
 
     if (is_active_prop_chan) {
-      SPDLOG_DEBUG("ready to send active prop channel");
+      SPDLOG_TRACE("ready to send active prop channel");
       // 不能阻塞主循环
       active_prop_chan.try_send();
-      SPDLOG_DEBUG("send active prop channel successful");
+      SPDLOG_TRACE("send active prop channel successful");
     }
     co_await token_chan.async_receive();
   }
@@ -153,7 +153,7 @@ asio::awaitable<expected<void>> node::propose(asio::any_io_executor executor, st
 }
 
 asio::awaitable<expected<void>> node::step(raftpb::message&& msg) {
-  SPDLOG_DEBUG(msg.DebugString());
+  SPDLOG_TRACE(msg.DebugString());
   if (pb::is_local_msg(msg.type()) && !pb::is_local_msg_target(msg.from())) {
     // Local messages are not handled by step, but by the node's
     // propose method.
@@ -177,18 +177,18 @@ asio::awaitable<expected<void>> node::propose_conf_change(const pb::conf_change_
 
 asio::awaitable<expected<ready_handle>> node::wait_ready(asio::any_io_executor executor) {
   auto receive_ready_chan = std::make_shared<ready_channel>(executor);
-  SPDLOG_DEBUG("prepare to request ready");
+  SPDLOG_TRACE("prepare to request ready");
   auto result = co_await ready_request_chan_.async_send(std::weak_ptr(receive_ready_chan));
   if (!result) {
     SPDLOG_ERROR("send callback channel failed, error:{}", result.error().message());
     co_return tl::unexpected{result.error()};
   }
-  SPDLOG_DEBUG("request ready callback channel successful and prepare wait callback channel active");
+  SPDLOG_TRACE("request ready callback channel successful and prepare wait callback channel active");
   auto ready = co_await receive_ready_chan->async_receive();
   if (!ready) {
     SPDLOG_ERROR("receive error when try to receive ready, error:{}", ready.error().message());
   } else {
-    SPDLOG_DEBUG("callback channel actived and receive ready content:\n{}", describe_ready(*ready.value()));
+    SPDLOG_TRACE("callback channel actived and receive ready content:\n{}", describe_ready(*ready.value()));
   }
   co_return ready;
 }
@@ -230,7 +230,11 @@ asio::awaitable<expected<lepton::status>> node::status() {
   }
 
   auto result = co_await status_chan->async_receive();
-  co_return result;
+  if (!result) {
+    SPDLOG_ERROR(result.error().message());
+    co_return tl::unexpected(result.error());
+  }
+  co_return tl::expected<lepton::status, std::error_code>(std::move(result.value()));
 }
 
 asio::awaitable<void> node::report_unreachable(std::uint64_t id) {
@@ -299,12 +303,12 @@ asio::awaitable<void> node::listen_ready(signal_channel_endpoint& token_chan,
                                          signal_channel_endpoint& active_ready_chan,
                                          std::atomic<bool>& ready_inflight) {
   while (is_running()) {
-    SPDLOG_DEBUG("waiting active_ready_chan signal......");
+    SPDLOG_TRACE("waiting active_ready_chan signal......");
     if (auto result = co_await active_ready_chan.async_receive(); !result) {
       SPDLOG_ERROR("Failed to receive active_ready_chan, error: {}", result.error().message());
       break;
     }
-    SPDLOG_DEBUG("receive active_ready_chan signal");
+    SPDLOG_TRACE("receive active_ready_chan signal");
     // 走到这里表面一定有 ready
     auto result = co_await ready_request_chan_.async_receive();
     if (!result) {
@@ -313,12 +317,12 @@ asio::awaitable<void> node::listen_ready(signal_channel_endpoint& token_chan,
     }
     if (auto chan = result->lock()) {
       auto rd = std::make_shared<ready>(raw_node_.ready_without_accept());
-      SPDLOG_DEBUG("ready to send ready by ready_channel, {}", describe_ready(*rd.get()));
+      SPDLOG_TRACE("ready to send ready by ready_channel, {}", describe_ready(*rd.get()));
       // etcd raft 实现要求，收到 ready以后必须立马 accept_ready
       // 为了避免使用 co_await 导致堆栈被切出去，所以先确认 (accept_ready) 再发送
       raw_node_.accept_ready(*rd.get());
       co_await chan->async_send(rd);
-      SPDLOG_DEBUG("send ready by ready_channel successful, {}", describe_ready(*rd.get()));
+      SPDLOG_TRACE("send ready by ready_channel successful, {}", describe_ready(*rd.get()));
       if (!raw_node_.async_storage_writes()) {
         ready_inflight.store(true, std::memory_order_release);
         co_await token_chan.async_send();
@@ -326,7 +330,7 @@ asio::awaitable<void> node::listen_ready(signal_channel_endpoint& token_chan,
           SPDLOG_ERROR("Failed to receive advance, error: {}", ec.error().message());
           break;
         }
-        SPDLOG_DEBUG("async_receive advance by advance_chan_ successfully");
+        SPDLOG_TRACE("async_receive advance by advance_chan_ successfully");
         raw_node_.advance();
         ready_inflight.store(false, std::memory_order_release);
         // advance 确认完成后需要立马开始监听 ready_chan，所以不能使用 co_await 避免堆栈被切出去
@@ -335,9 +339,9 @@ asio::awaitable<void> node::listen_ready(signal_channel_endpoint& token_chan,
         rd.reset();
         co_await token_chan.async_send();
       }
-      SPDLOG_DEBUG("finish send ready by ready_channel successfully");
+      SPDLOG_TRACE("finish send ready by ready_channel successfully");
     } else {
-      SPDLOG_WARN("callback channel has been released, wait next loop");
+      SPDLOG_TRACE("callback channel has been released, wait next loop");
       co_await token_chan.async_send();
     }
   }
@@ -536,7 +540,7 @@ asio::awaitable<expected<void>> node::handle_non_prop_msg(raftpb::message&& msg)
 }
 
 asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
-  SPDLOG_DEBUG(msg.DebugString());
+  SPDLOG_TRACE(msg.DebugString());
   const auto msg_type = msg.type();
   if (msg_type != raftpb::message_type::MSG_PROP) {
     auto result = co_await handle_non_prop_msg(std::move(msg));
@@ -551,7 +555,7 @@ asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
 }
 
 asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor executor, raftpb::message&& msg) {
-  SPDLOG_DEBUG(msg.DebugString());
+  SPDLOG_TRACE(msg.DebugString());
   const auto msg_type = msg.type();
   if (msg_type != raftpb::message_type::MSG_PROP) {
     auto result = co_await handle_non_prop_msg(std::move(msg));

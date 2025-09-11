@@ -1,4 +1,4 @@
-#include <error.h>
+
 #include <gtest/gtest.h>
 #include <raft.pb.h>
 #include <spdlog/spdlog.h>

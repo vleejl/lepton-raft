@@ -55,7 +55,9 @@ struct node_adapter {
         stop_chan_(executor_),
         wait_run_exit_chan_(executor_),
         pause_chan_(executor_),
-        storage_(std::move(storage)) {}
+        storage_(std::move(storage)) {
+    iface_->connect();
+  }
 
   void start() { co_spawn(executor_, start_impl(), asio::detached); }
 
@@ -112,10 +114,21 @@ struct node_adapter {
   // pause pauses the node.
   // The paused node buffers the received messages and replies
   // all of them when it resumes.
-  asio::awaitable<void> pause() { co_await pause_chan_.async_send(true); }
+  asio::awaitable<void> pause() {
+    paused_.store(true, std::memory_order_relaxed);
+    co_return;
+  }
 
   // resume resumes the paused node.
-  asio::awaitable<void> resumes() { co_await pause_chan_.async_send(false); }
+  asio::awaitable<void> resume() {
+    paused_.store(false, std::memory_order_relaxed);
+    // flush buffered messages
+    for (auto &m : paused_recv_ms_buffer_) {
+      co_await event_chan_.async_send(event{event_type::recv, std::move(m)});
+    }
+    paused_recv_ms_buffer_.Clear();
+    co_return;
+  }
 
   void tick() { node_handle_->tick(); }
 
@@ -181,7 +194,7 @@ struct node_adapter {
                        raftpb::message msg, int wait_ms) -> asio::awaitable<void> {
       asio::steady_timer timer(executor, asio::chrono::milliseconds(wait_ms));
       co_await timer.async_wait(asio::use_awaitable);
-      SPDLOG_DEBUG("node {} sending msg: {}", id, msg.DebugString());
+      SPDLOG_TRACE("node {} sending msg: {}", id, msg.DebugString());
       if (auto iface = iface_handle.lock()) {
         iface->send(msg);
       }
@@ -199,14 +212,14 @@ struct node_adapter {
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_pause(); });
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_stop(); });
     while (is_running()) {
-      SPDLOG_INFO("node {} waiting for events", id_);
+      SPDLOG_TRACE("node {} waiting for events", id_);
       auto ev_result = co_await event_chan_.async_receive();
       if (!ev_result) {
-        SPDLOG_INFO("node {} event channel closed, exiting", id_);
+        SPDLOG_TRACE("node {} event channel closed, exiting", id_);
         break;
       }
       auto ev = std::move(ev_result.value());
-      SPDLOG_INFO("node {} received event: {}", id_, magic_enum::enum_name(ev.type));
+      SPDLOG_TRACE("node {} received event: {}", id_, magic_enum::enum_name(ev.type));
       switch (ev.type) {
         case event_type::tick:
           node_handle_->tick();
@@ -214,7 +227,7 @@ struct node_adapter {
         case event_type::ready: {
           auto rd_handle = std::get<lepton::ready_handle>(ev.payload);
           auto &rd = *rd_handle.get();
-          SPDLOG_INFO(lepton::describe_ready(rd));
+          SPDLOG_TRACE(lepton::describe_ready(rd));
           if (!lepton::pb::is_empty_hard_state(rd.hard_state)) {
             std::lock_guard<std::mutex> lock(mu);
             state = rd.hard_state;
@@ -238,31 +251,6 @@ struct node_adapter {
         case event_type::stop:
           co_return;
         case event_type::pause: {
-          bool p = std::get<bool>(ev.payload);
-          if (!p) break;  // pause=false 直接忽略
-          lepton::pb::repeated_message recvms;
-          while (is_running()) {
-            auto ev2_result = co_await event_chan_.async_receive();
-            if (!ev2_result) {
-              SPDLOG_INFO("node {} event channel closed, exiting", id_);
-              co_return;
-            }
-            auto ev2 = std::move(ev2_result.value());
-            if (ev2.type == event_type::recv) {
-              recvms.Add(std::move(std::get<raftpb::message>(ev2.payload)));
-            } else if (ev2.type == event_type::pause) {
-              bool p2 = std::get<bool>(ev2.payload);
-              if (!p2) {
-                break;  // 退出 pause
-              }
-              // 如果再次 true，就继续收
-            } else {
-              // Go 实现是只 select {recv,pause}，所以这里我们丢掉其他事件
-            }
-          }
-          for (auto &m : recvms) {
-            co_await node_handle_->step(std::move(m));
-          }
           break;
         }
       }
@@ -279,6 +267,9 @@ struct node_adapter {
     while (is_running()) {
       timer.expires_after(interval);
       co_await timer.async_wait();
+      if (paused_.load(std::memory_order_relaxed)) {
+        continue;
+      }
       co_await event_chan_.async_send(event{.type = event_type::tick, .payload = {}});
     }
     SPDLOG_INFO("node {} tick listener exited", id_);
@@ -309,7 +300,11 @@ struct node_adapter {
         SPDLOG_INFO("node {} iface recv channel closed, exiting", id_);
         break;
       }
-      co_await event_chan_.async_send(event{event_type::recv, std::move(msg.value())});
+      if (paused_.load(std::memory_order_relaxed)) {
+        paused_recv_ms_buffer_.Add(std::move(msg.value()));
+      } else {
+        co_await event_chan_.async_send(event{event_type::recv, std::move(msg.value())});
+      }
     }
     SPDLOG_INFO("node {} recv listener exited", id_);
     co_return;
@@ -353,6 +348,8 @@ struct node_adapter {
   lepton::signal_channel stop_chan_;
   lepton::signal_channel wait_run_exit_chan_;
   lepton::channel_endpoint<bool> pause_chan_;
+  std::atomic<bool> paused_{false};
+  lepton::pb::repeated_message paused_recv_ms_buffer_;
 
   // stable
   std::unique_ptr<lepton::memory_storage> storage_;

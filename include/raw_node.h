@@ -1,6 +1,5 @@
 #ifndef _LEPTON_RAW_NODE_H_
 #define _LEPTON_RAW_NODE_H_
-#include <error.h>
 
 #include <cassert>
 #include <vector>

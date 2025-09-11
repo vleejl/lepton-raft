@@ -8,6 +8,9 @@ clear
 # ----------------------------
 MODE="debug"
 SANITIZER="none"
+TOOLCHAIN="gcc" # 默认工具链
+JOBS=4 # 默认编译线程数
+VERBOSE=false # 默认不显示详细输出
 
 # ----------------------------
 # 帮助信息
@@ -19,12 +22,15 @@ usage() {
     echo "  -m, --mode <debug|release>     Build mode (default: debug)"
     echo "  -s, --sanitizer <asan|tsan|msan|none>"
     echo "                                 Sanitizer type (default: none)"
+    echo "  -t, --toolchain <gcc|clang>   Compiler toolchain (default: gcc)"
+    echo "  -j, --jobs <N>                 Number of parallel jobs (default: 4)"
     echo "  -c, --clean                    Clean build directory before build"
+    echo "  -v, --verbose                  Show verbose build output"
     echo "  -h, --help                     Show this help message"
     echo
     echo "Examples:"
-    echo "  $0 -m debug -s asan   # Debug build with AddressSanitizer"
-    echo "  $0 -m release         # Release build"
+    echo "  $0 -m debug -s asan -t clang   # Debug build with AddressSanitizer using Clang"
+    echo "  $0 -m release -j 8 -t gcc -v   # Release build with 8 threads using GCC with verbose output"
 }
 
 # ----------------------------
@@ -41,8 +47,20 @@ while [[ $# -gt 0 ]]; do
             SANITIZER="$2"
             shift 2
             ;;
+        -t|--toolchain)
+            TOOLCHAIN="$2"
+            shift 2
+            ;;
+        -j|--jobs)
+            JOBS="$2"
+            shift 2
+            ;;
         -c|--clean)
             CLEAN=true
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE=true
             shift
             ;;
         -h|--help)
@@ -58,6 +76,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ----------------------------
+# 验证工具链选项
+# ----------------------------
+if [[ "$TOOLCHAIN" != "gcc" && "$TOOLCHAIN" != "clang" ]]; then
+    echo "Invalid toolchain: $TOOLCHAIN. Must be 'gcc' or 'clang'"
+    usage
+    exit 1
+fi
+
+# ----------------------------
 # 前置任务
 # ----------------------------
 ./format_all.sh -e build,third_party
@@ -70,7 +97,7 @@ fi
 # ----------------------------
 # 构建配置
 # ----------------------------
-XMAKE_ARGS=("-m" "$MODE")
+XMAKE_ARGS=("-m" "$MODE" "--toolchain=$TOOLCHAIN" "-c")
 
 case "$SANITIZER" in
     asan)
@@ -96,9 +123,18 @@ esac
 # ----------------------------
 echo "[INFO] Running xmake with args: ${XMAKE_ARGS[*]}"
 xmake f "${XMAKE_ARGS[@]}"
-xmake build
+
+BUILD_CMD=("build" "-j" "$JOBS")
+if $VERBOSE; then
+    BUILD_CMD+=("-v")
+    echo "[INFO] Building with $JOBS parallel jobs using $TOOLCHAIN (verbose output)"
+else
+    echo "[INFO] Building with $JOBS parallel jobs using $TOOLCHAIN"
+fi
+
+xmake "${BUILD_CMD[@]}"
 
 # ----------------------------
 # 性能分析（可选）
 # ----------------------------
-# XMAKE_PROFILE=perf:tag xmake -r
+# XMAKE_PROFILE=perf:tag xmake -r                              

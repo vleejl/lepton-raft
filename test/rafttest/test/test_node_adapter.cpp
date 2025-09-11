@@ -95,6 +95,15 @@ static asio::awaitable<int> wait_leader(std::vector<std::unique_ptr<rafttest::no
   }
 }
 
+static asio::awaitable<void> print_node_status(std::string hint, std::unique_ptr<rafttest::node_adapter> &node) {
+  auto status = co_await node->status();
+  EXPECT_TRUE(status);
+  auto term = status->basic_status.hard_state.term();
+  auto commit = status->basic_status.hard_state.commit();
+  SPDLOG_INFO("[{}]node {}, term {}, commit index {}", hint, node->id_, term, commit);
+  co_return;
+}
+
 static asio::awaitable<bool> wait_commit_converge(asio::any_io_executor executor,
                                                   std::vector<std::unique_ptr<rafttest::node_adapter>> &nodes,
                                                   std::uint64_t target) {
@@ -118,11 +127,7 @@ static asio::awaitable<bool> wait_commit_converge(asio::any_io_executor executor
     co_await timer.async_wait(asio::use_awaitable);
   }
   for (auto &node : nodes) {
-    auto status = co_await node->status();
-    EXPECT_TRUE(status);
-    auto term = status->basic_status.hard_state.term();
-    auto commit = status->basic_status.hard_state.commit();
-    SPDLOG_INFO("[fininal status]node {}, term {}, commit index {}", node->id_, term, commit);
+    co_await print_node_status("final status", node);
   }
   co_return false;
 }
@@ -150,7 +155,7 @@ TEST_F(node_adapter_test_suit, test_network_delay) {
 
         std::size_t propose_num = 100;
         for (std::size_t i = 0; i < propose_num; ++i) {
-          co_await nodes[0]->propose(io_context.get_executor(), "index【" + std::to_string(i) + "】  somedata");
+          co_await nodes[0]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
         }
 
         auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, propose_num);
@@ -189,14 +194,14 @@ TEST_F(node_adapter_test_suit, test_restart_simplify) {
         co_await wait_leader(nodes);
 
         // for (std::size_t i = 0; i < 30; ++i) {
-        //   co_await nodes[0]->propose(io_context.get_executor(), "index【" + std::to_string(i) + "】  somedata");
+        //   co_await nodes[0]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
         // }
 
         co_await nodes[0]->stop();
 
         nodes[0] = co_await rafttest::node_adapter::restart_node(std::move(nodes[0]), &nt);
         // for (std::size_t i = 0; i < 30; ++i) {
-        //   co_await nodes[0]->propose(io_context.get_executor(), "index【" + std::to_string(i) + "】  somedata");
+        //   co_await nodes[0]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
         // }
 
         // auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 60);
@@ -240,28 +245,153 @@ TEST_F(node_adapter_test_suit, test_restart) {
         auto k2 = (l + 2) % 5;
 
         for (std::size_t i = 0; i < 30; ++i) {
-          co_await nodes[l]->propose(io_context.get_executor(), "index【" + std::to_string(i) + "】  somedata");
+          co_await nodes[l]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
         }
         co_await nodes[k1]->stop();
         for (std::size_t i = 0; i < 30; ++i) {
-          co_await nodes[(l + 3) % 5]->propose(io_context.get_executor(),
-                                               "index【" + std::to_string(i) + "】  somedata");
+          co_await nodes[(l + 3) % 5]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
         }
 
         co_await nodes[k2]->stop();
         for (std::size_t i = 0; i < 30; ++i) {
-          co_await nodes[(l + 4) % 5]->propose(io_context.get_executor(),
-                                               "index【" + std::to_string(i) + "】  somedata");
+          co_await nodes[(l + 4) % 5]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
         }
-        // nodes[k2] = co_await rafttest::node_adapter::restart_node(std::move(nodes[k2]));
+        nodes[k2] = co_await rafttest::node_adapter::restart_node(std::move(nodes[k2]), &nt);
         for (std::size_t i = 0; i < 30; ++i) {
-          co_await nodes[l]->propose(io_context.get_executor(), "index【" + std::to_string(i) + "】  somedata");
+          co_await nodes[l]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
         }
-        // nodes[k1] = co_await rafttest::node_adapter::restart_node(std::move(nodes[k1]));
+        nodes[k1] = co_await rafttest::node_adapter::restart_node(std::move(nodes[k1]), &nt);
 
         auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 120);
         EXPECT_TRUE(result);
-        SPDLOG_INFO("[fininal status]node:{}, node:{} restarted", nodes[k1]->id_, nodes[k2]->id_);
+        SPDLOG_INFO("[final status]node:{}, node:{} restarted", nodes[k1]->id_, nodes[k2]->id_);
+        for (auto &node : nodes) {
+          co_await node->stop();
+          SPDLOG_INFO("node {} stopped", node->id_);
+        }
+        co_return;
+      },
+      asio::detached);
+
+  io_context.run();
+}
+
+TEST_F(node_adapter_test_suit, test_simple_pause) {
+  constexpr std::size_t node_count = 1;
+  asio::io_context io_context;
+  std::vector<std::uint64_t> node_ids;
+  std::vector<lepton::peer> peers;
+  for (std::uint64_t i = 1; i <= node_count; ++i) {
+    node_ids.push_back(i);
+    peers.push_back(lepton::peer{.ID = i, .context = std::string{}});
+  }
+  rafttest::raft_network nt{io_context.get_executor(), node_ids};
+  std::vector<std::unique_ptr<rafttest::node_adapter>> nodes;
+  for (std::uint64_t i = 1; i <= node_count; ++i) {
+    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::peer>(peers),
+                                            std::make_unique<rafttest::node_network>(i, &nt)));
+  }
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto l_result = co_await wait_leader(nodes);
+        EXPECT_GE(l_result, 0);
+        auto l = static_cast<std::size_t>(l_result);
+
+        std::size_t i = 0;
+        for (; i < 30; ++i) {
+          co_await nodes[l]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
+        }
+        {
+          auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 30);
+          EXPECT_TRUE(result);
+        }
+
+        co_await nodes[l]->pause();
+        for (; i < 60; ++i) {
+          co_await nodes[l]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
+        }
+
+        co_await nodes[l]->resume();
+        co_await print_node_status("resume status", nodes[l]);
+        {
+          auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 60);
+          EXPECT_TRUE(result);
+        }
+
+        for (; i < 90; ++i) {
+          co_await nodes[l]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
+        }
+        auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 90);
+        EXPECT_TRUE(result);
+
+        for (auto &node : nodes) {
+          co_await node->stop();
+          SPDLOG_INFO("node {} stopped", node->id_);
+        }
+        co_return;
+      },
+      asio::detached);
+
+  io_context.run();
+}
+
+TEST_F(node_adapter_test_suit, test_pause) {
+  constexpr std::size_t node_count = 5;
+  asio::io_context io_context;
+  std::vector<std::uint64_t> node_ids;
+  std::vector<lepton::peer> peers;
+  for (std::uint64_t i = 1; i <= node_count; ++i) {
+    node_ids.push_back(i);
+    peers.push_back(lepton::peer{.ID = i, .context = std::string{}});
+  }
+  rafttest::raft_network nt{io_context.get_executor(), node_ids};
+  std::vector<std::unique_ptr<rafttest::node_adapter>> nodes;
+  for (std::uint64_t i = 1; i <= node_count; ++i) {
+    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::peer>(peers),
+                                            std::make_unique<rafttest::node_network>(i, &nt)));
+  }
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto l_result = co_await wait_leader(nodes);
+        EXPECT_GE(l_result, 0);
+        auto l = static_cast<std::size_t>(l_result);
+
+        auto k1 = static_cast<std::size_t>((l + 1) % 5);
+        auto k2 = (l + 2) % 5;
+
+        for (std::size_t i = 0; i < 30; ++i) {
+          co_await nodes[l]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
+        }
+
+        co_await nodes[k1]->pause();
+        co_await print_node_status("pause status", nodes[k1]);
+        for (std::size_t i = 0; i < 30; ++i) {
+          co_await nodes[(l + 3) % 5]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
+        }
+
+        co_await nodes[k2]->pause();
+        co_await print_node_status("pause status", nodes[k2]);
+        for (std::size_t i = 0; i < 30; ++i) {
+          co_await nodes[(l + 4) % 5]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
+        }
+
+        co_await nodes[k2]->resume();
+        co_await print_node_status("resume status", nodes[k2]);
+        for (std::size_t i = 0; i < 30; ++i) {
+          co_await nodes[l]->propose(io_context.get_executor(), "index " + std::to_string(i) + "  somedata");
+        }
+        co_await nodes[k1]->resume();
+        co_await print_node_status("resume status", nodes[k1]);
+
+        auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 120);
+        EXPECT_TRUE(result);
+
+        SPDLOG_INFO("[final status]leader:{}, node:{}, node:{} pause and resume", nodes[l]->id_, nodes[k1]->id_,
+                    nodes[k2]->id_);
         for (auto &node : nodes) {
           co_await node->stop();
           SPDLOG_INFO("node {} stopped", node->id_);
