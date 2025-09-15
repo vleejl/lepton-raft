@@ -11,6 +11,7 @@
 
 #include "absl/types/span.h"
 #include "conf_change.h"
+#include "gtest/gtest.h"
 #include "raft.pb.h"
 
 raftpb::conf_change create_conf_change_v1(std::uint64_t node_id, raftpb::conf_change_type type) {
@@ -335,7 +336,15 @@ bool compare_repeated_message(const lepton::pb::repeated_message &lhs, const lep
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
-    assert(lhs_size == rhs_size);
+    for (int i = 0; i < lhs_size; ++i) {
+      SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
+    }
+    for (int i = 0; i < rhs_size; ++i) {
+      SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
+    }
+    SPDLOG_INFO("lhs size: {}, rhs size: {}", lhs_size, rhs_size);
+    EXPECT_EQ(lhs_size, rhs_size);
+    // assert(lhs_size == rhs_size);
     return false;
   }
   for (int i = 0; i < lhs_size; ++i) {

@@ -732,7 +732,7 @@ TEST_F(raw_node_test_suit, test_raw_node_restart_from_snapshot) {
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
   mm_storage.set_hard_state(std::move(hs));
   mm_storage.apply_snapshot(std::move(snap));
-  mm_storage.append(std::move(entries));
+  mm_storage.append(lepton::pb::repeated_entry(entries));
 
   auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);

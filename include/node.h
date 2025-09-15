@@ -156,6 +156,7 @@ class node {
   signal_channel_endpoint tick_chan_;
   signal_channel done_chan_;
   signal_channel stop_chan_;
+  std::atomic<bool> started_{false};
   signal_channel wait_run_exit_chan_;
   status_channel status_chan_;
   raw_node raw_node_;

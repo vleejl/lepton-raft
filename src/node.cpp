@@ -1,5 +1,6 @@
 #include "node.h"
 
+#include <atomic>
 #include <cassert>
 #include <functional>
 #include <memory>
@@ -46,12 +47,16 @@ asio::awaitable<void> node::stop() {
   // Block until the stop has been acknowledged by run()
   co_await done_chan_.async_receive();
   done_chan_.close();
-  co_await wait_run_exit_chan_.async_receive();
+  if (started_.load(std::memory_order_relaxed)) {
+    co_await wait_run_exit_chan_.async_receive();
+  }
   SPDLOG_INFO("{} receive done siganl and stop has been acknowledged by run()", id);
   co_return;
 }
 
 asio::awaitable<void> node::run() {
+  started_.store(true, std::memory_order_relaxed);
+
   signal_channel_endpoint& token_chan = token_chan_;
 
   bool is_active_prop_chan = false;
