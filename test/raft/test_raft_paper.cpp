@@ -783,7 +783,7 @@ TEST_F(raft_paper_test_suit, test_follower_append_entries) {
       {
           .index = 0,
           .term = 0,
-          .ents = create_entries(1, {1}),  // 新条目: [term1@1]
+          .ents = create_entries(1, {1}),      // 新条目: [term1@1]
           .wents = create_entries(1, {1, 2}),  // 最终日志: [term1@1, term2@2]（注意：包含隐含添加的下一条）
           .wunstable = {}                      // 全部已持久化（空）
       },

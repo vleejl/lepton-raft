@@ -1,4 +1,5 @@
 .github
+.vs
 .vscode/.cache
 .vscode/compile_commands.json
 .devcontainer/

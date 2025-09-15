@@ -1,3 +1,6 @@
 [submodule "third_party/proxy"]
 	path = third_party/proxy
 	url = https://github.com/microsoft/proxy.git
+[submodule "third_party/dtl"]
+	path = third_party/dtl
+	url = https://github.com/cubicdaiya/dtl.git

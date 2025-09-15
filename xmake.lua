@@ -3,9 +3,9 @@ add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode"})
 set_languages("cxx23")
 set_warnings("all", "extra")
 set_policy("build.warning", true)
-add_cxflags("-fno-permissive", "-std=c++20", "-pedantic", "-Wall", "-Wextra", "-Wconversion", {force = true})
 
 if is_plat("linux", "macosx") then
+    add_cxflags("-fno-permissive", "-std=c++20", "-pedantic", "-Wall", "-Wextra", "-Wconversion", {force = true})
     add_cxflags("-fno-omit-frame-pointer")
     if is_kind("clang", "clangxx") then
         add_cxflags("-fsanitize-address-use-after-return=always")
@@ -87,13 +87,25 @@ target("lepton-raft")
     add_files("src/*.cpp")
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog", "tl_expected")
 
-local test_cxflags = {"-Wno-unused-result", "-Wno-unused-parameter", "-Wno-unused-variable", "-Wno-missing-field-initializers"}
+local test_cxflags
+if is_plat("windows") then
+    test_cxflags = {}
+else
+    test_cxflags = {
+        "-Wno-unused-result",
+        "-Wno-unused-parameter",
+        "-Wno-unused-variable",
+        "-Wno-missing-field-initializers"
+    }
+end
 
 target("lepton-unit-test")
-    -- set_policy("build.sanitizer.leak", true)
+    add_includedirs("third_party/dtl")
     on_load(apply_sanitizers)
     add_defines("LEPTON_TEST")
-    add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
+    local project_dir = os.projectdir():gsub("\\", "/")
+    add_defines("LEPTON_PROJECT_DIR=\"" .. project_dir .."\"")
+    -- add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
     add_includedirs("test/rafttest/include")
     add_includedirs("test/utility/include")
     add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG")
@@ -123,7 +135,7 @@ target("lepton-unit-test")
 
 
 target("lepton-benchmark-test")
-    -- set_policy("build.sanitizer.leak", true)
+    add_includedirs("third_party/dtl")
     add_defines("LEPTON_TEST")
     add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
     add_includedirs("test/utility/include")

@@ -312,10 +312,14 @@ TEST(quorum_data_driven_test_suit, test_data_driven_impl) {
 
   // 拼接 "testdata" 目录
   std::filesystem::path project_dir = LEPTON_PROJECT_DIR;
-  std::string test_dir = (current_dir / "testdata").string();
+  project_dir = project_dir.make_preferred();
 
   // List all test files in the specified directory
-  data_driven_group group{project_dir / (current_dir / "testdata").string()};
+  // 先构建完整路径对象
+  std::filesystem::path full_path = project_dir / current_dir / "testdata";
+  // 再显式转换为字符串
+  std::string dir_path = full_path.string();
+  data_driven_group group{dir_path};
   data_driven::process_func func = process_single_test_case;
   group.run(func);
 }

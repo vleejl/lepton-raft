@@ -7,3 +7,6 @@
 
 # 3. 显示帮助信息
 ./build.sh -h
+
+# 4. 格式化所有代码，排除build和third_party目录
+./format_all.sh -e build,third_party

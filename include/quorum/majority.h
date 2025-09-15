@@ -90,7 +90,7 @@ class majority_config {
 
     for (std::size_t i = 0; i < info.size(); i++) {
       if ((i > 0) && (info[i - 1].index < info[i].index)) {
-        info[i].bar = i;
+        info[i].bar = static_cast<int>(i);
       }
     }
 

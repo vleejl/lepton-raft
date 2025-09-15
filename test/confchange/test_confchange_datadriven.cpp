@@ -110,11 +110,18 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
   // 获取当前文件所在目录
   std::filesystem::path current_dir = current_file.parent_path();
 
-  // 拼接 "testdata" 目录
   std::filesystem::path project_dir = LEPTON_PROJECT_DIR;
-  std::string test_dir = (current_dir / "testdata").string();
+  project_dir = project_dir.make_preferred();
 
-  std::vector<std::string> test_files = get_test_files(project_dir / test_dir);
+  SPDLOG_INFO("current_file: {}", current_file.string());
+  SPDLOG_INFO("current_dir: {}", current_dir.string());
+  SPDLOG_INFO("LEPTON_PROJECT_DIR: {}", LEPTON_PROJECT_DIR);
+  SPDLOG_INFO("project_dir: {}", project_dir.string());
+
+  std::filesystem::path full_path = project_dir / current_dir / "testdata";
+  // 再显式转换为字符串
+  std::string dir_path = full_path.string();
+  std::vector<std::string> test_files = get_test_files(dir_path);
   for (const auto& test_file : test_files) {
     confchange::changer c{
         tracker::progress_tracker{10, 0},
