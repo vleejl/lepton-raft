@@ -67,6 +67,12 @@ struct interaction_env {
   explicit interaction_env(interaction_opts &&opts)
       : options(std::move(opts)), output(rafttest::redirect_logger::DEBUG, &logger_buffer) {}
 
+  // Handle is the entrypoint for data-driven interaction testing. Commands and
+  // parameters are parsed from the supplied TestData. Errors during data parsing
+  // are reported via the supplied *testing.T; errors from the raft nodes and the
+  // storage engine are reported to the output buffer.
+  std::string handle(const std::string &data);
+
   void with_indent(std::function<void()> f) {
     // 保存原始 builder
     std::ostringstream *orig = output.get_builder();

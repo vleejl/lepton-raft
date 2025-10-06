@@ -11,15 +11,26 @@
 #include "cli.h"
 #include "functional"
 
+namespace datadriven {
+// TestData contains information about one data-driven test case that was
+// parsed from the test file.
+struct test_data {
+  // Cmd is the first string on the directive line (up to the first whitespace).
+  std::string cmd;
+  // Input is the text between the first directive line and the ---- separator.
+  std::string input;
+  // CmdArgs contains the k/v arguments to the command.
+  std::map<std::string, std::vector<std::string>> args_map;
+};
+}  // namespace datadriven
+
 enum class parse_state { INIT, PROCESS_INPUT, PROCESS_EXPECTED };
 
 struct parse_result {
   parse_result(parse_state state) : state(state) {}
 
   parse_state state;
-  std::string cmd;
-  std::string input;
-  std::map<std::string, std::vector<std::string>> args_map;
+  datadriven::test_data test_data;
   // std::ostringstream test_input_stream;
   std::ostringstream test_expected_result_stream;
 };
@@ -89,6 +100,7 @@ class data_driven {
         result.state = parse_state::PROCESS_EXPECTED;
       }
     }
+    // last test case
     run_test_case(process_test_case_func, result, line_no);
     assert(result.state == parse_state::INIT);
   }

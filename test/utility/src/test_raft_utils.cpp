@@ -83,6 +83,10 @@ void set_randomized_election_timeout(lepton::raft &r, int election_timeout) {
   r.randomized_election_timeout_ = election_timeout;
 }
 
+void set_randomized_election_timeout_for_raw_node(lepton::raw_node &r, int election_timeout) {
+  set_randomized_election_timeout(r.raft_, election_timeout);
+}
+
 std::vector<std::uint64_t> ids_by_size(std::size_t size) {
   std::vector<std::uint64_t> ids(size);
   for (std::size_t i = 0; i < size; ++i) {
