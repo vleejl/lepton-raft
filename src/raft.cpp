@@ -53,7 +53,8 @@ leaf::result<raft> new_raft(config&& c) {
          c.read_only_opt,
          c.disable_proposal_forwarding,
          c.disable_conf_change_validation,
-         c.step_down_on_removal};
+         c.step_down_on_removal,
+         std::move(c.logger)};
 
   trace_init_state(r);
 

@@ -1,6 +1,10 @@
+#ifndef _LEPTON_TEST_DATA_DRIVEN_H_
+#define _LEPTON_TEST_DATA_DRIVEN_H_
 #include <gtest/gtest.h>
 
 #include <cassert>
+#include <cctype>
+#include <cstddef>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -12,6 +16,7 @@
 #include "functional"
 
 namespace datadriven {
+
 // TestData contains information about one data-driven test case that was
 // parsed from the test file.
 struct test_data {
@@ -20,7 +25,7 @@ struct test_data {
   // Input is the text between the first directive line and the ---- separator.
   std::string input;
   // CmdArgs contains the k/v arguments to the command.
-  std::map<std::string, std::vector<std::string>> args_map;
+  std::vector<cmd_arg> cmd_args;
 };
 }  // namespace datadriven
 
@@ -37,8 +42,7 @@ struct parse_result {
 
 class data_driven {
  public:
-  using process_func = std::function<std::string(const std::string&, const std::string&,
-                                                 const std::map<std::string, std::vector<std::string>>&)>;
+  using process_func = std::function<std::string(const datadriven::test_data&)>;
 
  private:
   void run_test_case(process_func process_test_case_func, parse_result& result, std::size_t& line_no) {
@@ -46,7 +50,7 @@ class data_driven {
     std::cout << "current test_file: " << test_file_ << std::endl;
     std::cout << "current process result line no: " << line_no << std::endl;
     std::cout << "expected result:\n" << test_expected_result << std::endl;
-    auto test_actual_result = process_test_case_func(result.cmd, result.input, result.args_map);
+    auto test_actual_result = process_test_case_func(result.test_data);
     std::cout << "actual result:\n" << test_actual_result << std::endl;
     ASSERT_EQ(test_actual_result, test_expected_result);
     result = parse_result{parse_state::INIT};
@@ -92,11 +96,11 @@ class data_driven {
 
       if (result.state == parse_state::INIT) {
         std::stringstream ss(line);
-        ss >> result.cmd;
-        result.args_map = parse_command_line(result.cmd, line);
+        ss >> result.test_data.cmd;
+        result.test_data.cmd_args = parse_command_line(result.test_data.cmd, line);
         result.state = parse_state::PROCESS_INPUT;
       } else {
-        result.input = line;
+        result.test_data.input = line;
         result.state = parse_state::PROCESS_EXPECTED;
       }
     }
@@ -136,3 +140,5 @@ class defer {
  private:
   std::function<void()> func_;
 };
+
+#endif

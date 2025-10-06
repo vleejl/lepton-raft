@@ -7,6 +7,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 // Function to read files from a directory
 std::vector<std::string> get_test_files(const std::string& dir) {
@@ -63,9 +64,10 @@ std::string pre_parse_space_char(const std::string& cmd, const std::string& line
 }
 
 // 通用命令行解析函数
-std::map<std::string, std::vector<std::string>> parse_command_line(const std::string& cmd, const std::string& line) {
+std::vector<cmd_arg> parse_command_line(const std::string& cmd, const std::string& line) {
   std::stringstream ss(pre_parse_space_char(cmd, line));
   std::string token;
+  std::vector<std::string> args_vec;
   std::map<std::string, std::vector<std::string>> result;
   while (std::getline(ss, token, ' ')) {  // 按空格分割
     if (token == cmd) {
@@ -87,11 +89,17 @@ std::map<std::string, std::vector<std::string>> parse_command_line(const std::st
           values.push_back(element);
         }
         result[key] = values;
+        args_vec.push_back(key);
       } else {
         // 如果没有括号，就是单一值
         result[key] = {value};
+        args_vec.push_back(key);
       }
     }
   }
-  return result;
+  std::vector<cmd_arg> cmd_args;
+  for (const auto& key : args_vec) {
+    cmd_args.push_back({key, result[key]});
+  }
+  return cmd_args;
 }

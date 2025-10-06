@@ -16,6 +16,7 @@
 #include "proxy.h"
 #include "raft.h"
 #include "raft.pb.h"
+#include "spdlog_logger.h"
 #include "storage.h"
 #include "test_utility_data.h"
 #include "tracker.h"
@@ -66,7 +67,13 @@ test_memory_storage_options with_learners(std::vector<std::uint64_t> &&learners)
 
 lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbeat_tick,
                                pro::proxy<lepton::storage_builer> &&storage) {
-  return lepton::config{id, election_tick, heartbeat_tick, std::move(storage), lepton::NO_LIMIT, 256};
+  return lepton::config{id,
+                        election_tick,
+                        heartbeat_tick,
+                        std::move(storage),
+                        lepton::NO_LIMIT,
+                        256,
+                        std::make_shared<lepton::spdlog_logger>()};
 }
 
 std::unique_ptr<lepton::memory_storage> new_test_memory_storage_ptr(

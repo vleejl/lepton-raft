@@ -1,9 +1,13 @@
 #ifndef _LEPTON_INTERACTION_ENV_H_
 #define _LEPTON_INTERACTION_ENV_H_
+#include <cstddef>
 #include <functional>
 #include <vector>
 
 #include "config.h"
+#include "data_driven.h"
+#include "leaf.h"
+#include "raft.pb.h"
 #include "raw_node.h"
 #include "redirect_logger.h"
 #include "storage.h"
@@ -24,7 +28,7 @@ PRO_DEF_MEM_DISPATCH(storage_append, append);
 // the Ready handling loop.
 // clang-format off
 struct storage_builer : pro::facade_builder 
-  ::add_convention<lepton::storage_initial_state, lepton::leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>()> 
+  ::add_convention<lepton::storage_initial_state, lepton::leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>() const> 
   ::add_convention<lepton::storage_entries, lepton::leaf::result<lepton::pb::repeated_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
   ::add_convention<lepton::storage_term, lepton::leaf::result<std::uint64_t>(std::uint64_t i) const> 
   ::add_convention<lepton::storage_last_index, lepton::leaf::result<std::uint64_t>() const> 
@@ -71,7 +75,12 @@ struct interaction_env {
   // parameters are parsed from the supplied TestData. Errors during data parsing
   // are reported via the supplied *testing.T; errors from the raft nodes and the
   // storage engine are reported to the output buffer.
-  std::string handle(const std::string &data);
+  std::string handle(const datadriven::test_data &test_data);
+
+  // AddNodes adds n new nodes initialized from the given snapshot (which may be
+  // empty), and using the cfg as template. They will be assigned consecutive IDs.
+  lepton::leaf::result<void> add_nodes(std::size_t, const lepton::config &config, raftpb::snapshot &snap);
+  lepton::leaf::result<void> handle_add_nodes(const datadriven::test_data &test_data);
 
   void with_indent(std::function<void()> f) {
     // 保存原始 builder
@@ -114,6 +123,12 @@ inline lepton::config raft_config_stub() {
   config.max_inflight_msgs = std::numeric_limits<std::size_t>::max();
   return config;
 }
+
+int first_as_int(const datadriven::test_data &test_data);
+
+int first_as_node_idx(const datadriven::test_data &test_data);
+
+std::vector<int> node_idxs(const datadriven::test_data &test_data);
 
 }  // namespace interaction
 

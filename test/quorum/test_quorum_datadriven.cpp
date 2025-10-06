@@ -111,8 +111,13 @@ quorum::log_index alternative_majority_committed_index(const quorum::majority_co
   return max_quorum_idx;
 }
 
-static std::string process_single_test_case(const std::string& cmd, const std::string& input,
-                                            const std::map<std::string, std::vector<std::string>>& args_map) {
+static std::string process_single_test_case(const datadriven::test_data& test_data) {
+  const std::string& cmd = test_data.cmd;
+  const std::string& input = test_data.input;
+  std::map<std::string, std::vector<std::string>> args_map;
+  for (const auto& arg : test_data.cmd_args) {
+    args_map[arg.key_] = arg.vals_;
+  }
   // Two majority configs. The first one is always used (though it may
   // be empty) and the second one is used iff joint is true.
   bool joint = false;

@@ -128,8 +128,13 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
         0  // incremented in this test with each cmd
     };
     data_driven runner{test_file};
-    auto func = [&c](const std::string& cmd, const std::string& input,
-                     const std::map<std::string, std::vector<std::string>>& args_map) -> std::string {
+    auto func = [&c](const datadriven::test_data& test_data) -> std::string {
+      const std::string& cmd = test_data.cmd;
+      const std::string& input = test_data.input;
+      std::map<std::string, std::vector<std::string>> args_map;
+      for (const auto& arg : test_data.cmd_args) {
+        args_map[arg.key_] = arg.vals_;
+      }
       leaf::result<std::string> r = leaf::try_handle_some(
           [&]() -> leaf::result<std::string> {
             BOOST_LEAF_AUTO(v, process_single_test_case(cmd, input, args_map, c));
