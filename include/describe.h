@@ -14,6 +14,8 @@ std::string describe_message(const raftpb::message &m);
 
 std::string describe_ready(const ready &rd);
 
+std::string describe_entries(const pb::repeated_entry &entries);
+
 }  // namespace lepton
 
 #endif  // _LEPTON_DESCRIBE_H_

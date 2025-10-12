@@ -11,6 +11,7 @@
 
 #include "absl/types/span.h"
 #include "raft_log_unstable.h"
+#include "spdlog_logger.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_macros.h"
 #include "types.h"
@@ -42,9 +43,10 @@ unstable create_unstable(const std::vector<std::tuple<std::uint64_t, std::uint64
   lepton::pb::repeated_entry entries = create_entries(entrie_params);
   if (snapshot_params) {
     auto [snapshot_index, snapshot_term] = snapshot_params.value();
-    return {create_snapshot(snapshot_index, snapshot_term), std::move(entries), offset};
+    return {create_snapshot(snapshot_index, snapshot_term), std::move(entries), offset,
+            std::make_shared<spdlog_logger>()};
   } else {
-    return {std::move(entries), offset};
+    return {std::move(entries), offset, std::make_shared<spdlog_logger>()};
   }
 }
 
@@ -280,7 +282,7 @@ TEST_F(unstable_test_suit, next_entries) {
       {create_entries(5, {1, 1}), 5, 7, {}},
   };
   for (auto &iter : tests) {
-    unstable u{std::move(iter.entries), iter.offset, iter.offset_in_progress};
+    unstable u{std::move(iter.entries), iter.offset, iter.offset_in_progress, std::make_shared<spdlog_logger>()};
     auto entries = u.next_entries();
     if (entries != absl::MakeSpan(iter.wentries)) {
       ASSERT_EQ(entries, absl::MakeSpan(iter.wentries));
@@ -306,7 +308,7 @@ TEST_F(unstable_test_suit, next_snapshot) {
       {s, true, std::nullopt},
   };
   for (auto &iter : tests) {
-    unstable u{std::move(iter.snapshot), iter.snapshot_in_progress};
+    unstable u{std::move(iter.snapshot), iter.snapshot_in_progress, std::make_shared<spdlog_logger>()};
     auto res = u.next_snapshot();
     if (!res) {
       ASSERT_FALSE(iter.wsnapshot);
@@ -450,7 +452,8 @@ TEST_F(unstable_test_suit, accept_in_progress) {
       },
   };
   for (auto &iter : tests) {
-    unstable u{std::move(iter.entries), std::move(iter.snapshot), iter.offset_in_progress, iter.snapshot_in_progress};
+    unstable u{std::move(iter.entries), std::move(iter.snapshot), iter.offset_in_progress, iter.snapshot_in_progress,
+               std::make_shared<spdlog_logger>()};
     u.accept_in_progress();
     ASSERT_EQ(u.offset_in_progress(), iter.woffset_in_progress);
     ASSERT_EQ(u.snapshot_in_progress(), iter.wsnapshot_in_progress);

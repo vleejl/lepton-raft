@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -27,6 +28,38 @@ struct test_data {
   // CmdArgs contains the k/v arguments to the command.
   std::vector<cmd_arg> cmd_args;
 };
+
+// ScanArgs looks up the first CmdArg matching the given key and scans it into
+// the given destinations in order. If the arg does not exist, the number of
+// destinations does not match that of the arguments, or a destination can not
+// be populated from its matching value, a fatal error results.
+// If the arg exists multiple times, the first occurrence is parsed.
+//
+// For example, for a TestData originating from
+//
+// cmd arg1=50 arg2=yoruba arg3=(50, 50, 50)
+//
+// the following would be valid:
+//
+// var i1, i2, i3, i4 int
+// var s string
+// td.ScanArgs(t, "arg1", &i1)
+// td.ScanArgs(t, "arg2", &s)
+// td.ScanArgs(t, "arg3", &i2, &i3, &i4)
+inline void scan_first_args(const test_data& td, const std::string& key, std::uint64_t& dests) {
+  bool found = false;
+  for (const auto& arg : td.cmd_args) {
+    if (arg.key_ == key) {
+      found = true;
+      assert(arg.vals_.size() == 1);
+      auto err = arg.scan_err(0, dests);
+      assert(err);
+      break;
+    }
+  }
+  assert(found);  // key not found
+}
+
 }  // namespace datadriven
 
 enum class parse_state { INIT, PROCESS_INPUT, PROCESS_EXPECTED };

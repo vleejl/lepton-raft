@@ -100,7 +100,7 @@ class raw_node {
 
   // readyWithoutAccept returns a Ready. This is a read-only operation, i.e. there
   // is no obligation that the Ready must be handled.
-  lepton::ready ready_without_accept() const;
+  lepton::ready ready_without_accept();
 
   // acceptReady is called when the consumer of the RawNode has decided to go
   // ahead and handle a Ready. Nothing must alter the state of the RawNode between

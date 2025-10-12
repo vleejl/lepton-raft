@@ -31,7 +31,7 @@ class memory_storage {
 
   const pb::repeated_entry& entries_view() const;
 
-  void set_hard_state(raftpb::hard_state&& hard_state);
+  leaf::result<void> set_hard_state(raftpb::hard_state&& hard_state);
 
   leaf::result<pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const;
 

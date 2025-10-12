@@ -7,74 +7,17 @@
 #include "leaf.h"
 #include "memory_storage.h"
 #include "raft.pb.h"
+#include "raw_node.h"
+#include "v4/proxy.h"
 
 namespace interaction {
-
-using snapshot_function_ptr = lepton::leaf::result<raftpb::snapshot> (*)();
-
-// // clang-format off
-// struct storage_builer : pro::facade_builder
-//   ::add_convention<lepton::storage_initial_state, lepton::leaf::result<std::tuple<raftpb::hard_state,
-//   raftpb::conf_state>>()>
-//   ::add_convention<lepton::storage_entries, lepton::leaf::result<lepton::pb::repeated_entry>(std::uint64_t lo,
-//   std::uint64_t hi, std::uint64_t max_size) const>
-//   ::add_convention<lepton::storage_term, lepton::leaf::result<std::uint64_t>(std::uint64_t i) const>
-//   ::add_convention<lepton::storage_last_index, lepton::leaf::result<std::uint64_t>() const>
-//   ::add_convention<lepton::storage_first_index, lepton::leaf::result<std::uint64_t>() const>
-//   ::add_convention<lepton::storage_snapshot, lepton::leaf::result<raftpb::snapshot>() const>
-//   ::add_convention<storage_set_hard_state, void(raftpb::hard_state&& hard_state)>
-//   ::add_convention<storage_apply_snapshot, lepton::leaf::result<void>(raftpb::snapshot &&snapshot)>
-//   ::add_convention<storage_compact, lepton::leaf::result<void>(std::uint64_t compact_index)>
-//   ::add_convention<storage_append, lepton::leaf::result<void>(lepton::pb::repeated_entry&& entries)>
-//   ::add_skill<pro::skills::as_view>
-//   ::build{};
-// // clang-format on
-
-struct snap_override_storage {
-  pro::proxy<storage_builer> storage;
-  std::function<lepton::leaf::result<raftpb::snapshot>()> snap_override_func;
-
-  lepton::leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> initial_state() const {
-    return storage->initial_state();
-  }
-
-  lepton::leaf::result<lepton::pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi,
-                                                           std::uint64_t max_size) const {
-    return storage->entries(lo, hi, max_size);
-  }
-
-  lepton::leaf::result<std::uint64_t> term(std::uint64_t i) const { return storage->term(i); }
-
-  lepton::leaf::result<std::uint64_t> last_index() const { return storage->last_index(); }
-
-  lepton::leaf::result<std::uint64_t> first_index() const { return storage->first_index(); }
-
-  lepton::leaf::result<raftpb::snapshot> snapshot() const {
-    if (snap_override_func != nullptr) {
-      return snap_override_func();
-    }
-    return storage->snapshot();
-  }
-
-  void set_hard_state(raftpb::hard_state &&hard_state) { storage->set_hard_state(std::move(hard_state)); }
-
-  lepton::leaf::result<void> apply_snapshot(raftpb::snapshot &&snapshot) {
-    return storage->apply_snapshot(std::move(snapshot));
-  }
-
-  lepton::leaf::result<void> compact(std::uint64_t compact_index) { return storage->compact(compact_index); }
-
-  lepton::leaf::result<void> append(lepton::pb::repeated_entry &&entries) {
-    return storage->append(std::move(entries));
-  }
-};
 
 lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepton::config &config,
                                                       raftpb::snapshot &snap) {
   auto bootstrap = lepton::pb::is_empty_snap(snap);
   for (std::size_t i = 0; i < n; ++i) {
     auto id = static_cast<std::uint64_t>(nodes.size() + 1);
-    auto storage_ptr =
+    storage_handles.emplace_back(
         std::make_unique<snap_override_storage>(pro::make_proxy<storage_builer, lepton::memory_storage>(),
                                                 // When you ask for a snapshot, you get the most recent snapshot.
                                                 //
@@ -85,7 +28,8 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
                                                 [&]() -> lepton::leaf::result<raftpb::snapshot> const {
                                                   auto &history = this->nodes[id - 1].history;
                                                   return history.at(history.size() - 1);
-                                                });
+                                                }));
+    auto &storage_ptr = storage_handles.back();
     auto &s = *storage_ptr;
     if (bootstrap) {
       // NB: we could make this work with 1, but MemoryStorage just
@@ -94,10 +38,10 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
         return lepton::new_error(lepton::logic_error::INVALID_PARAM, "index must be specified as > 1 due to bootstrap");
       }
       snap.mutable_metadata()->set_term(1);
-      if (auto ret = s.storage->apply_snapshot(std::move(snap)); !ret) {
+      if (auto ret = s.apply_snapshot(std::move(snap)); !ret) {
         return ret;
       }
-      auto first_index = s.storage->first_index();
+      auto first_index = s.first_index();
       if (!first_index) {
         return first_index.error();
       }
@@ -124,7 +68,19 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
         return lepton::new_error(lepton::logic_error::INVALID_PARAM, "OnConfig must not change the ID");
       }
     }
+    if (copy_cfg.logger != nullptr) {
+      return lepton::new_error(lepton::logic_error::INVALID_PARAM, "OnConfig must not set Logger");
+    }
+    copy_cfg.logger = output;
+
+    auto rn_result = lepton::new_raw_node(std::move(copy_cfg));
+    assert(rn_result);
+    auto &rn = rn_result.value();
+    lepton::pb::repeated_snapshot history;
+    history.Add()->CopyFrom(snap);
+    nodes.emplace_back(node{std::move(rn), storage_ptr.get(), std::move(copy_cfg), {}, {}, std::move(history)});
   }
+  return {};
 }
 
 lepton::leaf::result<void> interaction_env::handle_add_nodes(const datadriven::test_data &test_data) {

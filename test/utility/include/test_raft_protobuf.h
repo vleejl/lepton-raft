@@ -107,6 +107,32 @@ inline constexpr std::array<raftpb::message_type, 24> all_raftpb_message_types =
     raftpb::MSG_FORGET_LEADER,
 };
 
+inline std::map<std::string, raftpb::message_type> message_str2enum_map = {
+    {"MsgHup", raftpb::MSG_HUP},
+    {"MsgBeat", raftpb::MSG_BEAT},
+    {"MsgProp", raftpb::MSG_PROP},
+    {"MsgApp", raftpb::MSG_APP},
+    {"MsgAppResp", raftpb::MSG_APP_RESP},
+    {"MsgVote", raftpb::MSG_VOTE},
+    {"MsgVoteResp", raftpb::MSG_VOTE_RESP},
+    {"MsgSnap", raftpb::MSG_SNAP},
+    {"MsgHeartbeat", raftpb::MSG_HEARTBEAT},
+    {"MsgHeartbeatResp", raftpb::MSG_HEARTBEAT_RESP},
+    {"MsgUnreachable", raftpb::MSG_UNREACHABLE},
+    {"MsgSnapStatus", raftpb::MSG_SNAP_STATUS},
+    {"MsgCheckQuorum", raftpb::MSG_CHECK_QUORUM},
+    {"MsgTransferLeader", raftpb::MSG_TRANSFER_LEADER},
+    {"MsgTimeoutNow", raftpb::MSG_TIMEOUT_NOW},
+    {"MsgReadIndex", raftpb::MSG_READ_INDEX},
+    {"MsgReadIndexResp", raftpb::MSG_READ_INDEX_RESP},
+    {"MsgPreVote", raftpb::MSG_PRE_VOTE},
+    {"MsgPreVoteResp", raftpb::MSG_PRE_VOTE_RESP},
+    {"MsgStorageAppend", raftpb::MSG_STORAGE_APPEND},
+    {"MsgStorageAppendResp", raftpb::MSG_STORAGE_APPEND_RESP},
+    {"MsgStorageApply", raftpb::MSG_STORAGE_APPLY},
+    {"MsgStorageApplyResp", raftpb::MSG_STORAGE_APPLY_RESP},
+    {"MsgForgetLeader", raftpb::MSG_FORGET_LEADER}};
+
 // 确保数组大小等于枚举值的数量
 static_assert(all_raftpb_message_types.size() == 24, "AllMessageTypes size mismatch");
 

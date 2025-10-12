@@ -23,7 +23,7 @@ TEST_F(spdlog_test_suit, basic_use) {
   //   spdlog::set_pattern("[%H:%M:%S %z] [%n] [%^---%L---%$] [thread %t] %v");
   //   spdlog::set_pattern("[source %s] [function %!] [line %#] %v");
   {
-    std::unique_ptr<lepton::logger> log = std::make_unique<lepton::spdlog_logger>();
+    std::unique_ptr<lepton::logger_interface> log = std::make_unique<lepton::spdlog_logger>();
     LOG_TRACE(log, "peer {} connected", 42);
     LOG_DEBUG(log, "peer {} connected", 42);
     LOG_WARN(log, "peer {} connected", 42);
@@ -31,7 +31,7 @@ TEST_F(spdlog_test_suit, basic_use) {
     LOG_CRITICAL(log, "peer {} connected", 42);
   }
   {
-    std::shared_ptr<lepton::logger> log = std::make_shared<lepton::spdlog_logger>();
+    std::shared_ptr<lepton::logger_interface> log = std::make_shared<lepton::spdlog_logger>();
     LOG_TRACE(log, "peer {} connected", 42);
     LOG_DEBUG(log, "peer {} connected", 42);
     LOG_WARN(log, "peer {} connected", 42);
@@ -40,7 +40,7 @@ TEST_F(spdlog_test_suit, basic_use) {
   }
   {
     lepton::spdlog_logger slog;
-    lepton::logger &log = slog;
+    lepton::logger_interface &log = slog;
     LOG_TRACE(log, "peer {} connected", 42);
     LOG_DEBUG(log, "peer {} connected", 42);
     LOG_WARN(log, "peer {} connected", 42);

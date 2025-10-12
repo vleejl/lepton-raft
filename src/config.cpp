@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include "lepton_error.h"
+#include "logic_error.h"
 using namespace lepton;
 
 leaf::result<void> config::validate() const {
@@ -33,6 +34,9 @@ leaf::result<void> config::validate() const {
     return new_error(raft_error::CONFIG_INVALID,
                      "CheckQuorum must be enabled when ReadOnlyOption is "
                      "ReadOnlyLeaseBased");
+  }
+  if (this->logger == nullptr) {
+    return new_error(logic_error::NULL_POINTER, "logger cannot be null");
   }
   return {};
 }

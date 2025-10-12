@@ -2,7 +2,6 @@
 #define _LEPTON_RAFT_LOG_UNSTABLE_H_
 #include <absl/types/span.h>
 #include <raft.pb.h>
-#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cassert>
@@ -14,6 +13,7 @@
 
 #include "lepton_error.h"
 #include "log.h"
+#include "logger.h"
 #include "protobuf.h"
 #include "types.h"
 #include "utility_macros.h"
@@ -39,21 +39,29 @@ class unstable {
   }
 
  public:
-  unstable(std::uint64_t offset, std::uint64_t offset_in_progress)
-      : offset_(offset), offset_in_progress_(offset_in_progress) {}
-  unstable(pb::repeated_entry&& entries, std::uint64_t offset) : entries_(std::move(entries)), offset_(offset) {}
-  unstable(pb::repeated_entry&& entries, std::uint64_t offset, std::uint64_t offset_in_progress)
-      : entries_(std::move(entries)), offset_(offset), offset_in_progress_(offset_in_progress) {}
+  unstable(std::uint64_t offset, std::uint64_t offset_in_progress, std::shared_ptr<lepton::logger_interface> logger)
+      : offset_(offset), offset_in_progress_(offset_in_progress), logger_(std::move(logger)) {}
+  unstable(pb::repeated_entry&& entries, std::uint64_t offset, std::shared_ptr<lepton::logger_interface> logger)
+      : entries_(std::move(entries)), offset_(offset), logger_(std::move(logger)) {}
+  unstable(pb::repeated_entry&& entries, std::uint64_t offset, std::uint64_t offset_in_progress,
+           std::shared_ptr<lepton::logger_interface> logger)
+      : entries_(std::move(entries)),
+        offset_(offset),
+        offset_in_progress_(offset_in_progress),
+        logger_(std::move(logger)) {}
   unstable(pb::repeated_entry&& entries, std::optional<raftpb::snapshot>&& s, std::uint64_t offset_in_progress,
-           bool snapshot_in_progress)
+           bool snapshot_in_progress, std::shared_ptr<lepton::logger_interface> logger)
       : snapshot_(std::move(s)),
         entries_(std::move(entries)),
         snapshot_in_progress_(snapshot_in_progress),
-        offset_in_progress_(offset_in_progress) {}
-  unstable(std::optional<raftpb::snapshot>&& s, bool snapshot_in_progress)
-      : snapshot_(std::move(s)), snapshot_in_progress_(snapshot_in_progress) {}
-  unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries, std::uint64_t offset)
-      : snapshot_(std::move(snapshot)), entries_(std::move(entries)), offset_(offset) {}
+        offset_in_progress_(offset_in_progress),
+        logger_(std::move(logger)) {}
+  unstable(std::optional<raftpb::snapshot>&& s, bool snapshot_in_progress,
+           std::shared_ptr<lepton::logger_interface> logger)
+      : snapshot_(std::move(s)), snapshot_in_progress_(snapshot_in_progress), logger_(std::move(logger)) {}
+  unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries, std::uint64_t offset,
+           std::shared_ptr<lepton::logger_interface> logger)
+      : snapshot_(std::move(snapshot)), entries_(std::move(entries)), offset_(offset), logger_(std::move(logger)) {}
   unstable(unstable&& lhs) = default;
 #ifdef LEPTON_TEST
   unstable& operator=(unstable&&) = default;
@@ -180,12 +188,12 @@ class unstable {
     // 2. log index 可能已经无效
     if (term_result.has_error()) {
       // Unstable entry missing. Ignore.
-      SPDLOG_INFO("entry at index {} missing from unstable log; ignoring", id.index);
+      LOG_INFO(logger_, "entry at index {} missing from unstable log; ignoring", id.index);
       return;
     }
     if (id.index < offset_) {
       // Index matched unstable snapshot, not unstable entry. Ignore.
-      SPDLOG_INFO("entry at index {} matched unstable snapshot; ignoring", id.index);
+      LOG_INFO(logger_, "entry at index {} matched unstable snapshot; ignoring", id.index);
       return;
     }
     if (term_result.value() != id.term) {
@@ -193,8 +201,8 @@ class unstable {
       // This is possible if part or all of the unstable log was replaced
       // between that time that a set of entries started to be written to
       // stable storage and when they finished.
-      SPDLOG_INFO("entry at (index,term)=({},{}) mismatched with entry at ({},{}) in unstable log; ignoring", id.index,
-                  id.term, id.index, term_result.value());
+      LOG_INFO(logger_, "entry at (index,term)=({},{}) mismatched with entry at ({},{}) in unstable log; ignoring",
+               id.index, id.term, id.index, term_result.value());
       return;
     }
 
@@ -241,7 +249,7 @@ class unstable {
     if (from_index == (offset_ + static_cast<std::uint64_t>(entries_.size()))) {  // max after value
       entries_.Add(std::make_move_iterator(entry_list.begin()), std::make_move_iterator(entry_list.end()));
     } else if (from_index <= offset_) {  // min after value
-      SPDLOG_INFO("replace the unstable entries from index {}", from_index);
+      LOG_INFO(logger_, "replace the unstable entries from index {}", from_index);
       // The log is being truncated to before our current offset
       // portion, so set the offset and replace the entries
       offset_ = from_index;
@@ -250,7 +258,7 @@ class unstable {
     } else {  // after > u.offset && after < u.offset + uint64(len(u.entries))
       // truncate to after and copy to u.entries
       // then append
-      SPDLOG_INFO("truncate the unstable entries before index {}", from_index);
+      LOG_INFO(logger_, "truncate the unstable entries before index {}", from_index);
       auto start = static_cast<std::ptrdiff_t>(offset_ - offset_);
       auto end = static_cast<std::ptrdiff_t>(from_index - offset_);
       // 截取 offset 到 after 之间的 entry
@@ -305,6 +313,8 @@ class unstable {
   // contains the index following the largest in-progress entry.
   // Invariant: offset <= offsetInProgress
   std::uint64_t offset_in_progress_ = 0;
+
+  std::shared_ptr<lepton::logger_interface> logger_;
 };
 
 static_assert(std::is_move_constructible_v<raftpb::snapshot>, "raftpb::snapshot is not move constructible");

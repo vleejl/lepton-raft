@@ -6,9 +6,9 @@
 #include <source_location>
 namespace lepton {
 
-class logger {
+class logger_interface {
  public:
-  virtual ~logger() = default;
+  virtual ~logger_interface() = default;
 
   //
   // --- 虚函数接口（固定类型，派生类实现）
@@ -95,17 +95,17 @@ inline void log_critical(Logger& l, std::source_location loc, fmt::format_string
 }
 
 template <typename T>
-logger& get_logger_ref(T& l) {
+logger_interface& get_logger_ref(T& l) {
   return l;  // 普通对象或引用直接返回
 }
 
 template <typename T>
-logger& get_logger_ref(std::unique_ptr<T>& l) {
+logger_interface& get_logger_ref(std::unique_ptr<T>& l) {
   return *l;  // unique_ptr 解引用
 }
 
 template <typename T>
-logger& get_logger_ref(std::shared_ptr<T>& l) {
+logger_interface& get_logger_ref(std::shared_ptr<T>& l) {
   return *l;  // shared_ptr 解引用
 }
 

@@ -7,6 +7,7 @@
 #include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
+#include "logger.h"
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "raft_error.h"
@@ -41,11 +42,11 @@ bool must_sync(const raftpb::hard_state &st, const raftpb::hard_state &prev_st, 
   return false;
 }
 
-static bool need_storage_append_msg(const raft &r, const ready &rd) {
+static bool need_storage_append_msg(raft &r, const ready &rd) {
   // Return true if log entries, hard state, or a snapshot need to be written
   // to stable storage. Also return true if any messages are contingent on all
   // prior MsgStorageAppend being processed.
-  SPDLOG_INFO("needStorageAppendMsg rd:\n{}", describe_ready(rd));
+  LOG_INFO(r.logger(), "needStorageAppendMsg rd:\n{}", describe_ready(rd));
   if (rd.entries.size() > 0) {
     return true;
   }
@@ -194,7 +195,7 @@ static raftpb::message new_storage_append_resp_msg(const raft &r, const ready &r
 // state, and apply a snapshot. The message also carries a set of responses
 // that should be delivered after the rest of the message is processed. Used
 // with AsyncStorageWrites.
-static raftpb::message new_storage_append_msg(const raft &r, const ready &rd) {
+static raftpb::message new_storage_append_msg(raft &r, const ready &rd) {
   raftpb::message m;
   m.set_type(raftpb::message_type::MSG_STORAGE_APPEND);
   m.set_to(pb::LOCAL_APPEND_THREAD);
@@ -272,7 +273,7 @@ std::string get_highres_nanoseconds() {
   return std::to_string(ns.count());
 }
 
-lepton::ready raw_node::ready_without_accept() const {
+lepton::ready raw_node::ready_without_accept() {
   lepton::ready rd;
   rd.timestamp_id = get_highres_nanoseconds();
   rd.entries = pb::convert_span_entry(raft_.raft_log_handle_.next_unstable_ents());

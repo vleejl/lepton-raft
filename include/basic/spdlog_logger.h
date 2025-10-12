@@ -5,7 +5,7 @@
 #include "logger.h"
 namespace lepton {
 
-class spdlog_logger : public logger {
+class spdlog_logger : public logger_interface {
  public:
   void trace_impl(std::string_view msg, std::source_location loc) override {
     spdlog::trace("[{}:{}] {}", loc.file_name(), loc.line(), msg);

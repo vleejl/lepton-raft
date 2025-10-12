@@ -29,6 +29,7 @@
 #include "ready.h"
 #include "signal_channel_endpoint.h"
 #include "spdlog/spdlog.h"
+#include "spdlog_logger.h"
 #include "types.h"
 namespace rafttest {
 
@@ -104,6 +105,7 @@ struct node_adapter {
     c.max_inflight_msgs = 256;
     c.max_inflight_bytes = lepton::NO_LIMIT;
     c.max_uncommitted_entries_size = 1 << 30;
+    c.logger = std::make_shared<lepton::spdlog_logger>();
     auto rn = lepton::restart_node(executor, std::move(c));
     std::unique_ptr<iface> iface = std::make_unique<rafttest::node_network>(id, nt);
     auto n = std::make_unique<node_adapter>(executor, std::move(rn), id, std::move(iface), std::move(storage));
@@ -371,6 +373,7 @@ inline std::unique_ptr<node_adapter> start_node(asio::any_io_executor executor, 
   c.max_inflight_msgs = 256;
   c.max_inflight_bytes = lepton::NO_LIMIT;
   c.max_uncommitted_entries_size = 1 << 30;
+  c.logger = std::make_shared<lepton::spdlog_logger>();
   auto rn = lepton::start_node(executor, std::move(c), std::move(peers));
   auto n = std::make_unique<node_adapter>(executor, std::move(rn), id, std::move(iface), std::move(mm_storage_ptr));
   n->start();
