@@ -17,21 +17,19 @@ lepton::leaf::result<void> interaction_env::handle_process_apply_thread(const da
     if (idxs.size() > 1) {
       auto has_error = false;
       std::string msg;
-      with_indent([&]() {
-        output->write_string(fmt::format("> {} processing apply thread\n", idx + 1));
-        this->with_indent([&]() {
-          auto err = process_apply_thread(idx);
-          auto _ = boost::leaf::try_handle_some(
-              [&]() -> lepton::leaf::result<void> {
-                LEPTON_LEAF_CHECK(process_apply_thread(idx));
-                return {};
-              },
-              [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
-                has_error = true;
-                msg = e.message;
-                return {};
-              });
-        });
+      output->write_string(fmt::format("> {} processing apply thread\n", idx + 1));
+      this->with_indent([&]() {
+        auto err = process_apply_thread(idx);
+        auto _ = boost::leaf::try_handle_some(
+            [&]() -> lepton::leaf::result<void> {
+              LEPTON_LEAF_CHECK(process_apply_thread(idx));
+              return {};
+            },
+            [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
+              has_error = true;
+              msg = e.message;
+              return {};
+            });
       });
       if (has_error) {
         return new_error(lepton::logic_error::INVALID_PARAM, msg);

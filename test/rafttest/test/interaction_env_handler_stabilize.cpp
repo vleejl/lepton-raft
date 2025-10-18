@@ -1,6 +1,10 @@
+#include <cassert>
 #include <cstdint>
+#include <functional>
 #include <tuple>
+#include <vector>
 
+#include "fmt/format.h"
 #include "interaction_env.h"
 #include "leaf.h"
 #include "raft.pb.h"
@@ -51,5 +55,121 @@ lepton::leaf::result<void> interaction_env::handle_stabilize(const datadriven::t
   return stabilize(idxs);
 }
 
-lepton::leaf::result<void> interaction_env::stabilize(const std::vector<std::size_t> &idxs) {}
+lepton::leaf::result<void> interaction_env::stabilize(const std::vector<std::size_t> &idxs) {
+  std::vector<std::reference_wrapper<node>> nodes;
+  if (!idxs.empty()) {
+    for (const auto &idx : idxs) {
+      assert(idx < nodes.size());
+      nodes.push_back(std::ref(nodes[idx]));
+    }
+  } else {
+    for (auto &n : nodes) {
+      nodes.push_back(std::ref(n));
+    }
+  }
+  while (true) {
+    auto done = true;
+    for (auto &n_ref : nodes) {
+      auto &n = n_ref.get();
+      auto &rn = n.raw_node;
+      if (rn.has_ready()) {
+        auto idx = rn.status().basic_status.id - 1;
+        output->write_string(fmt::format("> {} handling Ready\n", idx + 1));
+        auto has_error = false;
+        std::string msg;
+        this->with_indent([&]() {
+          auto err = process_ready(idx);
+          auto _ = boost::leaf::try_handle_some(
+              [&]() -> lepton::leaf::result<void> {
+                LEPTON_LEAF_CHECK(process_ready(idx));
+                return {};
+              },
+              [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
+                has_error = true;
+                msg = e.message;
+                return {};
+              });
+        });
+        if (has_error) {
+          return new_error(lepton::logic_error::INVALID_PARAM, msg);
+        }
+        done = false;
+      }
+    }
+
+    for (auto &n_ref : nodes) {
+      auto &n = n_ref.get();
+      auto &rn = n.raw_node;
+      auto id = rn.status().basic_status.id;
+      // NB: we grab the messages just to see whether to print the header.
+      // DeliverMsgs will do it again.
+      auto msgs = split_msgs(messages, id, -1, false);
+      if (!std::get<0>(msgs).empty()) {
+        output->write_string(fmt::format("> {} receiving messages\n", id));
+        done = false;
+      }
+    }
+
+    for (auto &n_ref : nodes) {
+      auto &n = n_ref.get();
+      auto &rn = n.raw_node;
+      auto idx = rn.status().basic_status.id - 1;
+      if (!n.append_work.empty()) {
+        auto has_error = false;
+        std::string msg;
+        output->write_string(fmt::format("> {} processing append thread\n", idx + 1));
+        this->with_indent([&]() {
+          auto err = process_append_thread(idx);
+          auto _ = boost::leaf::try_handle_some(
+              [&]() -> lepton::leaf::result<void> {
+                LEPTON_LEAF_CHECK(process_append_thread(idx));
+                return {};
+              },
+              [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
+                has_error = true;
+                msg = e.message;
+                return {};
+              });
+        });
+        if (has_error) {
+          return new_error(lepton::logic_error::INVALID_PARAM, msg);
+        }
+        done = false;
+      }
+    }
+
+    for (auto &n_ref : nodes) {
+      auto &n = n_ref.get();
+      auto &rn = n.raw_node;
+      auto idx = rn.status().basic_status.id - 1;
+      if (n.apply_work.size() > 0) {
+        auto has_error = false;
+        std::string msg;
+        output->write_string(fmt::format("> {} processing apply thread\n", idx + 1));
+        this->with_indent([&]() {
+          auto err = process_apply_thread(idx);
+          auto _ = boost::leaf::try_handle_some(
+              [&]() -> lepton::leaf::result<void> {
+                LEPTON_LEAF_CHECK(process_apply_thread(idx));
+                return {};
+              },
+              [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
+                has_error = true;
+                msg = e.message;
+                return {};
+              });
+        });
+        if (has_error) {
+          return new_error(lepton::logic_error::INVALID_PARAM, msg);
+        }
+        done = false;
+      }
+    }
+
+    if (done) {
+      return {};
+    }
+  }
+  return {};
+}
 }  // namespace interaction
