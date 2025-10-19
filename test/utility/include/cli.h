@@ -16,6 +16,9 @@
 #include "fmt/format.h"
 #include "leaf.h"
 #include "lepton_error.h"
+
+lepton::leaf::result<void> handle_bool(const std::string& val, bool& dest);
+
 class cmd_arg {
  public:
   std::string key_;
@@ -70,18 +73,6 @@ class cmd_arg {
     }
 
     dest = result;
-    return {};
-  }
-
-  // 布尔类型处理（支持多种表示形式）
-  lepton::leaf::result<void> handle_bool(const std::string& val, bool& dest) const {
-    if (val == "true" || val == "1" || val == "t" || val == "yes") {
-      dest = true;
-    } else if (val == "false" || val == "0" || val == "f" || val == "no") {
-      dest = false;
-    } else {
-      return lepton::new_error(lepton::logic_error::INVALID_PARAM, "invalid bool value");
-    }
     return {};
   }
 };

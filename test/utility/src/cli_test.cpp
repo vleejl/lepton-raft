@@ -138,3 +138,12 @@ TEST(parse_command_line_test_suit, only_cmd) {
 
   ASSERT_EQ(result.size(), 0);
 }
+
+TEST(parse_command_line_test_suit, only_key) {
+  std::string line = "add-nodes 3 voters=(1,2,3) index=10 async-storage-writes=true";
+  auto cmd_args = parse_command_line("add-nodes", line);
+
+  ASSERT_EQ(cmd_args.size(), 4);
+  ASSERT_EQ(cmd_args[0].key_, "3");
+  ASSERT_EQ(cmd_args[0].vals_.size(), 0);
+}

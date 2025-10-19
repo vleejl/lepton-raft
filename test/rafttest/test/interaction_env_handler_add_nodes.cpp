@@ -157,7 +157,7 @@ lepton::leaf::result<void> interaction_env::handle_add_nodes(const datadriven::t
         return lepton::new_error(lepton::logic_error::INVALID_PARAM, fmt::format("unknown key {}", arg.key_));
       }
     }
-    return add_nodes(static_cast<std::size_t>(n), cfg, snap);
   }
+  return add_nodes(static_cast<std::size_t>(n), cfg, snap);
 }
 }  // namespace interaction

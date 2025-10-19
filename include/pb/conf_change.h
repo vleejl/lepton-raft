@@ -4,6 +4,7 @@
 
 #include <tuple>
 
+#include "leaf.h"
 #include "lepton_error.h"
 #include "types.h"
 namespace lepton {
@@ -35,6 +36,14 @@ bool leave_joint(raftpb::conf_change_v2& c);
 
 // ConfChangesToString is the inverse to ConfChangesFromString.
 std::string conf_changes_to_string(const repeated_conf_change& ccs);
+
+// ConfChangesFromString parses a Space-delimited sequence of operations into a
+// slice of ConfChangeSingle. The supported operations are:
+// - vn: make n a voter,
+// - ln: make n a learner,
+// - rn: remove n, and
+// - un: update n.
+leaf::result<repeated_conf_change> conf_changes_from_string(const std::string& s);
 
 }  // namespace pb
 }  // namespace lepton

@@ -278,7 +278,7 @@ lepton::ready raw_node::ready_without_accept() {
   rd.timestamp_id = get_highres_nanoseconds();
   rd.entries = pb::convert_span_entry(raft_.raft_log_handle_.next_unstable_ents());
   rd.committed_entries = raft_.raft_log_handle_.next_committed_ents(this->apply_unstable_entries());
-  rd.messages = std::move(raft_.msgs_);
+  rd.messages.CopyFrom(raft_.msgs_);
   if (auto soft_state = raft_.soft_state(); soft_state != prev_soft_state_) {
     rd.soft_state = std::move(soft_state);
   }

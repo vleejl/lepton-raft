@@ -179,6 +179,44 @@ struct interaction_env {
   // of nodes specified via the idxs slice until reaching a fixed point.
   lepton::leaf::result<void> stabilize(const std::vector<std::size_t> &idxs);
 
+  lepton::leaf::result<void> handle_status(const datadriven::test_data &test_data);
+  // Status pretty-prints the raft status for the node at the given index to the output
+  // buffer.
+  lepton::leaf::result<void> status(std::size_t node_idx);
+
+  lepton::leaf::result<void> handle_tick_election(const datadriven::test_data &test_data);
+
+  lepton::leaf::result<void> handle_tick_heartbeat(const datadriven::test_data &test_data);
+
+  // Tick the node at the given index the given number of times.
+  lepton::leaf::result<void> tick(std::size_t node_idx, int count);
+
+  lepton::leaf::result<void> handle_transfer_leadership(const datadriven::test_data &test_data);
+
+  // Initiate leadership transfer.
+  lepton::leaf::result<void> transfer_leadership(std::size_t from_idx, std::size_t to_idx);
+
+  lepton::leaf::result<void> handle_forget_leader(const datadriven::test_data &test_data);
+  // ForgetLeader makes the follower at the given index forget its leader.
+  lepton::leaf::result<void> forget_leader(std::size_t node_idx);
+
+  lepton::leaf::result<void> handle_send_snapshot(const datadriven::test_data &test_data);
+
+  // SendSnapshot sends a snapshot.
+  lepton::leaf::result<void> send_snapshot(std::size_t from_idx, std::size_t to_idx);
+
+  lepton::leaf::result<void> handle_propose(const datadriven::test_data &test_data);
+
+  // Propose a regular entry.
+  lepton::leaf::result<void> propose(std::size_t node_idx, const std::string &data);
+
+  lepton::leaf::result<void> handle_propose_conf_change(const datadriven::test_data &test_data);
+
+  // ProposeConfChange proposes a configuration change on the node with the given index.
+  lepton::leaf::result<void> propose_conf_change(std::size_t node_idx, const lepton::pb::conf_change_var &cc);
+
+  lepton::leaf::result<void> handle_report_unreachable(const datadriven::test_data &test_data);
+
   void with_indent(std::function<void()> f) {
     // 保存原始 builder
     std::ostringstream *orig = output->get_builder();

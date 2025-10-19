@@ -9,6 +9,18 @@
 #include <string>
 #include <tuple>
 #include <vector>
+
+lepton::leaf::result<void> handle_bool(const std::string& val, bool& dest) {
+  if (val == "true" || val == "1" || val == "t" || val == "yes") {
+    dest = true;
+  } else if (val == "false" || val == "0" || val == "f" || val == "no") {
+    dest = false;
+  } else {
+    return lepton::new_error(lepton::logic_error::INVALID_PARAM, "invalid bool value");
+  }
+  return {};
+}
+
 // Function to read files from a directory
 std::vector<std::string> get_test_files(const std::string& dir) {
   std::vector<std::string> files;
@@ -38,12 +50,14 @@ std::string pre_parse_space_char(const std::string& cmd, const std::string& line
   std::vector<std::string> tokens;
   bool find_bracket = false;
   while (std::getline(ss, token, ' ')) {  // 按空格分割
+    bool has_push_back_token = false;
     if (token == cmd) {
       continue;
     }
 
     if (token.find('(') != std::string::npos) {
       tokens.push_back(token);
+      has_push_back_token = true;
       // 找不到右括号，贪心算法，一直找到右括号为止
       if (token.find(')') == std::string::npos) {
         find_bracket = true;
@@ -58,7 +72,9 @@ std::string pre_parse_space_char(const std::string& cmd, const std::string& line
       continue;
     }
 
-    tokens.push_back(token);
+    if (!has_push_back_token) {
+      tokens.push_back(token);
+    }
   }
   return join(tokens, " ");
 }
@@ -70,6 +86,9 @@ std::vector<cmd_arg> parse_command_line(const std::string& cmd, const std::strin
   std::vector<std::string> args_vec;
   std::map<std::string, std::vector<std::string>> result;
   while (std::getline(ss, token, ' ')) {  // 按空格分割
+    if (token.empty()) {
+      continue;
+    }
     if (token == cmd) {
       continue;
     }
@@ -95,6 +114,10 @@ std::vector<cmd_arg> parse_command_line(const std::string& cmd, const std::strin
         result[key] = {value};
         args_vec.push_back(key);
       }
+    } else {
+      std::string key = token;
+      result[key] = {};
+      args_vec.push_back(key);
     }
   }
   std::vector<cmd_arg> cmd_args;

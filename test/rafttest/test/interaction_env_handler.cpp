@@ -88,6 +88,85 @@ std::string interaction_env::handle(const datadriven::test_data &test_data) {
           //
           // set-randomized-election-timeout 1 timeout=5
           LEPTON_LEAF_CHECK(handle_set_randomized_election_timeout(test_data));
+        } else if (cmd == "status") {
+          // Print Raft status.
+          //
+          // Example:
+          //
+          // status 5
+          LEPTON_LEAF_CHECK(handle_status(test_data));
+        } else if (cmd == "tick-election") {
+          // Tick an election timeout interval for the given node (but beware the
+          // randomized timeout).
+          //
+          // Example:
+          //
+          // tick-election 3
+          LEPTON_LEAF_CHECK(handle_tick_election(test_data));
+        } else if (cmd == "tick-heartbeat") {
+          // Tick a heartbeat interval.
+          //
+          // Example:
+          //
+          // tick-heartbeat 3
+          LEPTON_LEAF_CHECK(handle_tick_heartbeat(test_data));
+        } else if (cmd == "transfer-leadership") {
+          // Transfer the Raft leader.
+          //
+          // Example:
+          //
+          // transfer-leadership from=1 to=4
+          LEPTON_LEAF_CHECK(handle_transfer_leadership(test_data));
+        } else if (cmd == "forget-leader") {
+          // Forgets the current leader of the given node.
+          //
+          // Example:
+          //
+          // forget-leader 1
+          LEPTON_LEAF_CHECK(handle_forget_leader(test_data));
+        } else if (cmd == "send-snapshot") {
+          // Sends a snapshot to a node. Takes the source and destination node.
+          // The message will be queued, but not delivered automatically.
+          //
+          // Example: send-snapshot 1 3
+          LEPTON_LEAF_CHECK(handle_send_snapshot(test_data));
+        } else if (cmd == "propose") {
+          // Propose an entry.
+          //
+          // Example:
+          //
+          // propose 1 foo
+          LEPTON_LEAF_CHECK(handle_propose(test_data));
+        } else if (cmd == "propose-conf-change") {
+          // Propose a configuration change, or transition out of a previously
+          // proposed joint configuration change that requested explicit
+          // transitions. When adding nodes, this command can be used to
+          // logically add nodes to the configuration, but add-nodes is needed
+          // to "create" the nodes.
+          //
+          // propose-conf-change node_id [v1=<bool>] [transition=<string>]
+          // command string
+          // See ConfChangesFromString for command string format.
+          // Arguments are:
+          //    node_id - the node proposing the configuration change.
+          //    v1 - make one change at a time, false by default.
+          //    transition - "auto" (the default), "explicit" or "implicit".
+          // Example:
+          //
+          // propose-conf-change 1 transition=explicit
+          // v1 v3 l4 r5
+          //
+          // Example:
+          //
+          // propose-conf-change 2 v1=true
+          // v5
+          LEPTON_LEAF_CHECK(handle_propose_conf_change(test_data));
+        } else if (cmd == "report-unreachable") {
+          // Calls <1st>.ReportUnreachable(<2nd>).
+          //
+          // Example:
+          // report-unreachable 1 2
+          LEPTON_LEAF_CHECK(handle_report_unreachable(test_data));
         } else {
           return fmt::format("unknown command: {}", cmd);
         }
