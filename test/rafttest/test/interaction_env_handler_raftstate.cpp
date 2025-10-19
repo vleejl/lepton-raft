@@ -1,8 +1,8 @@
 #include <string>
 
+#include "enum_name.h"
 #include "fmt/format.h"
 #include "interaction_env.h"
-#include "magic_enum.hpp"
 #include "state.h"
 
 namespace interaction {

@@ -13,13 +13,13 @@
 #include "conf_change.h"
 #include "confchange.h"
 #include "config.h"
+#include "enum_name.h"
 #include "fmt/format.h"
 #include "inflights.h"
 #include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
 #include "logger.h"
-#include "magic_enum.hpp"
 #include "progress.h"
 #include "protobuf.h"
 #include "proxy.h"
@@ -566,7 +566,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
     case raftpb::MSG_SNAP_STATUS: {  // 用于管理快照发送后的节点状态转换和流量控制
       if (pr.state() != tracker::state_type::STATE_SNAPSHOT) {
         LOG_DEBUG(r.logger_, "{} [term {}] ignoring MsgSnapStatus from {} in state {}", r.id_, r.term_, msg_from,
-                  magic_enum::enum_name(pr.state()));
+                  enum_name(pr.state()));
         return {};
       }
       if (!m.reject()) {
@@ -639,7 +639,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
     }
     default:
       LOG_DEBUG(r.logger_, "{} [term {}] ignoring message from {} in state {}", r.id_, r.term_, msg_from,
-                magic_enum::enum_name(pr.state()));
+                enum_name(pr.state()));
       break;
   }
   return {};
@@ -651,8 +651,7 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
   // our pre-candidate state).
   auto post_vote_resp_func = [&]() {
     const auto [gr, rj, res] = r.poll(m.from(), m.type(), !m.reject());
-    LOG_INFO(r.logger_, "{} has received {} {} votes and {} vote rejections", r.id_, gr,
-             magic_enum::enum_name(m.type()), rj);
+    LOG_INFO(r.logger_, "{} has received {} {} votes and {} vote rejections", r.id_, gr, enum_name(m.type()), rj);
     switch (res) {
       case quorum::vote_result::VOTE_WON:
         if (r.state_type_ == state_type::PRE_CANDIDATE) {
@@ -935,11 +934,11 @@ void raft::send(raftpb::message&& message) {
       // - MsgPreVoteResp: m.Term is the term received in the original
       //   MsgPreVote if the pre-vote was granted, non-zero for the
       //   same reasons MsgPreVote is
-      LEPTON_CRITICAL("term should be set when msg type:{}", magic_enum::enum_name(msg_type));
+      LEPTON_CRITICAL("term should be set when msg type:{}", enum_name(msg_type));
     }
   } else {  // 非选举类消息，必须自动设置term
     if (message.term() != 0) {
-      LEPTON_CRITICAL("term should not be set when msg type:{}", magic_enum::enum_name(msg_type));
+      LEPTON_CRITICAL("term should not be set when msg type:{}", enum_name(msg_type));
     }
     // do not attach term to MsgProp, MsgReadIndex
     // proposals are a way to forward to the leader and
@@ -1002,7 +1001,7 @@ void raft::send(raftpb::message&& message) {
     msgs_after_append_.Add(std::move(message));
   } else {
     if (message.to() == id_) {
-      LEPTON_CRITICAL("message should not be self-addressed when sending {}", magic_enum::enum_name(msg_type));
+      LEPTON_CRITICAL("message should not be self-addressed when sending {}", enum_name(msg_type));
     }
     trace_receive_message(*this, message);
     msgs_.Add(std::move(message));
@@ -1351,6 +1350,9 @@ void raft::become_follower(std::uint64_t term, std::uint64_t lead) {
   tick_func_ = &raft::tick_election;
   lead_ = lead;
   state_type_ = state_type::FOLLOWER;
+  LOG_INFO(logger_, "{} became follower at term {}", id_, term_);
+
+  trace_become_follower(*this);
 }
 
 void raft::become_candidate() {
@@ -1366,7 +1368,7 @@ void raft::become_candidate() {
   tick_func_ = &raft::tick_election;
   vote_id_ = id_;
   state_type_ = state_type::CANDIDATE;
-  LOG_INFO(logger_, "{} [term {}] became candidate", id_, term_);
+  LOG_INFO(logger_, "{} became candidate at term {}", id_, term_);
 
   trace_become_candidate(*this);
 }
@@ -1424,7 +1426,7 @@ void raft::become_leader() {
   // so the preceding log append does not count against the uncommitted log
   // quota of the new leader. In other words, after the call to appendEntry,
   // r.uncommittedSize is still 0.
-  LOG_INFO(logger_, "{} [term {}] became leader at term {}", id_, term_, term_);
+  LOG_INFO(logger_, "{} became leader at term {}", id_, term_, term_);
 }
 
 // hup 函数用于让当前 Raft 节点发起一次领导者选举（Campaign），但仅在以下条件满足时触发：
@@ -1446,7 +1448,7 @@ void raft::hup(campaign_type t) {
              term_);
     return;
   }
-  LOG_INFO(logger_, "{} [term {}] starting a new election at term {}", id_, term_, term_);
+  LOG_INFO(logger_, "{} is starting a new election at term {}", id_, term_);
   campaign(t);
 }
 
@@ -1526,11 +1528,11 @@ void raft::campaign(campaign_type t) {
       continue;
     }
     auto last = raft_log_handle_.last_entry_id();
-    LOG_INFO(logger_, "{} [logterm: {}, index: {}] sent {} [logterm: {}, index: {}] to {}", id_, last.term, last.index,
-             magic_enum::enum_name(vote_msg_type), term, last.index, id);
+    LOG_INFO(logger_, "{} [logterm: {}, index: {}] sent {} request to {} at term {}", id_, last.term, last.index,
+             enum_name(vote_msg_type), id, term);
     std::string ctx;
     if (t == campaign_type::TRANSFER) {
-      ctx = magic_enum::enum_name(t);
+      ctx = enum_name(t);
     }
     m.set_type(vote_msg_type);
     m.set_index(last.index);
@@ -1545,9 +1547,9 @@ void raft::campaign(campaign_type t) {
 std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::uint64_t id, raftpb::message_type vt,
                                                                          bool vote) {
   if (vote) {
-    LOG_INFO(logger_, "{} received {} from {} at term {}", id_, magic_enum::enum_name(vt), id, term_);
+    LOG_INFO(logger_, "{} received {} from {} at term {}", id_, enum_name(vt), id, term_);
   } else {
-    LOG_INFO(logger_, "{} received {} rejiction from {} at term {}", id_, magic_enum::enum_name(vt), id, term_);
+    LOG_INFO(logger_, "{} received {} rejiction from {} at term {}", id_, enum_name(vt), id, term_);
   }
   trk_.record_vote(id, vote);
   return trk_.tally_votes();
@@ -1557,14 +1559,14 @@ leaf::result<void> raft::step(raftpb::message&& m) {
   trace_receive_message(*this, m);
   auto msg_type = m.type();
   LOG_TRACE(logger_, "{} [term {}] [commit {}] ready step message: {} {}", id_, term_, raft_log_handle_.committed(),
-            magic_enum::enum_name(msg_type), m.DebugString());
+            enum_name(msg_type), m.DebugString());
   // Handle the message term, which may result in our stepping down to a follower.
   if (m.term() == 0) {
     // local message
     LOG_TRACE(logger_, "{} [term {}] received local message: {}", id_, term_, m.DebugString());
   } else if (m.term() > term_) {
     if ((m.type() == raftpb::message_type::MSG_VOTE) || (m.type() == raftpb::message_type::MSG_PRE_VOTE)) {
-      auto force = m.context() == magic_enum::enum_name(campaign_type::TRANSFER);
+      auto force = m.context() == enum_name(campaign_type::TRANSFER);
       // 当前节点是否在租约期内（即 Leader 有效期内）
       auto in_lease = check_quorum_ && (lead_ != NONE) && (election_elapsed_ < election_timeout_);
       // 若在租约期内且非强制转移，忽略投票请求，防止无效选举
@@ -1577,7 +1579,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
             logger_,
             "{} [logterm: {}, index: {}, vote: {}] ignored {} from {} [term: {}, index: {}] at term {}: lease is not "
             "expired (remaining ticks: {})",
-            id_, last.term, last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.term(), m.index(), term_,
+            id_, last.term, last.index, vote_id_, enum_name(m.type()), m.from(), m.term(), m.index(), term_,
             election_timeout_ - election_elapsed_);
         return {};
       }
@@ -1596,7 +1598,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
                 m.term(), m.index());
     } else {
       LOG_INFO(logger_, "{} [term: {}] received a {} message with higher term from {} [term: {}]", id_, term_,
-               magic_enum::enum_name(m.type()), m.from(), m.term());
+               enum_name(m.type()), m.from(), m.term());
       if (m.type() == raftpb::message_type::MSG_APP || m.type() == raftpb::message_type::MSG_HEARTBEAT ||
           m.type() == raftpb::message_type::MSG_SNAP) {
         // MsgApp/MsgHeartbeat/MsgSnap：来自合法 Leader 的消息，直接更新 Leader。
@@ -1646,8 +1648,8 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       // 落后，停止预投票流程，避免干扰集群。
       auto cand_last = raft_log_handle_.last_entry_id();
       LOG_INFO(logger_, "{} [logterm: {}, index: {}, vote: {}] rejected {} from {} [logterm: {}, index: {}] at term {}",
-               id_, cand_last.term, cand_last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.term(),
-               m.index(), term_);
+               id_, cand_last.term, cand_last.index, vote_id_, enum_name(m.type()), m.from(), m.term(), m.index(),
+               term_);
       raftpb::message resp;
       resp.set_to(m.from());
       resp.set_term(term_);
@@ -1662,7 +1664,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
         // later term. See the comment in newStorageAppendResp for more
         // about this race.
         LOG_INFO(logger_, "{} [term: {}] ignored entry appends from a {} message with lower term [term: {}]", id_,
-                 term_, magic_enum::enum_name(m.type()), m.term());
+                 term_, enum_name(m.type()), m.term());
       }
       if (m.has_snapshot()) {
         // Even if the snapshot applied under a different term, its
@@ -1673,7 +1675,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
     } else {
       // ignore other cases
       LOG_INFO(logger_, "{} [term {}] ignored a {} message with lower term from {} [term: {}]", id_, term_,
-               magic_enum::enum_name(m.type()), m.from(), m.term());
+               enum_name(m.type()), m.from(), m.term());
     }
     return {};
   }
@@ -1689,7 +1691,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
     }
     case raftpb::message_type::MSG_STORAGE_APPEND_RESP: {
       if (m.index() != 0) {
-        raft_log_handle_.stable_to({m.term(), m.index()});
+        raft_log_handle_.stable_to({m.log_term(), m.index()});
       }
       if (m.has_snapshot()) {
         applied_snap(m.snapshot());
@@ -1737,8 +1739,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
         // in:
         // https://github.com/etcd-io/etcd/issues/7625#issuecomment-488798263.
         LOG_INFO(logger_, "{} [logterm: {}, index: {}, vote: {}] cast {} for {} [logterm: {}, index: {}] at term {}",
-                 id_, last.term, last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.log_term(),
-                 m.index(), term_);
+                 id_, last.term, last.index, vote_id_, enum_name(m.type()), m.from(), m.log_term(), m.index(), term_);
         // When responding to Msg{Pre,}Vote messages we include the term
         // from the message, not the local term. To see why, consider the
         // case where a single node was previously partitioned away and
@@ -1761,8 +1762,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       } else {
         LOG_INFO(logger_,
                  "{} [logterm: {}, index: {}, vote: {}] rejected {} from {} [logterm: {}, index: {}] at term {}", id_,
-                 last.term, last.index, vote_id_, magic_enum::enum_name(m.type()), m.from(), m.log_term(), m.index(),
-                 term_);
+                 last.term, last.index, vote_id_, enum_name(m.type()), m.from(), m.log_term(), m.index(), term_);
         raftpb::message resp;
         resp.set_to(m.from());
         resp.set_term(term_);

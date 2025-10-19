@@ -1,3 +1,4 @@
+#include <cassert>
 #include <cstddef>
 #include <optional>
 
@@ -8,7 +9,6 @@
 #include "lepton_error.h"
 #include "logic_error.h"
 #include "raft.pb.h"
-#include "test_utility_data.h"
 
 namespace interaction {
 lepton::leaf::result<void> interaction_env::handle_process_apply_thread(const datadriven::test_data &test_data) {
@@ -19,7 +19,6 @@ lepton::leaf::result<void> interaction_env::handle_process_apply_thread(const da
       std::string msg;
       output->write_string(fmt::format("> {} processing apply thread\n", idx + 1));
       this->with_indent([&]() {
-        auto err = process_apply_thread(idx);
         auto _ = boost::leaf::try_handle_some(
             [&]() -> lepton::leaf::result<void> {
               LEPTON_LEAF_CHECK(process_apply_thread(idx));
@@ -47,18 +46,22 @@ lepton::leaf::result<void> interaction_env::process_apply_thread(std::size_t nod
     output->write_string("no append work to perform");
     return {};
   }
-  auto &m = n.apply_work[0];
-  n.apply_work.erase(n.apply_work.begin());
+  assert(!n.apply_work.empty());
+  auto m = std::move(n.apply_work[0]);       // 移动第一个元素
+  n.apply_work.erase(n.apply_work.begin());  // 删除空槽
+  lepton::pb::repeated_message resps;
+  m.mutable_responses()->Swap(&resps);
   m.clear_responses();
+
   output->write_string("Processing:\n");
-  output->write_string(lepton::describe_message(m) + "\n");
+  output->write_string(lepton::describe_message(m, nullptr) + "\n");
   LEPTON_LEAF_CHECK(process_apply(n, m.entries()));
 
   output->write_string("Responses:\n");
-  for (const auto &resp : m.responses()) {
-    output->write_string(lepton::describe_message(resp) + "\n");
+  for (const auto &resp : resps) {
+    output->write_string(lepton::describe_message(resp, nullptr) + "\n");
   }
-  messages.Add(std::move(m));
+  messages.MergeFrom(resps);
   return {};
 }
 
@@ -100,9 +103,10 @@ lepton::leaf::result<void> process_apply(node &n, const lepton::pb::repeated_ent
     snap.mutable_data()->append(std::move(update));
     snap.mutable_metadata()->set_index(ent.index());
     snap.mutable_metadata()->set_term(ent.term());
-    if (cs.has_value()) {
+    if (!cs.has_value()) {
       cs = n.history[n.history.size() - 1].metadata().conf_state();
     }
+    assert(cs.has_value());
     snap.mutable_metadata()->mutable_conf_state()->CopyFrom(cs.value());
     n.history.Add(std::move(snap));
   }

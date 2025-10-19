@@ -37,23 +37,6 @@ enum class state_type : std::uint64_t {
   STATE_SNAPSHOT,
 };
 
-#ifdef LEPTON_TEST
-#include <string_view>
-inline std::string_view state_type2string(state_type s) {
-  switch (s) {
-    case state_type::STATE_PROBE: {
-      return "StateProbe";
-    }
-    case state_type::STATE_REPLICATE: {
-      return "StateReplicate";
-    }
-    case state_type::STATE_SNAPSHOT: {
-      return "StateSnapshot";
-    }
-  }
-  assert(false);
-}
-#endif
 }  // namespace tracker
 }  // namespace lepton
 

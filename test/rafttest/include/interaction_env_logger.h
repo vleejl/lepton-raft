@@ -18,7 +18,7 @@ class redirect_logger final : public lepton::logger_interface {
  public:
   enum level { trace = 0, debug, info, warn, error, fatal, none };
 
-  inline static std::array<std::string, 6> lvl_names = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"};
+  inline static std::array<std::string, 7> lvl_names = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "NONE"};
 
   redirect_logger(level lvl, std::ostringstream* buffer) : lvl_(lvl), buffer_(buffer) {}
 
@@ -73,8 +73,10 @@ class redirect_logger final : public lepton::logger_interface {
       return;  // 静音模式
     }
 
-    *buffer_ << fmt::format("[{}] [{}:{}:{}] {}\n", lvl_names[static_cast<std::size_t>(msg_level)], loc.file_name(),
-                            loc.line(), loc.function_name(), msg);
+    *buffer_ << fmt::format("{} {}", lvl_names[static_cast<std::size_t>(msg_level)], msg);
+    if (!msg.ends_with('\n')) {
+      *buffer_ << '\n';
+    }
   }
 
   level lvl_;

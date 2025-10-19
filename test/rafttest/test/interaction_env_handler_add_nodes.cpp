@@ -8,13 +8,14 @@
 #include "memory_storage.h"
 #include "raft.pb.h"
 #include "raw_node.h"
+#include "spdlog_logger.h"
 #include "v4/proxy.h"
 
 namespace interaction {
 
 lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepton::config &config,
                                                       raftpb::snapshot &snap) {
-  auto bootstrap = lepton::pb::is_empty_snap(snap);
+  auto bootstrap = !lepton::pb::is_empty_snap(snap);
   for (std::size_t i = 0; i < n; ++i) {
     auto id = static_cast<std::uint64_t>(nodes.size() + 1);
     storage_handles.emplace_back(
@@ -38,7 +39,9 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
         return lepton::new_error(lepton::logic_error::INVALID_PARAM, "index must be specified as > 1 due to bootstrap");
       }
       snap.mutable_metadata()->set_term(1);
-      if (auto ret = s.apply_snapshot(std::move(snap)); !ret) {
+      raftpb::snapshot copy_snap;
+      copy_snap.CopyFrom(snap);
+      if (auto ret = s.apply_snapshot(std::move(copy_snap)); !ret) {
         return ret;
       }
       auto first_index = s.first_index();
@@ -72,6 +75,7 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
       return lepton::new_error(lepton::logic_error::INVALID_PARAM, "OnConfig must not set Logger");
     }
     copy_cfg.logger = output;
+    // copy_cfg.logger = std::make_shared<lepton::spdlog_logger>();
 
     auto rn_result = lepton::new_raw_node(std::move(copy_cfg));
     assert(rn_result);
@@ -88,7 +92,7 @@ lepton::leaf::result<void> interaction_env::handle_add_nodes(const datadriven::t
   raftpb::snapshot snap;
   auto cfg = raft_config_stub();
   assert(test_data.cmd_args.size() >= 1);
-  for (std::size_t i = 1; i <= test_data.cmd_args.size(); ++i) {
+  for (std::size_t i = 1; i < test_data.cmd_args.size(); ++i) {
     const auto &arg = test_data.cmd_args[i];
     for (std::size_t j = 0; j < arg.vals_.size(); ++j) {
       if (arg.key_ == "voters") {

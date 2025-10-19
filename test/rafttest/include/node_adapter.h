@@ -19,7 +19,7 @@
 #include "co_spawn_waiter.h"
 #include "config.h"
 #include "describe.h"
-#include "magic_enum.hpp"
+#include "enum_name.h"
 #include "memory_storage.h"
 #include "node.h"
 #include "node_interface.h"
@@ -229,7 +229,7 @@ struct node_adapter {
         case event_type::ready: {
           auto rd_handle = std::get<lepton::ready_handle>(ev.payload);
           auto &rd = *rd_handle.get();
-          SPDLOG_TRACE(lepton::describe_ready(rd));
+          SPDLOG_TRACE(lepton::describe_ready(rd, nullptr));
           if (!lepton::pb::is_empty_hard_state(rd.hard_state)) {
             std::lock_guard<std::mutex> lock(mu);
             state = rd.hard_state;

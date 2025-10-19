@@ -16,11 +16,11 @@
 
 #include "absl/types/span.h"
 #include "config.h"
+#include "enum_name.h"
 #include "fmt/base.h"
 #include "fmt/format.h"
 #include "gtest/gtest.h"
 #include "lepton_error.h"
-#include "magic_enum.hpp"
 #include "memory_storage.h"
 #include "protobuf.h"
 #include "raft.h"

@@ -14,7 +14,9 @@
 #include <vector>
 
 #include "cli.h"
+#include "fmt/format.h"
 #include "functional"
+#include "test_utility_data.h"
 
 namespace datadriven {
 
@@ -77,15 +79,24 @@ class data_driven {
  public:
   using process_func = std::function<std::string(const datadriven::test_data&)>;
 
+  using process_file_func = std::function<void(const std::string&)>;
+
  private:
   void run_test_case(process_func process_test_case_func, parse_result& result, std::size_t& line_no) {
     auto test_expected_result = result.test_expected_result_stream.str();
     std::cout << "current test_file: " << test_file_ << std::endl;
     std::cout << "current process result line no: " << line_no << std::endl;
-    std::cout << "expected result:\n" << test_expected_result << std::endl;
     auto test_actual_result = process_test_case_func(result.test_data);
-    std::cout << "actual result:\n" << test_actual_result << std::endl;
-    ASSERT_EQ(test_actual_result, test_expected_result);
+    ensure_new_line(test_actual_result);
+    if (test_expected_result != test_actual_result) {
+      if (test_expected_result.find('\n') != std::string::npos) {
+        std::cout << "expected result:\n" << test_expected_result;
+      } else {
+        std::cout << "expected result:\n" << test_expected_result << std::endl;
+      }
+      std::cout << "actual result:\n" << test_actual_result << std::endl;
+      ASSERT_EQ(test_actual_result, test_expected_result) << fmt::format("line no: {}", line_no);
+    }
     result = parse_result{parse_state::INIT};
   }
 
@@ -149,12 +160,20 @@ class data_driven {
 class data_driven_group {
  public:
   data_driven_group(const std::string& dir) : dir_(dir) {}
+
   void run(data_driven::process_func process_test_case_func) {
     // List all test files in the specified directory
     std::vector<std::string> test_files = get_test_files(dir_);
     for (const auto& test_file : test_files) {
       data_driven runner{test_file};
       runner.run(process_test_case_func);
+    }
+  }
+
+  void run_file(data_driven::process_file_func process_file_func) {
+    std::vector<std::string> test_files = get_test_files(dir_);
+    for (const auto& test_file : test_files) {
+      process_file_func(test_file);
     }
   }
 

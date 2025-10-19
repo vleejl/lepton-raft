@@ -196,7 +196,9 @@ class unstable {
       LOG_INFO(logger_, "entry at index {} matched unstable snapshot; ignoring", id.index);
       return;
     }
-    if (term_result.value() != id.term) {
+
+    auto term = *term_result;
+    if (term != id.term) {
       // Term mismatch between unstable entry and specified entry. Ignore.
       // This is possible if part or all of the unstable log was replaced
       // between that time that a set of entries started to be written to

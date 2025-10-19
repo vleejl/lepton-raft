@@ -121,8 +121,8 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
   std::filesystem::path full_path = project_dir / current_dir / "testdata";
   // 再显式转换为字符串
   std::string dir_path = full_path.string();
-  std::vector<std::string> test_files = get_test_files(dir_path);
-  for (const auto& test_file : test_files) {
+  data_driven_group group{dir_path};
+  group.run_file([](const std::string& test_file) {
     confchange::changer c{
         tracker::progress_tracker{10, 0},
         0  // incremented in this test with each cmd
@@ -148,5 +148,5 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
       return r.value();
     };
     runner.run(func);
-  }
+  });
 }

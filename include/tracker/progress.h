@@ -3,10 +3,9 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
-#include <magic_enum/magic_enum.hpp>
-#include <unordered_map>
 #include <utility>
 
+#include "enum_name.h"
 #include "inflights.h"
 #include "log.h"
 #include "quorum.h"
@@ -154,7 +153,7 @@ class progress {
         break;
       }
       default:
-        LEPTON_CRITICAL("sending append in unhandled state {}", magic_enum::enum_name(state_));
+        LEPTON_CRITICAL("sending append in unhandled state {}", enum_name(state_));
         break;
     }
   }
@@ -256,12 +255,7 @@ class progress {
   }
 
   auto string() const {
-#ifdef LEPTON_TEST
-    auto state_name = state_type2string(state_);
-#else
-    auto state_name = magic_enum::enum_name(state_);
-#endif
-
+    auto state_name = enum_name(state_);
     fmt::memory_buffer buf;
     fmt::format_to(std::back_inserter(buf), "{} match={} next={}", state_name, match_, next_);
 
@@ -422,7 +416,7 @@ class progress {
 class progress_map {
   NOT_COPYABLE(progress_map)
  public:
-  using type = std::unordered_map<std::uint64_t, progress>;
+  using type = std::map<std::uint64_t, progress>;
   friend class progress_tracker;
 
   progress_map() = default;

@@ -8,6 +8,7 @@
 #include "interaction_env.h"
 #include "leaf.h"
 #include "raft.pb.h"
+#include "spdlog/spdlog.h"
 
 namespace interaction {
 
@@ -25,7 +26,8 @@ std::tuple<lepton::pb::repeated_message, lepton::pb::repeated_message> split_msg
   lepton::pb::repeated_message rmdr;
   for (const auto &m : msgs) {
     if ((m.to() == to) && !(drop && is_local_msg(m)) &&
-        (raftpb_message_type == -1 || static_cast<int>(m.type()) == raftpb_message_type)) {
+        (raftpb_message_type < 0 || static_cast<int>(m.type()) == raftpb_message_type)) {
+      // SPDLOG_INFO("split_msgs {}", m.DebugString());
       to_msgs.Add()->CopyFrom(m);
     } else {
       rmdr.Add()->CopyFrom(m);
@@ -59,11 +61,11 @@ lepton::leaf::result<void> interaction_env::stabilize(const std::vector<std::siz
   std::vector<std::reference_wrapper<node>> nodes;
   if (!idxs.empty()) {
     for (const auto &idx : idxs) {
-      assert(idx < nodes.size());
-      nodes.push_back(std::ref(nodes[idx]));
+      assert(idx < this->nodes.size());
+      nodes.push_back(std::ref(this->nodes[idx]));
     }
   } else {
-    for (auto &n : nodes) {
+    for (auto &n : this->nodes) {
       nodes.push_back(std::ref(n));
     }
   }
@@ -78,7 +80,6 @@ lepton::leaf::result<void> interaction_env::stabilize(const std::vector<std::siz
         auto has_error = false;
         std::string msg;
         this->with_indent([&]() {
-          auto err = process_ready(idx);
           auto _ = boost::leaf::try_handle_some(
               [&]() -> lepton::leaf::result<void> {
                 LEPTON_LEAF_CHECK(process_ready(idx));
@@ -106,6 +107,7 @@ lepton::leaf::result<void> interaction_env::stabilize(const std::vector<std::siz
       auto msgs = split_msgs(messages, id, -1, false);
       if (!std::get<0>(msgs).empty()) {
         output->write_string(fmt::format("> {} receiving messages\n", id));
+        this->with_indent([&]() { this->deliver_msgs(-1, {{.id = id}}); });
         done = false;
       }
     }
@@ -119,7 +121,6 @@ lepton::leaf::result<void> interaction_env::stabilize(const std::vector<std::siz
         std::string msg;
         output->write_string(fmt::format("> {} processing append thread\n", idx + 1));
         this->with_indent([&]() {
-          auto err = process_append_thread(idx);
           auto _ = boost::leaf::try_handle_some(
               [&]() -> lepton::leaf::result<void> {
                 LEPTON_LEAF_CHECK(process_append_thread(idx));
@@ -147,7 +148,6 @@ lepton::leaf::result<void> interaction_env::stabilize(const std::vector<std::siz
         std::string msg;
         output->write_string(fmt::format("> {} processing apply thread\n", idx + 1));
         this->with_indent([&]() {
-          auto err = process_apply_thread(idx);
           auto _ = boost::leaf::try_handle_some(
               [&]() -> lepton::leaf::result<void> {
                 LEPTON_LEAF_CHECK(process_apply_thread(idx));

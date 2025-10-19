@@ -8,6 +8,7 @@
 
 namespace interaction {
 std::string interaction_env::handle(const datadriven::test_data &test_data) {
+  this->output->clear();
   auto &cmd = test_data.cmd;
   auto _ = boost::leaf::try_handle_some(
       [&]() -> lepton::leaf::result<std::string> {
@@ -88,6 +89,14 @@ std::string interaction_env::handle(const datadriven::test_data &test_data) {
           //
           // set-randomized-election-timeout 1 timeout=5
           LEPTON_LEAF_CHECK(handle_set_randomized_election_timeout(test_data));
+        } else if (cmd == "stabilize") {
+          // Deliver messages to and run process-ready on the set of IDs until
+          // no more work is to be done. If no ids are given, all nodes are used.
+          //
+          // Example:
+          //
+          // stabilize 1 4
+          LEPTON_LEAF_CHECK(handle_stabilize(test_data));
         } else if (cmd == "status") {
           // Print Raft status.
           //

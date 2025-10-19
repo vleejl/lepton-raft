@@ -39,15 +39,17 @@ struct config {
   config() = default;
 #endif
   config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy<storage_builer> &&storage,
-         std::uint64_t applied_index, std::uint64_t max_size_per_msg, std::uint64_t max_committed_size_per_ready,
-         std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes,
-         bool check_quorum, read_only_option read_only_opt, bool disable_proposal_forwarding,
+         std::uint64_t applied_index, bool async_storage_writes, std::uint64_t max_size_per_msg,
+         std::uint64_t max_committed_size_per_ready, std::uint64_t max_uncommitted_entries_size,
+         std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes, bool check_quorum,
+         read_only_option read_only_opt, bool disable_proposal_forwarding,
          std::shared_ptr<lepton::logger_interface> &&logger)
       : id(id),
         election_tick(election_tick),
         heartbeat_tick(heartbeat_tick),
         storage(std::move(storage)),
         applied_index(applied_index),
+        async_storage_writes(async_storage_writes),
         max_size_per_msg(max_size_per_msg),
         max_committed_size_per_ready(max_committed_size_per_ready),
         max_uncommitted_entries_size(max_uncommitted_entries_size),
@@ -73,16 +75,16 @@ struct config {
   config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy<storage_builer> &&storage,
          std::uint64_t max_size_per_msg, std::size_t max_inflight_msgs,
          std::shared_ptr<lepton::logger_interface> &&logger)
-      : config(id, election_tick, heartbeat_tick, std::move(storage), 0, max_size_per_msg, 0, 0, max_inflight_msgs, 0,
-               false, read_only_option::READ_ONLY_SAFE, false, std::move(logger)) {}
+      : config(id, election_tick, heartbeat_tick, std::move(storage), 0, false, max_size_per_msg, 0, 0,
+               max_inflight_msgs, 0, false, read_only_option::READ_ONLY_SAFE, false, std::move(logger)) {}
 
   config clone() const {
     std::shared_ptr<lepton::logger_interface> copy_logger = logger;
     return config(id, election_tick, heartbeat_tick,
                   pro::proxy<storage_builer>(),  // 空 storage
-                  applied_index, max_size_per_msg, max_committed_size_per_ready, max_uncommitted_entries_size,
-                  max_inflight_msgs, max_inflight_bytes, check_quorum, read_only_opt, disable_proposal_forwarding,
-                  std::move(copy_logger));
+                  applied_index, async_storage_writes, max_size_per_msg, max_committed_size_per_ready,
+                  max_uncommitted_entries_size, max_inflight_msgs, max_inflight_bytes, check_quorum, read_only_opt,
+                  disable_proposal_forwarding, std::move(copy_logger));
   }
 
   // ID is the identity of the local raft. ID cannot be 0.

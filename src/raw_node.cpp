@@ -46,7 +46,7 @@ static bool need_storage_append_msg(raft &r, const ready &rd) {
   // Return true if log entries, hard state, or a snapshot need to be written
   // to stable storage. Also return true if any messages are contingent on all
   // prior MsgStorageAppend being processed.
-  LOG_INFO(r.logger(), "needStorageAppendMsg rd:\n{}", describe_ready(rd));
+  SPDLOG_TRACE("needStorageAppendMsg rd:\n{}", describe_ready(rd, nullptr));
   if (rd.entries.size() > 0) {
     return true;
   }
@@ -225,12 +225,12 @@ static raftpb::message new_storage_append_msg(raft &r, const ready &rd) {
   // be contained in msgsAfterAppend). This ordering allows the MsgAppResp
   // handling to use a fast-path in r.raftLog.term() before the newly appended
   // entries are removed from the unstable log.
-  *m.mutable_responses() = r.msgs_after_append();
-  SPDLOG_DEBUG(m.DebugString());
-  if (need_storage_append_msg(r, rd)) {
+  m.mutable_responses()->CopyFrom(r.msgs_after_append());
+  SPDLOG_TRACE("has msg after append {}", m.DebugString());
+  if (need_storage_append_resp_msg(r, rd)) {
     m.mutable_responses()->Add(new_storage_append_resp_msg(r, rd));
   }
-  SPDLOG_DEBUG(m.DebugString());
+  SPDLOG_TRACE(m.DebugString());
   return m;
 }
 
@@ -263,7 +263,7 @@ static raftpb::message new_storage_apply_msg(const raft &r, const ready &rd) {
   m.set_term(0);  // committed entries don't apply under a specific term
   *m.mutable_entries() = rd.committed_entries;
   m.mutable_responses()->Add(new_storage_apply_resp_msg(r, rd.entries));
-  SPDLOG_DEBUG(m.DebugString());
+  SPDLOG_TRACE(m.DebugString());
   return m;
 }
 
@@ -275,7 +275,6 @@ std::string get_highres_nanoseconds() {
 
 lepton::ready raw_node::ready_without_accept() {
   lepton::ready rd;
-  rd.timestamp_id = get_highres_nanoseconds();
   rd.entries = pb::convert_span_entry(raft_.raft_log_handle_.next_unstable_ents());
   rd.committed_entries = raft_.raft_log_handle_.next_committed_ents(this->apply_unstable_entries());
   rd.messages.CopyFrom(raft_.msgs_);
@@ -319,12 +318,12 @@ lepton::ready raw_node::ready_without_accept() {
       }
     }
   }
-  SPDLOG_TRACE("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd));
+  SPDLOG_TRACE("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd, nullptr));
   return rd;
 }
 
 void raw_node::accept_ready(const lepton::ready &rd) {
-  SPDLOG_TRACE("accept ready, content:\n{}", describe_ready(rd));
+  SPDLOG_TRACE("accept ready, content:\n{}", describe_ready(rd, nullptr));
   if (rd.soft_state) {
     prev_soft_state_ = *rd.soft_state;
   }

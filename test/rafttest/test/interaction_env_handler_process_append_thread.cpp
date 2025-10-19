@@ -1,3 +1,4 @@
+#include <cassert>
 #include <cstddef>
 
 #include "describe.h"
@@ -5,7 +6,7 @@
 #include "leaf.h"
 #include "logic_error.h"
 #include "raft.pb.h"
-#include "test_utility_data.h"
+#include "types.h"
 
 namespace interaction {
 lepton::leaf::result<void> interaction_env::handle_process_append_thread(const datadriven::test_data &test_data) {
@@ -16,7 +17,6 @@ lepton::leaf::result<void> interaction_env::handle_process_append_thread(const d
       std::string msg;
       output->write_string(fmt::format("> {} processing append thread\n", idx + 1));
       this->with_indent([&]() {
-        auto err = process_append_thread(idx);
         auto _ = boost::leaf::try_handle_some(
             [&]() -> lepton::leaf::result<void> {
               LEPTON_LEAF_CHECK(process_append_thread(idx));
@@ -44,11 +44,14 @@ lepton::leaf::result<void> interaction_env::process_append_thread(std::size_t no
     output->write_string("no append work to perform");
     return {};
   }
-  auto &m = n.append_work[0];
-  n.append_work.erase(n.append_work.begin());
+  assert(!n.append_work.empty());
+  auto m = std::move(n.append_work[0]);        // 移动第一个元素
+  n.append_work.erase(n.append_work.begin());  // 删除空槽
+  lepton::pb::repeated_message resps;
+  m.mutable_responses()->Swap(&resps);
   m.clear_responses();
   output->write_string("Processing:\n");
-  output->write_string(lepton::describe_message(m) + "\n");
+  output->write_string(lepton::describe_message(m, nullptr) + "\n");
   raftpb::hard_state hard_state;
   hard_state.set_term(m.term());
   hard_state.set_vote(m.vote());
@@ -61,10 +64,10 @@ lepton::leaf::result<void> interaction_env::process_append_thread(std::size_t no
   ents.CopyFrom(m.entries());
   LEPTON_LEAF_CHECK(process_append(n, std::move(hard_state), std::move(ents), std::move(snap)));
   output->write_string("Responses:\n");
-  for (const auto &resp : m.responses()) {
-    output->write_string(lepton::describe_message(resp) + "\n");
+  for (const auto &resp : resps) {
+    output->write_string(lepton::describe_message(resp, nullptr) + "\n");
   }
-  messages.Add(std::move(m));
+  messages.MergeFrom(resps);
   return {};
 }
 

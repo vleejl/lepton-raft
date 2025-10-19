@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 
+#include "absl/strings/str_replace.h"
 #include "leaf.h"
 
 template <typename T>
@@ -45,6 +46,24 @@ inline double rand_float64() {
   // 定义均匀分布，范围 [0.0, 1.0)
   static thread_local std::uniform_real_distribution<double> distribution(0.0, 1.0);
   return distribution(generator);
+}
+
+inline std::string remove_new_lines(const std::string& input) {
+  return absl::StrReplaceAll(input, {
+                                        {"\n", ""},   // 替换 LF (Unix 换行)
+                                        {"\r", ""},   // 替换 CR (Mac 换行)
+                                        {"\r\n", ""}  // 替换 CRLF (Windows 换行)
+                                    });
+}
+
+inline void ensure_new_line(std::string& str) {
+  // 检查字符串中是否包含换行符 '\n'
+  bool has_newline = (str.find('\n') != std::string::npos);
+
+  // 如果没有找到换行符，在末尾添加一个
+  if (!has_newline) {
+    str += '\n';
+  }
 }
 
 inline const std::error_code EC_SUCCESS;

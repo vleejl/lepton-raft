@@ -2,8 +2,7 @@
 #define _LEPTON_PB_H_
 #include <raft.pb.h>
 
-#include <magic_enum/magic_enum.hpp>
-
+#include "enum_name.h"
 #include "log.h"
 #include "types.h"
 namespace lepton {
@@ -78,7 +77,7 @@ inline constexpr auto __is_local_msg = []() {
 
 constexpr bool is_local_msg(raftpb::message_type type) {
   if (type < 0 || type >= RAFTPB_MESSAGE_COUNT) {
-    LEPTON_CRITICAL("invalid message type: {}", magic_enum::enum_name(type));
+    LEPTON_CRITICAL("invalid message type: {}", enum_name(type));
   }
   return __is_local_msg[static_cast<std::size_t>(type)];
 }

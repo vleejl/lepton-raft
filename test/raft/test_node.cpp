@@ -23,13 +23,13 @@
 #include "conf_change.h"
 #include "config.h"
 #include "describe.h"
+#include "enum_name.h"
 #include "fmt/format.h"
 #include "gtest/gtest.h"
 #include "joint.h"
 #include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
-#include "magic_enum.hpp"
 #include "majority.h"
 #include "memory_storage.h"
 #include "node.h"
@@ -300,7 +300,7 @@ TEST_F(node_test_suit, test_node_propose) {
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
 
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd));
+          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
           if (rd.entries.size() > 0) {
             SPDLOG_INFO("Appending entries to storage");
             EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
@@ -310,7 +310,7 @@ TEST_F(node_test_suit, test_node_propose) {
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::raft& _, raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::describe_message(msg));
+              SPDLOG_INFO(lepton::describe_message(msg, nullptr));
               if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
                 return {};  // injected by (*raft).advance
               }
@@ -508,7 +508,7 @@ TEST_F(node_test_suit, test_node_propose_config) {
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::raft& _, raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::describe_message(msg));
+              SPDLOG_INFO(lepton::describe_message(msg, nullptr));
               if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
                 return {};  // injected by (*raft).advance
               }
@@ -602,7 +602,7 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
                 SPDLOG_INFO("receive new ready");
                 auto msg_result = std::get<2>(result);
                 auto& rd = *msg_result.value();
-                SPDLOG_INFO(lepton::describe_ready(rd));
+                SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
                 SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
                             mm_storage.last_index().value(), rd.entries.size());
                 EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
@@ -792,7 +792,7 @@ TEST_F(node_test_suit, test_node_propose_wait_dropped) {
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::raft& _, raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::describe_message(msg));
+              SPDLOG_INFO(lepton::describe_message(msg, nullptr));
               if ((msg.type() == raftpb::message_type::MSG_PROP) &&
                   (msg.DebugString().find("test_dropping")) != std::string::npos) {
                 return new_error(lepton::raft_error::PROPOSAL_DROPPED);
@@ -1046,7 +1046,7 @@ TEST_F(node_test_suit, test_node_start) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd));
+          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
           SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
                       mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(compare_ready(wants[0], rd));
@@ -1081,7 +1081,7 @@ TEST_F(node_test_suit, test_node_start) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd));
+          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
           SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
                       mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
@@ -1101,7 +1101,7 @@ TEST_F(node_test_suit, test_node_start) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd));
+          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
           SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
                       mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
@@ -1125,10 +1125,11 @@ TEST_F(node_test_suit, test_node_start) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd));
+          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
           SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
                       mm_storage.last_index().value(), rd.entries.size());
-          EXPECT_TRUE(compare_ready(wants[1], rd)) << describe_ready(wants[1]) << "\n" << describe_ready(rd);
+          EXPECT_TRUE(compare_ready(wants[1], rd)) << describe_ready(wants[1], nullptr) << "\n"
+                                                   << describe_ready(rd, nullptr);
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
           SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
                       mm_storage.last_index().value());
@@ -1142,7 +1143,7 @@ TEST_F(node_test_suit, test_node_start) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, content {}", describe_ready(rd));
+          SPDLOG_INFO("receive raft raedy and ready to apply, content {}", describe_ready(rd, nullptr));
           SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
                       mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(compare_ready(wants[2], rd));
@@ -1414,7 +1415,7 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
               case 2: {
                 auto msg_result = std::get<2>(result);
                 auto& rd = *msg_result.value();
-                SPDLOG_INFO("receive new ready:\n{}", lepton::describe_ready(rd));
+                SPDLOG_INFO("receive new ready:\n{}", lepton::describe_ready(rd, nullptr));
 
                 EXPECT_TRUE(mm_storage.append(lepton::pb::repeated_entry{rd.entries}));
 
@@ -1610,13 +1611,13 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd));
+          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd, nullptr));
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
           EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
-            auto resp_msg = lepton::describe_message(resp);
+            auto resp_msg = lepton::describe_message(resp, nullptr);
             SPDLOG_INFO("[step 1] ready step message:\n{}", resp_msg);
             auto step_result = co_await node_handle->step(std::move(resp));
             SPDLOG_INFO("[step 1] step message successfult:\n{}", resp_msg);
@@ -1632,13 +1633,13 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd));
+          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd, nullptr));
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
           EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
-            auto resp_msg = lepton::describe_message(resp);
+            auto resp_msg = lepton::describe_message(resp, nullptr);
             SPDLOG_INFO("[step 2] ready step message:\n{}", resp_msg);
             auto step_result = co_await node_handle->step(std::move(resp));
             SPDLOG_INFO("[step 2] step message successfult:\n{}", resp_msg);
@@ -1654,9 +1655,9 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd));
+          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd, nullptr));
           for (auto& m : rd.messages) {
-            SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::describe_message(m));
+            SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::describe_message(m, nullptr));
           }
           EXPECT_EQ(2, rd.messages.size());
           for (auto& m : rd.messages) {

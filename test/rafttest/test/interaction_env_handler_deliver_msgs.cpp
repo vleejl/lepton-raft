@@ -9,6 +9,7 @@
 #include "log.h"
 #include "logic_error.h"
 #include "raft.pb.h"
+#include "spdlog/spdlog.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_data.h"
 
@@ -70,7 +71,7 @@ int interaction_env::deliver_msgs(int raftpb_message_type, const std::vector<rec
       if (r.drop) {
         output->write_string("dropped: ");
       }
-      output->write_string(lepton::describe_message(m));
+      output->write_string(lepton::describe_message(m, nullptr) + '\n');
       if (r.drop) {
         // NB: it's allowed to drop messages to nodes that haven't been instantiated yet,
         // we haven't used msg.To yet.
@@ -79,14 +80,16 @@ int interaction_env::deliver_msgs(int raftpb_message_type, const std::vector<rec
       assert(m.to() > 0);
       auto node_idx = static_cast<std::size_t>(m.to() - 1);
       assert(node_idx < nodes.size());
-      auto &n = nodes[node_idx];
       auto _ = boost::leaf::try_handle_some(
           [&]() -> lepton::leaf::result<void> {
-            LEPTON_LEAF_CHECK(n.raw_node.step(raftpb::message{m}));
+            raftpb::message msg;
+            msg.CopyFrom(m);
+            SPDLOG_TRACE("deliver_msgs {}", msg.DebugString());
+            LEPTON_LEAF_CHECK(nodes[node_idx].raw_node.step(std::move(msg)));
             return {};
           },
           [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
-            output->write_string(e.message);
+            output->write_string(e.message + '\n');
             return {};
           });
     }

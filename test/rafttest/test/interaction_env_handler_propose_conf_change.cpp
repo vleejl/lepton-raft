@@ -13,7 +13,7 @@ lepton::leaf::result<void> interaction_env::handle_propose_conf_change(const dat
   bool v1 = false;
   auto transition = raftpb::conf_change_transition::CONF_CHANGE_TRANSITION_AUTO;
   assert(test_data.cmd_args.size() >= 1);
-  for (std::size_t i = 1; i <= test_data.cmd_args.size(); ++i) {
+  for (std::size_t i = 1; i < test_data.cmd_args.size(); ++i) {
     const auto &arg = test_data.cmd_args[i];
     for (std::size_t j = 0; j < arg.vals_.size(); ++j) {
       const auto &val = arg.vals_[j];

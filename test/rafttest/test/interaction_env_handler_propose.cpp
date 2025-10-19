@@ -13,7 +13,7 @@ lepton::leaf::result<void> interaction_env::handle_propose(const datadriven::tes
     LEPTON_CRITICAL("expected exactly one key with no vals");
     return new_error(lepton::logic_error::INVALID_PARAM);
   }
-  return propose(idx, test_data.input);
+  return propose(idx, test_data.cmd_args[1].key_);
 }
 
 lepton::leaf::result<void> interaction_env::propose(std::size_t node_idx, const std::string &data) {

@@ -5,11 +5,11 @@
 #include <cassert>
 #include <system_error>
 
+#include "enum_name.h"
 #include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
 #include "logic_error.h"
-#include "magic_enum.hpp"
 #include "raft.pb.h"
 namespace lepton {
 
@@ -136,7 +136,7 @@ std::tuple<bool, bool> enter_joint(const raftpb::conf_change_v2& c) {
         break;
       }
       default:
-        LEPTON_CRITICAL("unknown transition: %+v", magic_enum::enum_name(c.transition()));
+        LEPTON_CRITICAL("unknown transition: %+v", enum_name(c.transition()));
         break;
     }
     return {auto_leave, true};

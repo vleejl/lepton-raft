@@ -420,22 +420,22 @@ TEST_F(raw_node_test_suit, test_raw_node_joint_auto_leave) {
   // Make it leader again. It should leave joint automatically after moving apply index.
   raw_node.campaign();
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::describe_ready(rd));
+  SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::describe_ready(rd));
+  SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::describe_ready(rd));
+  SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::describe_ready(rd));
+  SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
   // Check that the right ConfChange comes out.
   ASSERT_EQ(1, rd.entries.size());
   ASSERT_EQ(raftpb::ENTRY_CONF_CHANGE_V2, rd.entries[0].type());
@@ -1000,7 +1000,7 @@ TEST_F(raw_node_test_suit, test_commit_pagination_with_async_storage_writes) {
     EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
     EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
     for (auto& resp : *m.mutable_responses()) {
-      SPDLOG_INFO("ready step message:\n{}", lepton::describe_message(resp));
+      SPDLOG_INFO("ready step message:\n{}", lepton::describe_message(resp, nullptr));
       auto step_result = raw_node.step(std::move(resp));
       EXPECT_TRUE(step_result);
     }
@@ -1026,9 +1026,9 @@ TEST_F(raw_node_test_suit, test_commit_pagination_with_async_storage_writes) {
     ASSERT_TRUE(raw_node.has_ready());
     auto rd = raw_node.ready_without_accept();
     raw_node.accept_ready(rd);
-    SPDLOG_INFO("[Apply empty entry] ready content:\n{}", lepton::describe_ready(rd));
+    SPDLOG_INFO("[Apply empty entry] ready content:\n{}", lepton::describe_ready(rd, nullptr));
     for (auto& m : rd.messages) {
-      SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::describe_message(m));
+      SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::describe_message(m, nullptr));
     }
     EXPECT_EQ(2, rd.messages.size());
     for (auto& m : rd.messages) {
