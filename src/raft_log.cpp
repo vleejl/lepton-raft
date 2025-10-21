@@ -6,25 +6,28 @@
 
 #include <algorithm>
 #include <cassert>
+#include <utility>
 
 #include "absl/types/span.h"
 #include "config.h"
 #include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
+#include "logger.h"
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "types.h"
 
 namespace lepton {
 raft_log::raft_log(pro::proxy<storage_builer>&& storage, std::uint64_t first_index, std::uint64_t last_index,
-                   std::uint64_t max_applying_ents_size)
+                   std::uint64_t max_applying_ents_size, std::shared_ptr<lepton::logger_interface> logger)
     : storage_(std::move(storage)),
-      unstable_(last_index + 1, last_index + 1),
+      unstable_(last_index + 1, last_index + 1, logger),
       committed_(first_index - 1),
       applying_(first_index - 1),
       applied_(first_index - 1),
-      max_applying_ents_size_(max_applying_ents_size) {}
+      max_applying_ents_size_(max_applying_ents_size),
+      logger_(std::move(logger)) {}
 
 std::string raft_log::string() {
   return fmt::format("committed={}, applied={}, applying={}, unstable.offset={}, len(unstable.Entries)={}", committed_,
@@ -102,10 +105,10 @@ std::uint64_t raft_log::find_conflict(pb::span_entry entries) {
   for (const auto& entry : entries) {
     if (!match_term(pb::pb_entry_id(entry))) {
       if (entry->index() <= last_index()) {
-        SPDLOG_INFO(
-            "found conflict at index {} [existing term: {}, conflicting term: "
-            "{}]",
-            entry->index(), zero_term_on_err_compacted(entry->index()), entry->term());
+        LOG_INFO(logger_,
+                 "found conflict at index {} [existing term: {}, conflicting term: "
+                 "{}]",
+                 entry->index(), zero_term_on_err_compacted(entry->index()), entry->term());
       }
       return entry->index();
     }
@@ -368,8 +371,8 @@ bool raft_log::maybe_commit(const pb::entry_id& at) {
 }
 
 void raft_log::restore(raftpb::snapshot&& snapshot) {
-  SPDLOG_INFO("log [{}] starts to restore snapshot [index: {}, term: {}]", string(), snapshot.metadata().index(),
-              snapshot.metadata().term());
+  LOG_INFO(logger_, "log [{}] starts to restore snapshot [index: {}, term: {}]", string(), snapshot.metadata().index(),
+           snapshot.metadata().term());
   committed_ = snapshot.metadata().index();
   unstable_.restore(std::move(snapshot));
 }
@@ -492,6 +495,7 @@ std::uint64_t raft_log::zero_term_on_err_compacted(std::uint64_t i) const {
 }
 
 leaf::result<raft_log> new_raft_log_with_size(pro::proxy<storage_builer>&& storage,
+                                              std::shared_ptr<lepton::logger_interface> logger,
                                               pb::entry_encoding_size max_applying_ents_size) {
   if (!storage.has_value()) {
     return new_error(logic_error::NULL_POINTER, "storage must not be nil");
@@ -499,6 +503,6 @@ leaf::result<raft_log> new_raft_log_with_size(pro::proxy<storage_builer>&& stora
 
   BOOST_LEAF_AUTO(first_index, storage->first_index());
   BOOST_LEAF_AUTO(last_index, storage->last_index());
-  return raft_log{std::move(storage), first_index, last_index, max_applying_ents_size};
+  return raft_log{std::move(storage), first_index, last_index, max_applying_ents_size, std::move(logger)};
 }
 }  // namespace lepton

@@ -13,9 +13,9 @@
 #include "channel_endpoint.h"
 #include "co_spawn_waiter.h"
 #include "describe.h"
+#include "enum_name.h"
 #include "expected.h"
 #include "leaf_expected.h"
-#include "magic_enum.hpp"
 #include "node_interface.h"
 #include "raft.pb.h"
 #include "raft_error.h"
@@ -407,7 +407,7 @@ asio::awaitable<void> node::listen_receive(signal_channel_endpoint& token_chan) 
     if (pb::is_response_msg(msg.type()) && !pb::is_local_msg_target(msg.from()) &&
         !raw_node_.raft_.has_trk_progress(msg.from())) {
       SPDLOG_TRACE("message type: {}, msg from: {}. Filter out response message from unknown From",
-                   magic_enum::enum_name(msg.type()), msg.from());
+                   enum_name(msg.type()), msg.from());
       // Filter out response message from unknown From.
     } else {
       auto _ = raw_node_.raft_.step(std::move(msg));

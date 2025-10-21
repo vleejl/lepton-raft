@@ -13,6 +13,8 @@ void trace_change_conf_event(raftpb::conf_change_v2& cc, raft& r) {}
 
 void trace_replicate(raft& r, const pb::repeated_entry& entries) {}
 
+void trace_become_follower(raft& r) {}
+
 void trace_become_candidate(raft& r) {}
 
 void trace_become_leader(raft& r) {}

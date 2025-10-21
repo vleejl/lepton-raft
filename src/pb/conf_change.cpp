@@ -5,11 +5,11 @@
 #include <cassert>
 #include <system_error>
 
+#include "enum_name.h"
 #include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
 #include "logic_error.h"
-#include "magic_enum.hpp"
 #include "raft.pb.h"
 namespace lepton {
 
@@ -136,7 +136,7 @@ std::tuple<bool, bool> enter_joint(const raftpb::conf_change_v2& c) {
         break;
       }
       default:
-        LEPTON_CRITICAL("unknown transition: %+v", magic_enum::enum_name(c.transition()));
+        LEPTON_CRITICAL("unknown transition: %+v", enum_name(c.transition()));
         break;
     }
     return {auto_leave, true};
@@ -209,6 +209,47 @@ std::string conf_changes_to_string(const repeated_conf_change& ccs) {
 
   return fmt::to_string(buf);
 }
+
+leaf::result<repeated_conf_change> conf_changes_from_string(const std::string& s) {
+  repeated_conf_change ccs;
+  // 输入字符串为 space 分隔的变更列表
+  std::istringstream stream(s);
+  std::string tok;
+  while (stream >> tok) {
+    raftpb::conf_change_single cc;
+    switch (tok[0]) {
+      case 'v':
+        cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
+        break;
+      case 'l':
+        cc.set_type(raftpb::CONF_CHANGE_ADD_LEARNER_NODE);
+        break;
+      case 'r':
+        cc.set_type(raftpb::CONF_CHANGE_REMOVE_NODE);
+        break;
+      case 'u':
+        cc.set_type(raftpb::CONF_CHANGE_UPDATE_NODE);
+        break;
+      default:
+        return new_error(logic_error::INVALID_PARAM, fmt::format("unknown input: {}", tok));
+    }
+    std::string_view view(tok.data() + 1, tok.size() - 1);
+
+    // Parse the numeric node id from the substring using std::from_chars
+    unsigned long long value = 0;
+    const char* begin = view.data();
+    const char* end = begin + view.size();
+    std::from_chars_result res = std::from_chars(begin, end, value);
+    if (res.ec != std::errc() || res.ptr != end) {
+      return new_error(logic_error::INVALID_PARAM, fmt::format("invalid node id: {}", std::string(view)));
+    }
+
+    cc.set_node_id(static_cast<uint64_t>(value));
+    ccs.Add(std::move(cc));
+  }
+  return ccs;
+}
+
 }  // namespace pb
 
 }  // namespace lepton

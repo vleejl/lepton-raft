@@ -2,10 +2,12 @@
 #define _LEPTON_RAFT_H_
 
 #include <cstdint>
+#include <memory>
 #include <tuple>
 #include <vector>
 
 #include "config.h"
+#include "logger.h"
 #include "progress.h"
 #include "quorum.h"
 #include "raft_log.h"
@@ -199,7 +201,8 @@ class raft {
   raft(std::uint64_t id, raft_log&& raft_log_handle, std::uint64_t max_size_per_msg,
        std::uint64_t max_uncommitted_entries_size, std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes,
        int election_tick, int heartbeat_tick, bool check_quorum, bool pre_vote, read_only_option read_only_opt,
-       bool disable_proposal_forwarding, bool disable_conf_change_validation, bool step_down_on_removal)
+       bool disable_proposal_forwarding, bool disable_conf_change_validation, bool step_down_on_removal,
+       std::shared_ptr<lepton::logger_interface> logger)
       : id_(id),
         raft_log_handle_(std::move(raft_log_handle)),
         max_msg_size_(max_size_per_msg),
@@ -214,8 +217,13 @@ class raft {
         heartbeat_timeout_(heartbeat_tick),
         election_timeout_(election_tick),
         disable_proposal_forwarding_(disable_proposal_forwarding),
-        step_down_on_removal_(step_down_on_removal) {}
+        step_down_on_removal_(step_down_on_removal),
+        logger_(std::move(logger)) {}
+
   raft(raft&&) = default;
+
+  // 仅单线程环境下使用
+  std::shared_ptr<logger_interface>& logger() { return this->logger_; }
 
   auto id() const { return id_; }
 
@@ -410,6 +418,8 @@ class raft {
   // 待处理的读取索引消息。当有客户端请求读取日志时，pendingReadIndexMessages
   // 保存这些消息，直到领导者节点确认日志条目已提交后再进行响应。
   pb::repeated_message pending_read_index_messages_;
+
+  std::shared_ptr<lepton::logger_interface> logger_;
 };
 
 }  // namespace lepton

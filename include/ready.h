@@ -27,8 +27,6 @@ struct ready {
   ready &operator=(ready &&) = default;
   ready clone() const { return ready{*this}; }
 
-  std::string timestamp_id;
-
   // The current volatile state of a Node.
   // SoftState will be nil if there is no update.
   // It is not required to consume or store SoftState.

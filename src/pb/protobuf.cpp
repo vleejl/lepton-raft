@@ -167,7 +167,7 @@ raftpb::message_type vote_resp_msg_type(raftpb::message_type type) {
     case raftpb::message_type::MSG_PRE_VOTE:
       return raftpb::message_type::MSG_PRE_VOTE_RESP;
     default:
-      LEPTON_CRITICAL("not a vote message: {}", magic_enum::enum_name(type));
+      LEPTON_CRITICAL("not a vote message: {}", enum_name(type));
   }
 }
 

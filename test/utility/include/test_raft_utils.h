@@ -11,6 +11,7 @@
 #include "proxy.h"
 #include "raft.h"
 #include "raft.pb.h"
+#include "raw_node.h"
 #include "test_raft_state_machine.h"
 #include "types.h"
 #include "utility_macros.h"
@@ -26,6 +27,11 @@ lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbea
 // by system, in some test scenario we need to fill in some expected value to
 // ensure the certainty
 void set_randomized_election_timeout(lepton::raft &r, int election_timeout);
+
+// SetRandomizedElectionTimeout is like setRandomizedElectionTimeout, but
+// exported for use by tests that are not in the raft package, using RawNode.
+void set_randomized_election_timeout_for_raw_node(lepton::raw_node &r, int election_timeout);
+
 std::vector<std::uint64_t> ids_by_size(std::size_t size);
 struct black_hole {
   lepton::leaf::result<void> step(raftpb::message &&) { return {}; }

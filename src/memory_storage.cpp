@@ -57,9 +57,10 @@ leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> memory_storage:
 
 const pb::repeated_entry& memory_storage::entries_view() const { return ents_; }
 
-void memory_storage::set_hard_state(raftpb::hard_state&& hard_state) {
+leaf::result<void> memory_storage::set_hard_state(raftpb::hard_state&& hard_state) {
   std::lock_guard<std::mutex> guard(mutex_);
   hard_state_ = std::move(hard_state);
+  return {};
 }
 
 leaf::result<pb::repeated_entry> memory_storage::entries(std::uint64_t lo, std::uint64_t hi,

@@ -17,7 +17,7 @@ class raft_log {
  public:
   raft_log(raft_log&& rhs) = default;
   raft_log(pro::proxy<storage_builer>&& sstorage, std::uint64_t first_index, std::uint64_t last_index,
-           std::uint64_t max_applying_ents_size);
+           std::uint64_t max_applying_ents_size, std::shared_ptr<lepton::logger_interface> logger);
 
   std::string string();
 
@@ -236,13 +236,17 @@ class raft_log {
   // 该字段表示当前是否暂停了日志条目的应用。它用于控制日志条目的应用进度。
   // 用途：在某些情况下，可能需要暂停日志条目的应用，以便进行其他操作或等待条件满足。
   bool applying_ents_paused_ = false;
+
+  std::shared_ptr<lepton::logger_interface> logger_;
 };
 
 leaf::result<raft_log> new_raft_log_with_size(pro::proxy<storage_builer>&& storage,
+                                              std::shared_ptr<lepton::logger_interface> logger,
                                               pb::entry_encoding_size max_applying_ents_size);
 
-inline leaf::result<raft_log> new_raft_log(pro::proxy<storage_builer>&& storage) {
-  return new_raft_log_with_size(std::move(storage), NO_LIMIT);
+inline leaf::result<raft_log> new_raft_log(pro::proxy<storage_builer>&& storage,
+                                           std::shared_ptr<lepton::logger_interface> logger) {
+  return new_raft_log_with_size(std::move(storage), std::move(logger), NO_LIMIT);
 }
 
 }  // namespace lepton

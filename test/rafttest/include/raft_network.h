@@ -14,7 +14,7 @@
 
 #include "channel.h"
 #include "channel_endpoint.h"
-#include "magic_enum.hpp"
+#include "enum_name.h"
 #include "raft.pb.h"
 #include "spdlog/spdlog.h"
 

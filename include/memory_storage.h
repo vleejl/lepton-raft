@@ -19,7 +19,7 @@ class memory_storage {
  public:
   memory_storage();
   memory_storage(memory_storage&& ms)
-      : hard_state_(std::move(ms.hard_state_)), snapshot_(std::move(ms.snapshot_)), ents_(std::move(ms.ents_)) {};
+      : hard_state_(std::move(ms.hard_state_)), snapshot_(std::move(ms.snapshot_)), ents_(std::move(ms.ents_)){};
 #ifdef LEPTON_TEST
   explicit memory_storage(const pb::repeated_entry& ents) : ents_(ents) {}
 
@@ -31,7 +31,7 @@ class memory_storage {
 
   const pb::repeated_entry& entries_view() const;
 
-  void set_hard_state(raftpb::hard_state&& hard_state);
+  leaf::result<void> set_hard_state(raftpb::hard_state&& hard_state);
 
   leaf::result<pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const;
 

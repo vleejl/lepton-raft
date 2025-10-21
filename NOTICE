@@ -1,0 +1,14 @@
+This project is an independent reimplementation of etcd/raft in C++.
+
+Original etcd/raft is part of the etcd project:
+  https://github.com/etcd-io/raft
+  Copyright (c) 2013-2025 The etcd Authors
+  Licensed under the Apache License, Version 2.0
+
+This C++ implementation:
+  Copyright (c) 2025 vleejl (vleejl@hotmail.com)
+  Licensed under the Apache License, Version 2.0
+
+This project is not affiliated with, endorsed by, or sponsored by the etcd project
+or its maintainers. It aims to be a faithful reimplementation of etcd/raft in modern C++
+for research and development purposes.

@@ -7,6 +7,7 @@
 #include "leaf.h"
 #include "lepton_error.h"
 #include "log.h"
+#include "logger.h"
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "raft_error.h"
@@ -41,11 +42,11 @@ bool must_sync(const raftpb::hard_state &st, const raftpb::hard_state &prev_st, 
   return false;
 }
 
-static bool need_storage_append_msg(const raft &r, const ready &rd) {
+static bool need_storage_append_msg(raft &r, const ready &rd) {
   // Return true if log entries, hard state, or a snapshot need to be written
   // to stable storage. Also return true if any messages are contingent on all
   // prior MsgStorageAppend being processed.
-  SPDLOG_INFO("needStorageAppendMsg rd:\n{}", describe_ready(rd));
+  SPDLOG_TRACE("needStorageAppendMsg rd:\n{}", describe_ready(rd, nullptr));
   if (rd.entries.size() > 0) {
     return true;
   }
@@ -194,7 +195,7 @@ static raftpb::message new_storage_append_resp_msg(const raft &r, const ready &r
 // state, and apply a snapshot. The message also carries a set of responses
 // that should be delivered after the rest of the message is processed. Used
 // with AsyncStorageWrites.
-static raftpb::message new_storage_append_msg(const raft &r, const ready &rd) {
+static raftpb::message new_storage_append_msg(raft &r, const ready &rd) {
   raftpb::message m;
   m.set_type(raftpb::message_type::MSG_STORAGE_APPEND);
   m.set_to(pb::LOCAL_APPEND_THREAD);
@@ -224,12 +225,12 @@ static raftpb::message new_storage_append_msg(const raft &r, const ready &rd) {
   // be contained in msgsAfterAppend). This ordering allows the MsgAppResp
   // handling to use a fast-path in r.raftLog.term() before the newly appended
   // entries are removed from the unstable log.
-  *m.mutable_responses() = r.msgs_after_append();
-  SPDLOG_DEBUG(m.DebugString());
-  if (need_storage_append_msg(r, rd)) {
+  m.mutable_responses()->CopyFrom(r.msgs_after_append());
+  SPDLOG_TRACE("has msg after append {}", m.DebugString());
+  if (need_storage_append_resp_msg(r, rd)) {
     m.mutable_responses()->Add(new_storage_append_resp_msg(r, rd));
   }
-  SPDLOG_DEBUG(m.DebugString());
+  SPDLOG_TRACE(m.DebugString());
   return m;
 }
 
@@ -262,7 +263,7 @@ static raftpb::message new_storage_apply_msg(const raft &r, const ready &rd) {
   m.set_term(0);  // committed entries don't apply under a specific term
   *m.mutable_entries() = rd.committed_entries;
   m.mutable_responses()->Add(new_storage_apply_resp_msg(r, rd.entries));
-  SPDLOG_DEBUG(m.DebugString());
+  SPDLOG_TRACE(m.DebugString());
   return m;
 }
 
@@ -272,12 +273,11 @@ std::string get_highres_nanoseconds() {
   return std::to_string(ns.count());
 }
 
-lepton::ready raw_node::ready_without_accept() const {
+lepton::ready raw_node::ready_without_accept() {
   lepton::ready rd;
-  rd.timestamp_id = get_highres_nanoseconds();
   rd.entries = pb::convert_span_entry(raft_.raft_log_handle_.next_unstable_ents());
   rd.committed_entries = raft_.raft_log_handle_.next_committed_ents(this->apply_unstable_entries());
-  rd.messages = std::move(raft_.msgs_);
+  rd.messages.CopyFrom(raft_.msgs_);
   if (auto soft_state = raft_.soft_state(); soft_state != prev_soft_state_) {
     rd.soft_state = std::move(soft_state);
   }
@@ -318,12 +318,12 @@ lepton::ready raw_node::ready_without_accept() const {
       }
     }
   }
-  SPDLOG_TRACE("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd));
+  SPDLOG_TRACE("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd, nullptr));
   return rd;
 }
 
 void raw_node::accept_ready(const lepton::ready &rd) {
-  SPDLOG_TRACE("accept ready, content:\n{}", describe_ready(rd));
+  SPDLOG_TRACE("accept ready, content:\n{}", describe_ready(rd, nullptr));
   if (rd.soft_state) {
     prev_soft_state_ = *rd.soft_state;
   }

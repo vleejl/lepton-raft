@@ -18,15 +18,16 @@
 #include "absl/types/span.h"
 #include "conf_change.h"
 #include "config.h"
+#include "enum_name.h"
 #include "fmt/base.h"
 #include "fmt/format.h"
 #include "gtest/gtest.h"
 #include "lepton_error.h"
-#include "magic_enum.hpp"
 #include "memory_storage.h"
 #include "protobuf.h"
 #include "raft.h"
 #include "raft_log.h"
+#include "spdlog_logger.h"
 #include "state.h"
 #include "storage.h"
 #include "test_diff.h"
@@ -988,7 +989,7 @@ TEST_F(raft_test_suit, candidates_concede) {
   auto &mm_storage = *mm_storage_ptr;
   mm_storage.append(std::move(entries));
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  auto raft_log = new_raft_log(std::move(storage_proxy));
+  auto raft_log = new_raft_log(std::move(storage_proxy), std::make_shared<spdlog_logger>());
   auto want_log = ltoa(*raft_log);
   for (auto &[id, p] : nt.peers) {
     auto l = ltoa(p.raft_handle->raft_log_handle_);
@@ -1083,7 +1084,7 @@ TEST_F(raft_test_suit, old_messages) {
   auto &mm_storage = *mm_storage_ptr;
   mm_storage.append(std::move(entries2));
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  auto ilog = new_raft_log(std::move(storage_proxy));
+  auto ilog = new_raft_log(std::move(storage_proxy), std::make_shared<spdlog_logger>());
   auto base = ltoa(*ilog);
   for (auto &[id, p] : nt.peers) {
     auto l = ltoa(p.raft_handle->raft_log_handle_);
@@ -1159,7 +1160,7 @@ TEST_F(raft_test_suit, proposal) {
       mm_storage.append(std::move(entries));
     }
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-    auto raft_log = new_raft_log(std::move(storage_proxy));
+    auto raft_log = new_raft_log(std::move(storage_proxy), std::make_shared<spdlog_logger>());
     auto base = ltoa(*raft_log);
     for (std::size_t idx = 0; idx < tt.nt.peers.size(); ++idx) {
       for (auto &[id, p] : tt.nt.peers) {
@@ -1221,7 +1222,7 @@ TEST_F(raft_test_suit, proposal_by_proxy) {
     entry2->set_data(std::string{data});
     mm_storage.append(std::move(entries));
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-    auto raft_log = new_raft_log(std::move(storage_proxy));
+    auto raft_log = new_raft_log(std::move(storage_proxy), std::make_shared<spdlog_logger>());
     auto base = ltoa(*raft_log);
     for (std::size_t idx = 0; idx < tt.nt.peers.size(); ++idx) {
       for (auto &[id, p] : tt.nt.peers) {
@@ -1827,7 +1828,7 @@ static void test_recv_msg_vote(raftpb::message_type msg_type) {
     auto &mm_storage = *mm_storage_ptr;
     mm_storage.append(create_entries(0, {0, 2, 2}));
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-    auto raft_log = new_raft_log(std::move(storage_proxy));
+    auto raft_log = new_raft_log(std::move(storage_proxy), std::make_shared<spdlog_logger>());
     sm.raft_log_handle_ = std::move(*raft_log);
 
     // raft.Term is greater than or equal to raft.raftLog.lastTerm. In this

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <ostream>
 #include <system_error>
 #include <tuple>
@@ -21,6 +22,7 @@
 #include "proxy.h"
 #include "raft_log.h"
 #include "raft_log_unstable.h"
+#include "spdlog_logger.h"
 #include "storage.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_data.h"
@@ -38,6 +40,10 @@ class raft_log_test_suit : public testing::Test {
 
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
+
+leaf::result<raft_log> new_raft_log(pro::proxy<storage_builer> &&storage) {
+  return new_raft_log_with_size(std::move(storage), std::make_shared<spdlog_logger>(), NO_LIMIT);
+}
 
 TEST_F(raft_log_test_suit, test_find_conflict) {
   struct test_case {
@@ -603,7 +609,8 @@ TEST_F(raft_log_test_suit, accept_applying) {
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
 
-    auto raft_log = new_raft_log_with_size(pro::make_proxy<storage_builer>(std::move(mm_storage)), MAX_SIZE);
+    auto raft_log = new_raft_log_with_size(pro::make_proxy<storage_builer>(std::move(mm_storage)),
+                                           std::make_shared<spdlog_logger>(), MAX_SIZE);
     ASSERT_TRUE(raft_log.has_value());
 
     raft_log->append(create_entries(4, {1, 1, 1}));
@@ -649,7 +656,8 @@ TEST_F(raft_log_test_suit, applied_to) {
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
 
-    auto raft_log = new_raft_log_with_size(pro::make_proxy<storage_builer>(std::move(mm_storage)), MAX_SIZE);
+    auto raft_log = new_raft_log_with_size(pro::make_proxy<storage_builer>(std::move(mm_storage)),
+                                           std::make_shared<spdlog_logger>(), MAX_SIZE);
     ASSERT_TRUE(raft_log.has_value());
 
     raft_log->append(create_entries(4, {1, 1, 1}));

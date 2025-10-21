@@ -234,8 +234,7 @@ leaf::result<void> changer::apply(absl::Span<const raftpb::conf_change_single *c
         break;
       }
       default:
-        return new_error(raft_error::CONFIG_INVALID,
-                         fmt::format("unexpected conf type {}", magic_enum::enum_name(cc->type())));
+        return new_error(raft_error::CONFIG_INVALID, fmt::format("unexpected conf type {}", enum_name(cc->type())));
     }
   }
   if (cfg.voters.primary_config_view().empty()) {

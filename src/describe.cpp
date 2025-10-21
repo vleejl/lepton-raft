@@ -3,15 +3,31 @@
 #include <absl/strings/str_join.h>
 #include <fmt/format.h>
 
+#include <string>
+
 #include "conf_change.h"
 #include "config.h"
+#include "enum_name.h"
 #include "log.h"
-#include "magic_enum.hpp"
 #include "protobuf.h"
 #include "raft.pb.h"
 #include "types.h"
 
 namespace lepton {
+#ifdef LEPTON_TEST
+static auto rafa_state_name(state_type type) {
+  switch (type) {
+    case state_type::FOLLOWER:
+      return "StateFollower";
+    case state_type::CANDIDATE:
+      return "StateCandidate";
+    case state_type::LEADER:
+      return "StateLeader";
+    case state_type::PRE_CANDIDATE:
+      return "StatePreCandidate";
+  }
+}
+#endif
 
 static std::string format_vector(const std::vector<read_state> &vec) {
   return fmt::format(
@@ -19,7 +35,11 @@ static std::string format_vector(const std::vector<read_state> &vec) {
 }
 
 std::string describe_soft_state(const soft_state &ss) {
-  return fmt::format("Lead:{} State:{}", ss.leader_id, magic_enum::enum_name(ss.raft_state));
+#ifdef LEPTON_TEST
+  return fmt::format("Lead:{} State:{}", ss.leader_id, rafa_state_name(ss.raft_state));
+#else
+  return fmt::format("Lead:{} State:{}", ss.leader_id, enum_name(ss.raft_state));
+#endif
 }
 
 std::string describe_hard_state(const raftpb::hard_state &hs) {
@@ -27,10 +47,13 @@ std::string describe_hard_state(const raftpb::hard_state &hs) {
                        : fmt::format("Term:{} Commit:{}", hs.term(), hs.commit());
 }
 
-static std::string formattted_describe_entry(const raftpb::entry &ent) {
+static std::string formattted_describe_entry(const raftpb::entry &ent, entry_formatter_func f) {
+  if (f == nullptr) {
+    f = [](const std::string &data) -> std::string { return std::format("\"{}\"", data); };
+  }
   switch (ent.type()) {
     case raftpb::ENTRY_NORMAL:
-      return ent.data();
+      return f(ent.data());
     case raftpb::ENTRY_CONF_CHANGE: {
       raftpb::conf_change ccc;
       ccc.ParseFromString(ent.data());
@@ -43,28 +66,26 @@ static std::string formattted_describe_entry(const raftpb::entry &ent) {
       return pb::conf_changes_to_string(cc_v2.changes());
     }
     default:
-      LEPTON_CRITICAL("Unknown entry type: {}", magic_enum::enum_name(ent.type()));
+      LEPTON_CRITICAL("Unknown entry type: {}", enum_name(ent.type()));
   }
-  LEPTON_CRITICAL("Unknown entry type: {}", magic_enum::enum_name(ent.type()));
-  return fmt::format("Unknown entry type: {}", magic_enum::enum_name(ent.type()));
+  LEPTON_CRITICAL("Unknown entry type: {}", enum_name(ent.type()));
+  return fmt::format("Unknown entry type: {}", enum_name(ent.type()));
 }
 
-std::string describe_entry(const raftpb::entry &ent) {
-  auto formatted = formattted_describe_entry(ent);
+std::string describe_entry(const raftpb::entry &ent, entry_formatter_func f) {
+  auto formatted = formattted_describe_entry(ent, f);
   if (!formatted.empty()) {
     formatted = fmt::format(" {}", formatted);
   }
-  if (!formatted.empty()) {
-    formatted = " " + formatted;
-  }
-  return fmt::format("{}/{} {}{}", ent.term(), ent.index(), magic_enum::enum_name(ent.type()), formatted);
+  return fmt::format("{}/{} {}{}", ent.term(), ent.index(), enum_name(ent.type()), formatted);
 }
 
 // DescribeEntries calls DescribeEntry for each Entry, adding a newline to
 // each.
-std::string describe_entries(const pb::repeated_entry &entries) {
+std::string describe_entries(const pb::repeated_entry &entries, entry_formatter_func f) {
   return fmt::format(
-      "{}\n", fmt::join(entries | std::views::transform([](const auto &ent) { return describe_entry(ent); }), "\n"));
+      "{}\n",
+      fmt::join(entries | std::views::transform([&](const auto &ent) { return describe_entry(ent, f); }), "\n"));
 }
 
 std::string describe_conf_state(const raftpb::conf_state &state) {
@@ -90,63 +111,55 @@ std::string describe_target(uint64_t id) {
   }
 }
 
-std::string describe_message_with_indent(const std::string &indent, const raftpb::message &m) {
-  // 主消息行
-  std::string result =
-      fmt::format("{}{}->{} {} Term:{} Log:{}/{}", indent, describe_target(m.from()), describe_target(m.to()),
-                  magic_enum::enum_name(m.type()), m.term(), m.log_term(), m.index());
+std::string describe_message_with_indent(const std::string &indent, const raftpb::message &m, entry_formatter_func f) {
+  fmt::memory_buffer buf;
 
-  // 附加字段
+  fmt::format_to(std::back_inserter(buf), "{}{}->{} {} Term:{} Log:{}/{}", indent, describe_target(m.from()),
+                 describe_target(m.to()), enum_name(m.type()), m.term(), m.log_term(), m.index());
+
   if (m.reject()) {
-    fmt::format_to(std::back_inserter(result), " Rejected (Hint: {})", m.reject_hint());
+    fmt::format_to(std::back_inserter(buf), " Rejected (Hint: {})", m.reject_hint());
   }
   if (m.commit() != 0) {
-    fmt::format_to(std::back_inserter(result), " Commit:{}", m.commit());
+    fmt::format_to(std::back_inserter(buf), " Commit:{}", m.commit());
   }
   if (m.vote() != 0) {
-    fmt::format_to(std::back_inserter(result), " Vote:{}", m.vote());
+    fmt::format_to(std::back_inserter(buf), " Vote:{}", m.vote());
   }
 
-  // 处理日志条目
-  if (!m.entries().empty()) {
-    if (m.entries_size() == 1) {
-      fmt::format_to(std::back_inserter(result), " Entries:[{}]", describe_entry(m.entries(0)));
-    } else {
-      // 多行格式
-      result += fmt::format(" Entries:[\n{}  ", indent);
-      for (int i = 0; i < m.entries_size(); ++i) {
-        if (i > 0) fmt::format_to(std::back_inserter(result), "\n{}  ", indent);
-        result += describe_entry(m.entries(i));
-      }
-      fmt::format_to(std::back_inserter(result), "\n{}]", indent);
+  if (m.entries_size() == 1) {
+    fmt::format_to(std::back_inserter(buf), " Entries:[{}]", describe_entry(m.entries(0), f));
+  } else if (m.entries_size() > 1) {
+    fmt::format_to(std::back_inserter(buf), " Entries:[");
+    for (int i = 0; i < m.entries_size(); ++i) {
+      fmt::format_to(std::back_inserter(buf), "\n{}  {}", indent, describe_entry(m.entries(i), f));
     }
+    fmt::format_to(std::back_inserter(buf), "\n{}]", indent);
   }
 
-  // 处理快照
   if (m.has_snapshot() && !pb::is_empty_snap(m.snapshot())) {
-    fmt::format_to(std::back_inserter(result), "\n{}  Snapshot: {}", indent, describe_snapshot(m.snapshot()));
+    fmt::format_to(std::back_inserter(buf), "\n{}  Snapshot: {}", indent, describe_snapshot(m.snapshot()));
   }
 
-  // 递归处理响应
-  if (!m.responses().empty()) {
-    result += fmt::format(" Responses:[\n");
-    for (const auto &response : m.responses()) {
-      result += describe_message_with_indent(indent + "  ", response) + "\n";
+  if (m.responses_size() > 0) {
+    fmt::format_to(std::back_inserter(buf), " Responses:[");
+    for (int i = 0; i < m.responses_size(); ++i) {
+      fmt::format_to(std::back_inserter(buf), "\n{}", describe_message_with_indent(indent + "  ", m.responses(i), f));
     }
-    result += fmt::format("{}]", indent);
+    fmt::format_to(std::back_inserter(buf), "\n{}]", indent);
   }
 
-  return result;
+  return fmt::to_string(buf);
 }
 
 // DescribeMessage returns a concise human-readable description of a
 // Message for debugging.
-std::string describe_message(const raftpb::message &m) { return describe_message_with_indent("", m); }
+std::string describe_message(const raftpb::message &m, entry_formatter_func f) {
+  return describe_message_with_indent("", m, f);
+}
 
-std::string describe_ready(const ready &rd) {
+std::string describe_ready(const ready &rd, entry_formatter_func f) {
   fmt::memory_buffer buf;
-
-  fmt::format_to(std::back_inserter(buf), "timestamp_id: {}\n", rd.timestamp_id);
 
   // Handle soft_state
   if (rd.soft_state) {
@@ -168,7 +181,7 @@ std::string describe_ready(const ready &rd) {
 
   // Handle entries
   if (!rd.entries.empty()) {
-    auto entries_str = describe_entries(rd.entries);
+    auto entries_str = describe_entries(rd.entries, f);
     fmt::format_to(std::back_inserter(buf), "Entries:\n{}", entries_str);
   }
 
@@ -180,7 +193,7 @@ std::string describe_ready(const ready &rd) {
 
   // Handle committed_entries
   if (!rd.committed_entries.empty()) {
-    auto committed_entries_str = describe_entries(rd.committed_entries);
+    auto committed_entries_str = describe_entries(rd.committed_entries, f);
     fmt::format_to(std::back_inserter(buf), "CommittedEntries:\n{}", committed_entries_str);
   }
 
@@ -188,7 +201,7 @@ std::string describe_ready(const ready &rd) {
   if (!rd.messages.empty()) {
     fmt::format_to(std::back_inserter(buf), "Messages:\n");
     for (const auto &msg : rd.messages) {
-      auto msg_str = describe_message(msg);
+      auto msg_str = describe_message(msg, f);
       fmt::format_to(std::back_inserter(buf), "{}\n", msg_str);
     }
   }
