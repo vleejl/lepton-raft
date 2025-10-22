@@ -39,7 +39,7 @@ class raft_error_category : public base_error_category {
       case raft_error::CONFIG_MISMATCH:
         return "raft: configuration mismatch";
       case raft_error::PROPOSAL_DROPPED:
-        return "raft: proposal dropped";
+        return "raft proposal dropped";
       case raft_error::STEP_LOCAL_MSG:
         return "raft: cannot step raft local message";
       case raft_error::STEP_PEER_NOT_FOUND:

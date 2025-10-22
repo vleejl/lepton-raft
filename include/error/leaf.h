@@ -16,11 +16,13 @@
 
 // clang-format off
 #if defined(__GNUC__) || defined(__clang__)
-#  define LEPTON_LEAF_CHECK(expr) \
-     _Pragma("GCC diagnostic push") \
-     _Pragma("GCC diagnostic ignored \"-Wpedantic\"") \
-     BOOST_LEAF_CHECK(expr); \
-     _Pragma("GCC diagnostic pop")
+#  define LEPTON_LEAF_CHECK(expr)                          \
+     do {                                                  \
+         _Pragma("GCC diagnostic push")                    \
+         _Pragma("GCC diagnostic ignored \"-Wpedantic\"")  \
+         BOOST_LEAF_CHECK(expr);                           \
+         _Pragma("GCC diagnostic pop")                     \
+     } while (0)
 #else
 #  define LEPTON_LEAF_CHECK(expr) BOOST_LEAF_CHECK(expr)
 #endif

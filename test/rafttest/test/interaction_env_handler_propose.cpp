@@ -20,8 +20,7 @@ lepton::leaf::result<void> interaction_env::propose(std::size_t node_idx, const 
   if (node_idx < 0 || node_idx >= nodes.size()) {
     return new_error(lepton::logic_error::INVALID_PARAM);
   }
-  nodes[node_idx].raw_node.propose(std::string{data});
-  return {};
+  return nodes[node_idx].raw_node.propose(std::string{data});
 }
 
 }  // namespace interaction

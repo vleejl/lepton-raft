@@ -89,7 +89,11 @@ int interaction_env::deliver_msgs(int raftpb_message_type, const std::vector<rec
             return {};
           },
           [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
-            output->write_string(e.message + '\n');
+            if (e.message.empty()) {
+              output->write_string(e.err_code.message() + '\n');
+            } else {
+              output->write_string(e.message + '\n');
+            }
             return {};
           });
     }

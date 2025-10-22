@@ -47,9 +47,15 @@ std::string describe_hard_state(const raftpb::hard_state &hs) {
                        : fmt::format("Term:{} Commit:{}", hs.term(), hs.commit());
 }
 
+std::string safe_quote(const std::string &data) {
+  std::ostringstream oss;
+  oss << std::quoted(data);  // 使用 std::quoted 自动转义
+  return oss.str();
+}
+
 static std::string formattted_describe_entry(const raftpb::entry &ent, entry_formatter_func f) {
   if (f == nullptr) {
-    f = [](const std::string &data) -> std::string { return std::format("\"{}\"", data); };
+    f = [](const std::string &data) -> std::string { return safe_quote(data); };
   }
   switch (ent.type()) {
     case raftpb::ENTRY_NORMAL:
@@ -88,9 +94,16 @@ std::string describe_entries(const pb::repeated_entry &entries, entry_formatter_
       fmt::join(entries | std::views::transform([&](const auto &ent) { return describe_entry(ent, f); }), "\n"));
 }
 
+static std::string convert_repeated_uint64_to_string(const pb::repeated_uint64 &vec) {
+  return fmt::format("[{}]", absl::StrJoin(vec, " "));
+}
+
 std::string describe_conf_state(const raftpb::conf_state &state) {
-  return fmt::format("Voters:{} VotersOutgoing:{} Learners:{} LearnersNext:{} AutoLeave:{}", state.voters(),
-                     state.voters_outgoing(), state.learners(), state.learners_next(), state.auto_leave());
+  return fmt::format("Voters:{} VotersOutgoing:{} Learners:{} LearnersNext:{} AutoLeave:{}",
+                     convert_repeated_uint64_to_string(state.voters()),
+                     convert_repeated_uint64_to_string(state.voters_outgoing()),
+                     convert_repeated_uint64_to_string(state.learners()),
+                     convert_repeated_uint64_to_string(state.learners_next()), state.auto_leave());
 }
 
 std::string describe_snapshot(const raftpb::snapshot &snap) {
@@ -98,7 +111,7 @@ std::string describe_snapshot(const raftpb::snapshot &snap) {
   return fmt::format("Index:{} Term:{} ConfState:{}", m.index(), m.term(), describe_conf_state(m.conf_state()));
 }
 
-std::string describe_target(uint64_t id) {
+static std::string describe_target(uint64_t id) {
   switch (id) {
     case NONE:
       return "None";
@@ -188,7 +201,7 @@ std::string describe_ready(const ready &rd, entry_formatter_func f) {
   // Handle snapshot
   if (!pb::is_empty_snap(rd.snapshot)) {
     auto snapshot_str = describe_snapshot(rd.snapshot);
-    fmt::format_to(std::back_inserter(buf), "Snapshot: {{}}{}\n", snapshot_str);
+    fmt::format_to(std::back_inserter(buf), "Snapshot {}\n", snapshot_str);
   }
 
   // Handle committed_entries

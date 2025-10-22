@@ -57,11 +57,7 @@ inline std::string remove_new_lines(const std::string& input) {
 }
 
 inline void ensure_new_line(std::string& str) {
-  // 检查字符串中是否包含换行符 '\n'
-  bool has_newline = (str.find('\n') != std::string::npos);
-
-  // 如果没有找到换行符，在末尾添加一个
-  if (!has_newline) {
+  if (!str.empty() && str.back() != '\n') {
     str += '\n';
   }
 }

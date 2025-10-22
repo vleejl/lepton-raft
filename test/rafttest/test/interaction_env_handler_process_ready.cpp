@@ -73,6 +73,9 @@ lepton::leaf::result<void> interaction_env::process_ready(std::size_t node_idx) 
       messages.Add(std::move(msg));
     }
   }
+  if (!n.config.async_storage_writes) {
+    n.raw_node.advance();
+  }
   return {};
 }
 }  // namespace interaction

@@ -45,6 +45,8 @@ std::string conf_changes_to_string(const repeated_conf_change& ccs);
 // - un: update n.
 leaf::result<repeated_conf_change> conf_changes_from_string(const std::string& s);
 
+std::string describe_conf_change_v2(const raftpb::conf_change_v2& cc);
+
 }  // namespace pb
 }  // namespace lepton
 

@@ -2,7 +2,9 @@
 #include <cstddef>
 
 #include "data_driven.h"
+#include "describe.h"
 #include "interaction_env.h"
+#include "leaf.hpp"
 #include "logic_error.h"
 #include "raft.pb.h"
 
@@ -23,7 +25,7 @@ lepton::leaf::result<void> interaction_env::send_snapshot(std::size_t from_idx, 
     return new_error(lepton::logic_error::INVALID_PARAM);
   }
 
-  auto snap = LEPTON_LEAF_CHECK(nodes[from_idx].storage->snapshot());
+  BOOST_LEAF_AUTO(snap, nodes[from_idx].storage->snapshot());
   auto from = from_idx + 1;
   auto to = to_idx + 1;
   raftpb::message msg;
@@ -32,6 +34,8 @@ lepton::leaf::result<void> interaction_env::send_snapshot(std::size_t from_idx, 
   msg.set_to(to);
   msg.set_term(nodes[from_idx].raw_node.basic_status().hard_state.term());
   msg.mutable_snapshot()->Swap(&snap);
+  output->write_string(lepton::describe_message(msg, nullptr));
+  messages.Add(std::move(msg));
   return {};
 }
 

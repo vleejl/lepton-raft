@@ -73,6 +73,8 @@ lepton::config new_test_config(std::uint64_t id, int election_tick, int heartbea
                         std::move(storage),
                         lepton::NO_LIMIT,
                         256,
+                        false,
+                        false,
                         std::make_shared<lepton::spdlog_logger>()};
 }
 

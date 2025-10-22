@@ -26,7 +26,7 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
                                                 // give you some fixed snapshot and also the snapshot changes
                                                 // whenever you compact the logs and vice versa, so it's all a bit
                                                 // awkward to use.
-                                                [&]() -> lepton::leaf::result<raftpb::snapshot> const {
+                                                [&, id]() -> lepton::leaf::result<raftpb::snapshot> const {
                                                   auto &history = this->nodes[id - 1].history;
                                                   return history.at(history.size() - 1);
                                                 }));
@@ -145,17 +145,22 @@ lepton::leaf::result<void> interaction_env::handle_add_nodes(const datadriven::t
         auto err = arg.scan_err(j, disable_conf_change_validation);
         assert(err);
         cfg.disable_conf_change_validation = disable_conf_change_validation;
-      } else if (arg.key_ == "read_only") {
+      } else if (arg.key_ == "read-only") {
         std::string read_only_opt;
         auto err = arg.scan_err(j, read_only_opt);
         assert(err);
         if (read_only_opt == "safe") {
           cfg.read_only_opt = lepton::read_only_option::READ_ONLY_SAFE;
-        } else if (read_only_opt == "lease") {
+        } else if (read_only_opt == "lease-based") {
           cfg.read_only_opt = lepton::read_only_option::READ_ONLY_LEASE_BASED;
         } else {
           assert(false);
         }
+      } else if (arg.key_ == "step-down-on-removal") {
+        bool step_down_on_removal = false;
+        auto err = arg.scan_err(j, step_down_on_removal);
+        assert(err);
+        cfg.step_down_on_removal = step_down_on_removal;
       } else {
         assert(false);
         return lepton::new_error(lepton::logic_error::INVALID_PARAM, fmt::format("unknown key {}", arg.key_));

@@ -145,7 +145,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
       if (!r.trk_.quorum_active()) {
         // 如果返回
         // false，说明集群的多数派不再支持当前领导者。可能出现网络分区或者其他问题
-        LOG_INFO(r.logger_, "{} stepped down to follower since quorum is not active", r.id_);
+        LOG_WARN(r.logger_, "{} stepped down to follower since quorum is not active", r.id_);
         r.become_follower(r.term_, NONE);
       }
       // Mark everyone (but ourselves) as inactive in preparation for the next
@@ -230,10 +230,9 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
           }
 
           if (!failed_check.empty() && !r.disable_conf_change_validation_) {
-            LOG_INFO(r.logger_,
-                     "{} ignoring conf change {} at config {}: {} "
-                     "(disableProposalForwarding)",
-                     r.id_, cc->DebugString(), r.trk_.config_view().string(), failed_check);
+            LOG_INFO(r.logger_, "{} ignoring conf change {} at config {}: {}", r.id_, pb::describe_conf_change_v2(*cc),
+                     r.trk_.config_view().string(), failed_check);
+            e = raftpb::entry{};
             e.set_type(raftpb::ENTRY_NORMAL);
           } else {
             r.pending_conf_index_ = r.raft_log_handle_.last_index() + static_cast<std::uint64_t>(i) + 1;
@@ -638,7 +637,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
       break;
     }
     default:
-      LOG_DEBUG(r.logger_, "{} [term {}] ignoring message from {} in state {}", r.id_, r.term_, msg_from,
+      LOG_TRACE(r.logger_, "{} [term {}] ignoring message from {} in state {}", r.id_, r.term_, msg_from,
                 enum_name(pr.state()));
       break;
   }
@@ -835,7 +834,7 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
                                        // Leader）。
       if (r.read_only_.read_only_opt() == read_only_option::READ_ONLY_LEASE_BASED) {
         // 若使用 ReadOnlyLeaseBased（租约机制需持续 Leader 心跳），忽略此消息。
-        LOG_INFO(r.logger_, "{} [term {}] ignoring MsgForgetLeader", r.id_, r.term_);
+        LOG_ERROR(r.logger_, "ignoring MsgForgetLeader due to ReadOnlyLeaseBased", r.id_, r.term_);
         return {};
       }
       if (r.lead_ != NONE) {
@@ -1063,10 +1062,9 @@ bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   msg.set_commit(raft_log_handle_.committed());
   const auto entries_size = static_cast<std::uint64_t>(msg.entries_size());
   const auto bytes = pb::payloads_size(msg.entries());
-  const auto msg_commit = msg.commit();
   send(std::move(msg));
   pr.sent_entries(entries_size, bytes);
-  pr.sent_commit(msg_commit);
+  pr.sent_commit(raft_log_handle_.committed());
   return true;
 }
 
@@ -1386,7 +1384,7 @@ void raft::become_pre_candidate() {
   tick_func_ = &raft::tick_election;
   lead_ = NONE;
   state_type_ = state_type::PRE_CANDIDATE;
-  LOG_INFO(logger_, "{} [term {}] became pre-candidate", id_, term_);
+  LOG_INFO(logger_, "{} became pre-candidate at term {}", id_, term_);
 }
 
 void raft::become_leader() {
@@ -1529,7 +1527,7 @@ void raft::campaign(campaign_type t) {
     }
     auto last = raft_log_handle_.last_entry_id();
     LOG_INFO(logger_, "{} [logterm: {}, index: {}] sent {} request to {} at term {}", id_, last.term, last.index,
-             enum_name(vote_msg_type), id, term);
+             enum_name(vote_msg_type), id, term_);
     std::string ctx;
     if (t == campaign_type::TRANSFER) {
       ctx = enum_name(t);
@@ -1549,7 +1547,7 @@ std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::ui
   if (vote) {
     LOG_INFO(logger_, "{} received {} from {} at term {}", id_, enum_name(vt), id, term_);
   } else {
-    LOG_INFO(logger_, "{} received {} rejiction from {} at term {}", id_, enum_name(vt), id, term_);
+    LOG_INFO(logger_, "{} received {} rejection from {} at term {}", id_, enum_name(vt), id, term_);
   }
   trk_.record_vote(id, vote);
   return trk_.tally_votes();
@@ -1575,12 +1573,11 @@ leaf::result<void> raft::step(raftpb::message&& m) {
         // of hearing from a current leader, it does not update its term or grant its vote
         auto last = raft_log_handle_.last_entry_id();
         // TODO(pav-kv): it should be ok to simply print the %+v of the lastEntryID.
-        LOG_INFO(
-            logger_,
-            "{} [logterm: {}, index: {}, vote: {}] ignored {} from {} [term: {}, index: {}] at term {}: lease is not "
-            "expired (remaining ticks: {})",
-            id_, last.term, last.index, vote_id_, enum_name(m.type()), m.from(), m.term(), m.index(), term_,
-            election_timeout_ - election_elapsed_);
+        LOG_INFO(logger_,
+                 "{} [logterm: {}, index: {}, vote: {}] ignored {} from {} [logterm: {}, index: {}] at term {}: lease "
+                 "is not expired (remaining ticks: {})",
+                 id_, last.term, last.index, vote_id_, enum_name(m.type()), m.from(), m.log_term(), m.index(), term_,
+                 election_timeout_ - election_elapsed_);
         return {};
       }
     }
@@ -1674,7 +1671,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       }
     } else {
       // ignore other cases
-      LOG_INFO(logger_, "{} [term {}] ignored a {} message with lower term from {} [term: {}]", id_, term_,
+      LOG_INFO(logger_, "{} [term: {}] ignored a {} message with lower term from {} [term: {}]", id_, term_,
                enum_name(m.type()), m.from(), m.term());
     }
     return {};

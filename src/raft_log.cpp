@@ -30,8 +30,11 @@ raft_log::raft_log(pro::proxy<storage_builer>&& storage, std::uint64_t first_ind
       logger_(std::move(logger)) {}
 
 std::string raft_log::string() {
-  return fmt::format("committed={}, applied={}, applying={}, unstable.offset={}, len(unstable.Entries)={}", committed_,
-                     applied_, applying_, unstable_.offset(), unstable_.entries_view().size());
+  return fmt::format(
+      "committed={}, applied={}, applying={}, unstable.offset={}, unstable.offsetInProgress={}, "
+      "len(unstable.Entries)={}",
+      committed_, applied_, applying_, unstable_.offset(), unstable_.offset_in_progress(),
+      unstable_.entries_view().size());
 }
 
 leaf::result<std::uint64_t> raft_log::maybe_append(pb::log_slice&& log_slice, std::uint64_t committed) {

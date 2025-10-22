@@ -120,20 +120,22 @@ lepton::leaf::result<void> interaction_env::stabilize(const std::vector<std::siz
         auto has_error = false;
         std::string msg;
         output->write_string(fmt::format("> {} processing append thread\n", idx + 1));
-        this->with_indent([&]() {
-          auto _ = boost::leaf::try_handle_some(
-              [&]() -> lepton::leaf::result<void> {
-                LEPTON_LEAF_CHECK(process_append_thread(idx));
-                return {};
-              },
-              [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
-                has_error = true;
-                msg = e.message;
-                return {};
-              });
-        });
-        if (has_error) {
-          return new_error(lepton::logic_error::INVALID_PARAM, msg);
+        while (!n.append_work.empty()) {
+          this->with_indent([&]() {
+            auto _ = boost::leaf::try_handle_some(
+                [&]() -> lepton::leaf::result<void> {
+                  LEPTON_LEAF_CHECK(process_append_thread(idx));
+                  return {};
+                },
+                [&](const lepton::lepton_error &e) -> lepton::leaf::result<void> {
+                  has_error = true;
+                  msg = e.message;
+                  return {};
+                });
+          });
+          if (has_error) {
+            return new_error(lepton::logic_error::INVALID_PARAM, msg);
+          }
         }
         done = false;
       }

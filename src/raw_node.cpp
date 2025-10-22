@@ -247,7 +247,7 @@ static raftpb::message new_storage_apply_resp_msg(const raft &r, const pb::repea
   m.set_to(r.id());
   m.set_from(pb::LOCAL_APPLY_THREAD);
   m.set_term(0);
-  *m.mutable_entries() = entries;
+  m.mutable_entries()->CopyFrom(entries);
   return m;
 }
 
@@ -261,8 +261,8 @@ static raftpb::message new_storage_apply_msg(const raft &r, const ready &rd) {
   m.set_to(pb::LOCAL_APPLY_THREAD);
   m.set_from(r.id());
   m.set_term(0);  // committed entries don't apply under a specific term
-  *m.mutable_entries() = rd.committed_entries;
-  m.mutable_responses()->Add(new_storage_apply_resp_msg(r, rd.entries));
+  m.mutable_entries()->CopyFrom(rd.committed_entries);
+  m.mutable_responses()->Add(new_storage_apply_resp_msg(r, rd.committed_entries));
   SPDLOG_TRACE(m.DebugString());
   return m;
 }

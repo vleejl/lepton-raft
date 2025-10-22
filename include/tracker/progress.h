@@ -21,10 +21,11 @@ namespace tracker {
 // strewn around `*raft.raft`. Additionally, some fields are only used when in a
 // certain State. All of this isn't ideal.
 class progress {
-  progress(std::uint64_t match, std::uint64_t next, state_type state, std::uint64_t pending_snapshot,
-           bool recent_active, bool probe_sent, inflights&& inflights, bool is_learner)
+  progress(std::uint64_t match, std::uint64_t next, std::uint64_t sent_commit, state_type state,
+           std::uint64_t pending_snapshot, bool recent_active, bool probe_sent, inflights&& inflights, bool is_learner)
       : match_(match),
         next_(next),
+        sent_commit_(sent_commit),
         state_(state),
         pending_snapshot_(pending_snapshot),
         recent_active_(recent_active),
@@ -53,9 +54,15 @@ class progress {
         is_learner_(is_learner) {}
   MOVABLE_BUT_NOT_COPYABLE(progress)
   progress clone() const {
-    return progress{
-        match_,     next_, state_, pending_snapshot_, recent_active_, msg_app_flow_paused_, inflights_.clone(),
-        is_learner_};
+    return progress{match_,
+                    next_,
+                    sent_commit_,
+                    state_,
+                    pending_snapshot_,
+                    recent_active_,
+                    msg_app_flow_paused_,
+                    inflights_.clone(),
+                    is_learner_};
   }
 
   auto operator<=>(const progress&) const = default;
@@ -111,6 +118,7 @@ class progress {
       reset_state(state_type::STATE_PROBE);
       next_ = match_ + 1;
     }
+    sent_commit_ = std::min(sent_commit_, next_ - 1);
   }
 
   // BecomeReplicate transitions into StateReplicate, resetting Next to Match+1.
@@ -124,6 +132,8 @@ class progress {
   void become_snapshot(std::uint64_t pending_snapshot) {
     reset_state(state_type::STATE_SNAPSHOT);
     pending_snapshot_ = pending_snapshot;
+    next_ = pending_snapshot + 1;
+    sent_commit_ = pending_snapshot;
   }
 
   // SentEntries updates the progress on the given number of consecutive entries
@@ -207,6 +217,8 @@ class progress {
       // 1. 保守性设计：避免过度回退
       // 2. mathc_hint 并非总是可靠
       next_ = match_ + 1;
+      // Regress the sentCommit since it unlikely has been applied.
+      sent_commit_ = std::min(sent_commit_, next_ - 1);
       return true;
     }
 
@@ -236,6 +248,7 @@ class progress {
     // Next，避免其变得过小或过大，从而保证日志同步的正确性。
     next_ = std::max(std::min(rejected, match_hint + 1), static_cast<std::uint64_t>(1));
     // 不再等待进一步的探测响应（即 follower 的进度可能已经发生变化）。
+    sent_commit_ = std::min(sent_commit_, next_ - 1);
     msg_app_flow_paused_ = false;
     return true;
   }
@@ -266,7 +279,7 @@ class progress {
       fmt::format_to(std::back_inserter(buf), " paused");
     }
     if (pending_snapshot_ > 0) {
-      fmt::format_to(std::back_inserter(buf), " pending_snapshot={}", pending_snapshot_);
+      fmt::format_to(std::back_inserter(buf), " pendingSnap={}", pending_snapshot_);
     }
     if (!recent_active_) {
       fmt::format_to(std::back_inserter(buf), " inactive");

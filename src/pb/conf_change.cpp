@@ -1,8 +1,11 @@
 #include "conf_change.h"
 
+#include <absl/strings/str_join.h>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #include <cassert>
+#include <string>
 #include <system_error>
 
 #include "enum_name.h"
@@ -149,9 +152,15 @@ static bool equal_conf_change_single(const raftpb::conf_change_single& a, const 
 }
 
 static bool equal_conf_change_v2(const raftpb::conf_change_v2& a, const raftpb::conf_change_v2& b) {
-  // Compare `transition` (optional enum)
-  if (a.has_transition() != b.has_transition()) return false;
-  if (a.has_transition() && a.transition() != b.transition()) return false;
+  // 特殊处理 transition 字段：值为 0 视为未设置
+  auto get_effective_transition = [](const raftpb::conf_change_v2& msg) {
+    return (msg.has_transition() && msg.transition() != 0) ? msg.transition() : 0;
+  };
+
+  // 比较 transition（处理 0 值特殊逻辑）
+  if (get_effective_transition(a) != get_effective_transition(b)) {
+    return false;
+  }
 
   // Compare `changes` (repeated message, order matters)
   if (a.changes_size() != b.changes_size()) return false;
@@ -190,13 +199,13 @@ std::string conf_changes_to_string(const repeated_conf_change& ccs) {
         buf.push_back('v');
         break;
       case raftpb::CONF_CHANGE_REMOVE_NODE:
-        buf.push_back('l');
-        break;
-      case raftpb::CONF_CHANGE_UPDATE_NODE:
         buf.push_back('r');
         break;
-      case raftpb::CONF_CHANGE_ADD_LEARNER_NODE:
+      case raftpb::CONF_CHANGE_UPDATE_NODE:
         buf.push_back('u');
+        break;
+      case raftpb::CONF_CHANGE_ADD_LEARNER_NODE:
+        buf.push_back('l');
         break;
       default:
         fmt::format_to(std::back_inserter(buf), "unknown");
@@ -248,6 +257,23 @@ leaf::result<repeated_conf_change> conf_changes_from_string(const std::string& s
     ccs.Add(std::move(cc));
   }
   return ccs;
+}
+
+std::string describe_conf_change_v2(const raftpb::conf_change_v2& cc) {
+  auto result = cc.ShortDebugString();
+  fmt::memory_buffer buf;
+  buf.push_back('[');
+  if (cc.has_transition()) {
+    fmt::format_to(std::back_inserter(buf), "Transition: {} ", magic_enum::enum_name(cc.transition()));
+  }
+  if (cc.changes_size() > 0) {
+    fmt::format_to(std::back_inserter(buf), "Changes: {} ", conf_changes_to_string(cc.changes()));
+  }
+  if (cc.has_context()) {
+    fmt::format_to(std::back_inserter(buf), "Context: {} ", cc.context());
+  }
+  buf.push_back(']');
+  return std::string(buf.data(), buf.size());
 }
 
 }  // namespace pb

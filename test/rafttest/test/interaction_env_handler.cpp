@@ -185,7 +185,11 @@ std::string interaction_env::handle(const datadriven::test_data &test_data) {
         if (this->output->quiet()) {
           return e.message;
         }
-        this->output->write_string(e.message);
+        if (e.message.empty()) {
+          this->output->write_string(e.err_code.message() + '\n');
+        } else {
+          this->output->write_string(e.message);
+        }
         return {};
       });
   if (this->output->get_builder()->str().empty()) {

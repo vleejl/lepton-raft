@@ -41,9 +41,9 @@ struct config {
   config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy<storage_builer> &&storage,
          std::uint64_t applied_index, bool async_storage_writes, std::uint64_t max_size_per_msg,
          std::uint64_t max_committed_size_per_ready, std::uint64_t max_uncommitted_entries_size,
-         std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes, bool check_quorum,
-         read_only_option read_only_opt, bool disable_proposal_forwarding,
-         std::shared_ptr<lepton::logger_interface> &&logger)
+         std::size_t max_inflight_msgs, std::uint64_t max_inflight_bytes, bool check_quorum, bool pre_vote,
+         read_only_option read_only_opt, bool disable_proposal_forwarding, bool disable_conf_change_validation,
+         bool step_down_on_removal, std::shared_ptr<lepton::logger_interface> &&logger)
       : id(id),
         election_tick(election_tick),
         heartbeat_tick(heartbeat_tick),
@@ -56,8 +56,11 @@ struct config {
         max_inflight_msgs(max_inflight_msgs),
         max_inflight_bytes(max_inflight_bytes),
         check_quorum(check_quorum),
+        pre_vote(pre_vote),
         read_only_opt(read_only_opt),
         disable_proposal_forwarding(disable_proposal_forwarding),
+        disable_conf_change_validation(disable_conf_change_validation),
+        step_down_on_removal(step_down_on_removal),
         logger(std::move(logger)) {
     if (this->max_uncommitted_entries_size == 0) {
       this->max_uncommitted_entries_size = NO_LIMIT;
@@ -73,18 +76,33 @@ struct config {
   }
 
   config(std::uint64_t id, int election_tick, int heartbeat_tick, pro::proxy<storage_builer> &&storage,
-         std::uint64_t max_size_per_msg, std::size_t max_inflight_msgs,
-         std::shared_ptr<lepton::logger_interface> &&logger)
+         std::uint64_t max_size_per_msg, std::size_t max_inflight_msgs, bool disable_conf_change_validation,
+         bool step_down_on_removal, std::shared_ptr<lepton::logger_interface> &&logger)
       : config(id, election_tick, heartbeat_tick, std::move(storage), 0, false, max_size_per_msg, 0, 0,
-               max_inflight_msgs, 0, false, read_only_option::READ_ONLY_SAFE, false, std::move(logger)) {}
+               max_inflight_msgs, 0, false, false, read_only_option::READ_ONLY_SAFE, false,
+               disable_conf_change_validation, step_down_on_removal, std::move(logger)) {}
 
   config clone() const {
     std::shared_ptr<lepton::logger_interface> copy_logger = logger;
-    return config(id, election_tick, heartbeat_tick,
-                  pro::proxy<storage_builer>(),  // 空 storage
-                  applied_index, async_storage_writes, max_size_per_msg, max_committed_size_per_ready,
-                  max_uncommitted_entries_size, max_inflight_msgs, max_inflight_bytes, check_quorum, read_only_opt,
-                  disable_proposal_forwarding, std::move(copy_logger));
+    return config(id,              // ID
+                  election_tick,   // 选举超时
+                  heartbeat_tick,  // 心跳间隔
+                  pro::proxy<storage_builer>(),
+                  applied_index,                   // 已应用索引
+                  async_storage_writes,            // 异步存储写入
+                  max_size_per_msg,                // 单消息最大大小
+                  max_committed_size_per_ready,    // 单次就绪提交大小限制
+                  max_uncommitted_entries_size,    // 未提交条目大小限制
+                  max_inflight_msgs,               // 在途消息数量限制
+                  max_inflight_bytes,              // 在途消息字节限制
+                  check_quorum,                    // 法定人数检查
+                  pre_vote,                        // 预投票
+                  read_only_opt,                   // 只读选项
+                  disable_proposal_forwarding,     // 禁止提案转发
+                  disable_conf_change_validation,  // 禁止配置变更验证
+                  step_down_on_removal,            // 移除时退位
+                  std::move(copy_logger)           // 日志器
+    );
   }
 
   // ID is the identity of the local raft. ID cannot be 0.

@@ -80,7 +80,7 @@ lepton::leaf::result<void> process_append(node &n, raftpb::hard_state &&hard_sta
     LEPTON_LEAF_CHECK(s->set_hard_state(std::move(hard_state)));
   }
   if (!lepton::pb::is_empty_snap(snap)) {
-    if (ents.empty()) {
+    if (!ents.empty()) {
       return lepton::new_error(lepton::logic_error::INVALID_PARAM, "can't apply snapshot and entries at the same time");
     }
     LEPTON_LEAF_CHECK(s->apply_snapshot(std::move(snap)));
