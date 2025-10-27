@@ -59,32 +59,28 @@ add_requires("gtest")
 add_requires("magic_enum")
 add_requires("nlohmann_json")
 add_requires("protoc", "protobuf-cpp")
+add_requires("rocksdb", {configs = {rtti = true}})
 add_requires("spdlog", {configs = {fmt_external = true, header_only = false}})
 add_requires("tl_expected")
 
+add_includedirs("include/basic")
 add_includedirs("third_party/leaf/")
 add_includedirs("third_party/proxy/include/proxy")
-add_includedirs("include/")
-add_includedirs("include/basic")
-add_includedirs("include/confchange")
-add_includedirs("include/error")
-add_includedirs("include/quorum")
-add_includedirs("include/pb")
-add_includedirs("include/tracker")
 
-target("lepton-raft")
-    set_kind("binary")
-    on_load(apply_sanitizers)
-    -- lepton-raft protobuf file
-    add_rules("protobuf.cpp")
-    add_files("proto/**.proto", {proto_rootdir = "proto"})
-    add_packages("protoc", "protobuf-cpp")
-    -- lepton-raft souce file
-    add_files("src/confchange/*.cpp")
-    add_files("src/pb/*.cpp")
-    add_files("src/tracker/*.cpp")
-    add_files("src/*.cpp")
-    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog", "tl_expected")
+
+-- target("lepton-raft")
+--     set_kind("binary")
+--     on_load(apply_sanitizers)
+--     -- lepton-raft protobuf file
+--     add_rules("protobuf.cpp")
+--     add_files("proto/**.proto", {proto_rootdir = "proto"})
+--     add_packages("protoc", "protobuf-cpp")
+--     -- lepton-raft souce file
+--     add_files("src/confchange/*.cpp")
+--     add_files("src/pb/*.cpp")
+--     add_files("src/tracker/*.cpp")
+--     add_files("src/*.cpp")
+--     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "rocksdb", "spdlog", "tl_expected")
 
 local test_cxflags
 if is_plat("windows") then
@@ -98,15 +94,22 @@ else
     }
 end
 
-target("lepton-unit-test")
+target("lepton-raft-core-unit-test")
+    -- raft core include dirs 
+    add_includedirs("include/raft_core")
+    add_includedirs("include/raft_core/confchange")
+    add_includedirs("include/raft_core/error")
+    add_includedirs("include/raft_core/quorum")
+    add_includedirs("include/raft_core/pb")
+    add_includedirs("include/raft_core/tracker")
+    -- raft core include dirs 
     add_includedirs("third_party/dtl")
     on_load(apply_sanitizers)
     add_defines("LEPTON_TEST")
     local project_dir = os.projectdir():gsub("\\", "/")
     add_defines("LEPTON_PROJECT_DIR=\"" .. project_dir .."\"")
-    -- add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
-    add_includedirs("test/rafttest/include")
-    add_includedirs("test/utility/include")
+    add_includedirs("test/raft_core/rafttest/include")
+    add_includedirs("test/raft_core/utility/include")
     add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG")
     add_defines("SPDLOG_FORCE_COLOR")  -- 强制彩色输出
     -- lepton-raft protobuf file
@@ -114,31 +117,40 @@ target("lepton-unit-test")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
     add_packages("protoc", "protobuf-cpp")
     -- lepton-raft souce file
-    add_files("src/confchange/*.cpp")
-    add_files("src/pb/*.cpp")
-    add_files("src/tracker/*.cpp")
-    add_files("src/*.cpp|main.cpp")
+    add_files("src/raft_core/confchange/*.cpp")
+    add_files("src/raft_core/pb/*.cpp")
+    add_files("src/raft_core/tracker/*.cpp")
+    add_files("src/raft_core/*.cpp|main.cpp")
     -- lepton-raft basic utility unit test file
-    add_files("test/utility/src/*.cpp", {cxflags = test_cxflags})
+    add_files("test/raft_core/utility/src/*.cpp", {cxflags = test_cxflags})
     -- lepton-raft unit test file
-    add_files("test/unit_test.cpp", {cxflags = test_cxflags})
+    add_files("test/raft_core/unit_test.cpp", {cxflags = test_cxflags})
     add_files("test/asio/*.cpp", {cxflags = test_cxflags})
-    add_files("test/confchange/*.cpp", {cxflags = test_cxflags})
-    add_files("test/quorum/*.cpp", {cxflags = test_cxflags})
-    add_files("test/raft/*.cpp", {cxflags = test_cxflags})
-    add_files("test/rafttest/test/*.cpp", {cxflags = test_cxflags})
+    add_files("test/raft_core/confchange/*.cpp", {cxflags = test_cxflags})
+    add_files("test/raft_core/quorum/*.cpp", {cxflags = test_cxflags})
+    add_files("test/raft_core/raft/*.cpp", {cxflags = test_cxflags})
+    add_files("test/raft_core/rafttest/test/*.cpp", {cxflags = test_cxflags})
+    add_files("test/rocksdb/*.cpp", {cxflags = test_cxflags})
     add_files("test/spdlog/*.cpp", {cxflags = test_cxflags})
     add_files("test/third_party/*.cpp", {cxflags = test_cxflags})
-    add_files("test/tracker/*.cpp", {cxflags = test_cxflags})
-    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog", "tl_expected")
+    add_files("test/raft_core/tracker/*.cpp", {cxflags = test_cxflags})
+    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
 
 
-target("lepton-benchmark-test")
+target("lepton-raft-core-benchmark-test")
+    -- raft core include dirs 
+    add_includedirs("include/raft_core")
+    add_includedirs("include/raft_core/confchange")
+    add_includedirs("include/raft_core/error")
+    add_includedirs("include/raft_core/quorum")
+    add_includedirs("include/raft_core/pb")
+    add_includedirs("include/raft_core/tracker")
+    -- raft core include dirs 
     add_includedirs("third_party/dtl")
     add_defines("LEPTON_TEST")
     add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
-    add_includedirs("test/utility/include")
+    add_includedirs("test/raft_core/utility/include")
     add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG")
     add_defines("SPDLOG_FORCE_COLOR")  -- 强制彩色输出
     -- lepton-raft protobuf file
@@ -146,17 +158,17 @@ target("lepton-benchmark-test")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
     add_packages("protoc", "protobuf-cpp")
     -- lepton-raft souce file
-    add_files("src/confchange/*.cpp")
-    add_files("src/pb/*.cpp")
-    add_files("src/tracker/*.cpp")
-    add_files("src/*.cpp|main.cpp")
+    add_files("src/raft_core/confchange/*.cpp")
+    add_files("src/raft_core/pb/*.cpp")
+    add_files("src/raft_core/tracker/*.cpp")
+    add_files("src/raft_core/*.cpp|main.cpp")
     -- lepton-raft basic utility unit test file
-    add_files("test/utility/src/*.cpp", {cxflags = test_cxflags})    
+    add_files("test/raft_core/utility/src/*.cpp", {cxflags = test_cxflags})    
     -- lepton-raft benchmark test file
-    add_files("test/benchmark.cpp")
-    add_files("test/quorum/test_quorum_benchmark.cpp", {cxflags = test_cxflags})
-    add_files("test/raft/test_raw_node_benchmark.cpp", {cxflags = test_cxflags})
-    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "spdlog", "tl_expected")
+    add_files("test/raft_core/benchmark.cpp")
+    add_files("test/raft_core/quorum/test_quorum_benchmark.cpp", {cxflags = test_cxflags})
+    add_files("test/raft_core/raft/test_raw_node_benchmark.cpp", {cxflags = test_cxflags})
+    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")    
 
 -- 更新本地仓库 package 版本

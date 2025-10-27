@@ -223,6 +223,10 @@ TEST_F(memory_storage_test_suit, test_storage_compact) {
     if (!result) {
       GTEST_ASSERT_TRUE(false);
     }
+    auto &view = mm_storage.entries_view();
+    ASSERT_EQ(iter_test.windex, view.begin()->index());
+    ASSERT_EQ(iter_test.wterm, view.begin()->index());
+    ASSERT_EQ(iter_test.wlen, view.size());
   }
 }
 

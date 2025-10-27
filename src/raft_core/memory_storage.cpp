@@ -157,7 +157,7 @@ leaf::result<raftpb::snapshot> memory_storage::create_snapshot(std::uint64_t i, 
 leaf::result<void> memory_storage::compact(std::uint64_t compact_index) {
   std::lock_guard<std::mutex> guard(mutex_);
   assert(!ents_.empty());
-  const auto offset = ents_[0].index();
+  const auto offset = ents_.begin()->index();
   if (compact_index <= offset) {
     return new_error(storage_error::COMPACTED);
   }
@@ -172,9 +172,7 @@ leaf::result<void> memory_storage::compact(std::uint64_t compact_index) {
   auto first_dummy_entry = new_ents.Add();
   first_dummy_entry->set_index(ents_[start].index());
   first_dummy_entry->set_term(ents_[start].term());
-  for (int i = start + 1; i < ents_.size(); ++i) {
-    new_ents.Add()->CopyFrom(ents_.Get(i));
-  }
+  new_ents.Add(std::make_move_iterator(ents_.begin() + start + 1), std::make_move_iterator(ents_.end()));
   ents_.Swap(&new_ents);
   return {};
 }
