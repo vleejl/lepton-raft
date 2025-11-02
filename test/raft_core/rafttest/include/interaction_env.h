@@ -31,6 +31,7 @@ PRO_DEF_MEM_DISPATCH(storage_append, append);
 struct storage_builer : pro::facade_builder 
   ::add_convention<lepton::storage_initial_state, lepton::leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>() const> 
   ::add_convention<lepton::storage_entries, lepton::leaf::result<lepton::pb::repeated_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
+  ::add_convention<lepton::storage_entries_view, lepton::leaf::result<lepton::pb::span_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
   ::add_convention<lepton::storage_term, lepton::leaf::result<std::uint64_t>(std::uint64_t i) const> 
   ::add_convention<lepton::storage_last_index, lepton::leaf::result<std::uint64_t>() const> 
   ::add_convention<lepton::storage_first_index, lepton::leaf::result<std::uint64_t>() const> 
@@ -54,6 +55,11 @@ struct snap_override_storage {
   lepton::leaf::result<lepton::pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi,
                                                            std::uint64_t max_size) const {
     return storage->entries(lo, hi, max_size);
+  }
+
+  lepton::leaf::result<lepton::pb::span_entry> entries_view(std::uint64_t lo, std::uint64_t hi,
+                                                            std::uint64_t max_size) const {
+    return storage->entries_view(lo, hi, max_size);
   }
 
   lepton::leaf::result<std::uint64_t> term(std::uint64_t i) const { return storage->term(i); }

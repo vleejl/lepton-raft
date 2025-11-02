@@ -5,6 +5,7 @@
 #include <raft.pb.h>
 
 #include "config.h"
+#include "entry_view.h"
 #include "lepton_error.h"
 #include "raft_log_unstable.h"
 #include "storage.h"
@@ -171,9 +172,12 @@ class raft_log {
   // If the callback returns an error, scan terminates and returns this error
   // immediately. This can be used to stop the scan early ("break" the loop).
   leaf::result<void> scan(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
-                          std::function<leaf::result<void>(const pb::repeated_entry& entries)> callback) const;
+                          std::function<leaf::result<void>(const pb::entry_view& entries)> callback) const;
 
-  leaf::result<pb::repeated_entry> slice(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size max_size) const;
+  leaf::result<pb::entry_view> slice(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size max_size) const;
+
+  leaf::result<pb::repeated_entry> list_entries(std::uint64_t lo, std::uint64_t hi,
+                                                pb::entry_encoding_size max_size) const;
 
   // l.firstIndex <= lo <= hi <= l.firstIndex + len(l.entries)
   leaf::result<void> must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const;

@@ -153,7 +153,7 @@ pb::repeated_entry raft_log::next_committed_ents(bool allow_unstable) const {
   }
   auto entries = leaf::try_handle_some(
       [&]() -> leaf::result<pb::repeated_entry> {
-        BOOST_LEAF_AUTO(v, slice(lo, hi, max_size));
+        BOOST_LEAF_AUTO(v, list_entries(lo, hi, max_size));
         return v;
       },
       [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
@@ -327,7 +327,7 @@ leaf::result<pb::repeated_entry> raft_log::entries(std::uint64_t i, std::uint64_
   if (i > last_index()) {
     return {};
   }
-  return slice(i, last_index() + 1, max_size);
+  return list_entries(i, last_index() + 1, max_size);
 }
 
 // 仅测试场景使用
@@ -381,7 +381,7 @@ void raft_log::restore(raftpb::snapshot&& snapshot) {
 }
 
 leaf::result<void> raft_log::scan(std::uint64_t lo, std::uint64_t hi, pb::entry_encoding_size page_size,
-                                  std::function<leaf::result<void>(const pb::repeated_entry& entries)> callback) const {
+                                  std::function<leaf::result<void>(const pb::entry_view& entries)> callback) const {
   while (lo < hi) {
     BOOST_LEAF_AUTO(v, slice(lo, hi, page_size));
     if (v.empty()) {
@@ -393,8 +393,8 @@ leaf::result<void> raft_log::scan(std::uint64_t lo, std::uint64_t hi, pb::entry_
   return {};
 }
 
-leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t hi,
-                                                 pb::entry_encoding_size max_size) const {
+leaf::result<pb::entry_view> raft_log::slice(std::uint64_t lo, std::uint64_t hi,
+                                             pb::entry_encoding_size max_size) const {
   LEPTON_LEAF_CHECK(must_check_out_of_bounds(lo, hi));
   if (lo == hi) {
     return {};
@@ -405,17 +405,17 @@ leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t
     ents = pb::limit_entry_size(ents, max_size);
     // NB: use the full slice expression to protect the unstable slice from
     // appends to the returned ents slice.
-    return pb::convert_span_entry(ents);
+    return ents;
   }
 
   const auto cut = std::min(hi, unstable_offset);
 
   auto storage_entries = leaf::try_handle_some(
-      [&]() -> leaf::result<pb::repeated_entry> {
-        BOOST_LEAF_AUTO(v, storage_->entries(lo, cut, max_size););
+      [&]() -> leaf::result<pb::span_entry> {
+        BOOST_LEAF_AUTO(v, storage_->entries_view(lo, cut, max_size););
         return v;
       },
-      [&](const lepton_error& e) -> leaf::result<pb::repeated_entry> {
+      [&](const lepton_error& e) -> leaf::result<pb::span_entry> {
         if (e.err_code.category() == storage_error_category()) {
           if (e.err_code == storage_error::COMPACTED) {
             return new_error(e);
@@ -458,7 +458,16 @@ leaf::result<pb::repeated_entry> raft_log::slice(std::uint64_t lo, std::uint64_t
   }
   // Otherwise, total size of unstable does not exceed maxSize-size, so total
   // size of ents+unstable does not exceed maxSize. Simply concatenate them.
-  return pb::extend(storage_entries.value(), unstable);
+  pb::entry_view result;
+  result.append(storage_entries.value());
+  result.append(unstable);
+  return result;
+}
+
+leaf::result<pb::repeated_entry> raft_log::list_entries(std::uint64_t lo, std::uint64_t hi,
+                                                        pb::entry_encoding_size max_size) const {
+  BOOST_LEAF_AUTO(v, slice(lo, hi, max_size));
+  return pb::to_repeated_entry(v);
 }
 
 leaf::result<void> raft_log::must_check_out_of_bounds(std::uint64_t lo, std::uint64_t hi) const {

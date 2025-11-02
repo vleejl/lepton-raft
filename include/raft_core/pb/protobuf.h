@@ -2,6 +2,7 @@
 #define _LEPTON_PB_H_
 #include <raft.pb.h>
 
+#include "entry_view.h"
 #include "enum_name.h"
 #include "log.h"
 #include "types.h"
@@ -18,6 +19,8 @@ entry_encoding_size ent_size(const repeated_entry& entries);
 
 entry_encoding_size ent_size(const pb::span_entry& entries);
 
+entry_encoding_size ent_size(const pb::entry_view& entries);
+
 // payloadsSize is the size of the payloads of the provided entries.
 entry_payload_size payloads_size(const raftpb::entry& entry);
 entry_payload_size payloads_size(const repeated_entry& entries);
@@ -29,6 +32,8 @@ bool is_empty_snap(const raftpb::snapshot& snap);
 repeated_entry extract_range_without_copy(repeated_entry& src, int start, int end);
 
 pb::span_entry limit_entry_size(pb::span_entry entries, entry_encoding_size max_size);
+
+pb::repeated_entry to_repeated_entry(const pb::entry_view& view);
 
 repeated_entry limit_entry_size(repeated_entry& entries, entry_encoding_size max_size);
 

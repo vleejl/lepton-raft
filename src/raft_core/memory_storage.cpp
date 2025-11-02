@@ -1,6 +1,7 @@
 #include "memory_storage.h"
 
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 
 #include "log.h"
@@ -90,6 +91,30 @@ leaf::result<pb::repeated_entry> memory_storage::entries(std::uint64_t lo, std::
     sub_entries.Add()->CopyFrom(ents_.Get(i));  // 深拷贝
   }
   return pb::limit_entry_size(sub_entries, max_size);
+}
+
+leaf::result<pb::span_entry> memory_storage::entries_view(std::uint64_t lo, std::uint64_t hi,
+                                                          std::uint64_t max_size) const {
+  std::lock_guard<std::mutex> guard(mutex_);
+  const auto offset = ents_[0].index();
+  if (lo <= offset) {
+    return new_error(storage_error::COMPACTED);
+  }
+  const auto last_log_index = _last_index();
+  if (hi > last_log_index + 1) {
+    LEPTON_CRITICAL("entries' hi({}) is out of bound lastindex({})", hi, last_log_index);
+  }
+
+  // only cotanin dummy entry
+  if (ents_.size() == 1) {
+    return new_error(storage_error::UNAVAILABLE);
+  }
+
+  const int start = static_cast<int>(lo - offset);
+  const int end = static_cast<int>(hi - offset);
+
+  auto ents_view = absl::MakeSpan(ents_.data() + start, static_cast<std::size_t>(end - start));
+  return pb::limit_entry_size(ents_view, max_size);
 }
 
 leaf::result<std::uint64_t> memory_storage::term(std::uint64_t i) const {

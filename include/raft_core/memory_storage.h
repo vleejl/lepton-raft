@@ -35,6 +35,8 @@ class memory_storage {
 
   leaf::result<pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const;
 
+  leaf::result<pb::span_entry> entries_view(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const;
+
   leaf::result<std::uint64_t> term(std::uint64_t i) const;
 
   leaf::result<std::uint64_t> last_index() const;

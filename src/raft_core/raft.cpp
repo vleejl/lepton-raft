@@ -1468,7 +1468,7 @@ bool raft::has_unapplied_conf_change() const {
   auto result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
         LEPTON_LEAF_CHECK(
-            raft_log_handle_.scan(lo, hi, page_size, [&](const pb::repeated_entry& entries) -> leaf::result<void> {
+            raft_log_handle_.scan(lo, hi, page_size, [&](const pb::entry_view& entries) -> leaf::result<void> {
               for (auto& iter : entries) {
                 if (iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE ||
                     iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE_V2) {

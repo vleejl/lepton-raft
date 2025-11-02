@@ -386,8 +386,8 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
     ASSERT_EQ(!has_called_error, iter_test.expected_append);
     ASSERT_EQ(raft_log->committed(), iter_test.expected_commit);
     if (iter_test.expected_append && !ents.empty()) {
-      auto gents = raft_log->slice(raft_log->last_index() - static_cast<std::uint64_t>(ents.size()) + 1,
-                                   raft_log->last_index() + 1, NO_LIMIT);
+      auto gents = raft_log->list_entries(raft_log->last_index() - static_cast<std::uint64_t>(ents.size()) + 1,
+                                          raft_log->last_index() + 1, NO_LIMIT);
       GTEST_ASSERT_TRUE(gents.has_value());
       if (ents != gents.value()) {
         GTEST_ASSERT_TRUE(false);
@@ -1110,7 +1110,7 @@ TEST_F(raft_log_test_suit, slice) {
     auto has_called_error = false;
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<lepton::pb::repeated_entry> {
-          BOOST_LEAF_AUTO(v, raft_log->slice(iter_test.from, iter_test.to, iter_test.limit));
+          BOOST_LEAF_AUTO(v, raft_log->list_entries(iter_test.from, iter_test.to, iter_test.limit));
           return v;
         },
         [&](const lepton::lepton_error &err) -> leaf::result<lepton::pb::repeated_entry> {
@@ -1157,14 +1157,16 @@ TEST_F(raft_log_test_suit, scan) {
     for (auto lo = offset + 1; lo < last; lo++) {
       for (auto hi = lo; hi <= last; hi++) {
         lepton::pb::repeated_entry got;
-        raft_log->scan(lo, hi, page_size, [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
-          got.Add(entries.begin(), entries.end());
+        raft_log->scan(lo, hi, page_size, [&](const lepton::pb::entry_view &entries) -> leaf::result<void> {
+          for (const auto &e : entries) {
+            got.Add()->CopyFrom(e);
+          }
           auto result = ((entries.size() == 1) || (lepton::pb::ent_size(entries) <= page_size));
           assert(result);
           return {};
         });
 
-        auto want = raft_log->slice(lo, hi, NO_LIMIT);
+        auto want = raft_log->list_entries(lo, hi, NO_LIMIT);
         ASSERT_TRUE(want.has_value());
         if (want.value() != got) {
           ASSERT_TRUE(false);
@@ -1179,7 +1181,7 @@ TEST_F(raft_log_test_suit, scan) {
   auto result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
         LEPTON_LEAF_CHECK(
-            raft_log->scan(offset + 1, half, 0, [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
+            raft_log->scan(offset + 1, half, 0, [&](const lepton::pb::entry_view &entries) -> leaf::result<void> {
               iters++;
               if (iters == 2) {
                 return new_error(logic_error::LOOP_BREAK);
@@ -1206,7 +1208,7 @@ TEST_F(raft_log_test_suit, scan) {
   result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
         LEPTON_LEAF_CHECK(raft_log->scan(offset + 1, offset + 11, entry_size * 2,
-                                         [&](const lepton::pb::repeated_entry &entries) -> leaf::result<void> {
+                                         [&](const lepton::pb::entry_view &entries) -> leaf::result<void> {
                                            SPDLOG_INFO("entries size: {}", entries.size());
                                            if (entries.size() != 2) {
                                              assert(entries.size() == 2);

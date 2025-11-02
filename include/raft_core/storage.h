@@ -27,6 +27,8 @@ PRO_DEF_MEM_DISPATCH(storage_initial_state, initial_state);
 // error：如果出错，则返回错误。
 PRO_DEF_MEM_DISPATCH(storage_entries, entries);
 
+PRO_DEF_MEM_DISPATCH(storage_entries_view, entries_view);
+
 // Term returns the term of entry i, which must be in the range
 // [FirstIndex()-1, LastIndex()]. The term of the entry before
 // FirstIndex is retained for matching purposes even though the
@@ -77,6 +79,7 @@ PRO_DEF_MEM_DISPATCH(storage_snapshot, snapshot);
 struct storage_builer : pro::facade_builder 
   ::add_convention<storage_initial_state, leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>() const> 
   ::add_convention<storage_entries, leaf::result<pb::repeated_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
+  ::add_convention<storage_entries_view, leaf::result<pb::span_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const>   
   ::add_convention<storage_term, leaf::result<std::uint64_t>(std::uint64_t i) const> 
   ::add_convention<storage_last_index, leaf::result<std::uint64_t>() const> 
   ::add_convention<storage_first_index, leaf::result<std::uint64_t>() const> 

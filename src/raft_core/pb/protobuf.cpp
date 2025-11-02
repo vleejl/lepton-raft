@@ -51,6 +51,16 @@ entry_encoding_size ent_size(const pb::span_entry& entries) {
   return size;
 }
 
+entry_encoding_size ent_size(const pb::entry_view& entries) {
+  entry_encoding_size size = 0;
+  for (const auto& block : entries.blocks()) {
+    for (const auto& entry : block) {
+      size += entry->ByteSizeLong();
+    }
+  }
+  return size;
+}
+
 entry_payload_size payloads_size(const raftpb::entry& entry) {
   return static_cast<entry_payload_size>(entry.data().size());
 }
@@ -132,6 +142,17 @@ pb::span_entry limit_entry_size(pb::span_entry entries, entry_encoding_size max_
     }
   }
   return entries;
+}
+
+pb::repeated_entry to_repeated_entry(const pb::entry_view& view) {
+  pb::repeated_entry result;
+  result.Reserve(static_cast<int>(view.size()));
+  for (auto& block : view.blocks()) {
+    for (auto& e : block) {
+      result.Add()->CopyFrom(*e);
+    }
+  }
+  return result;
 }
 
 repeated_entry extend(repeated_entry& dst, pb::span_entry vals) {
