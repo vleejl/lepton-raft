@@ -1904,20 +1904,24 @@ bool raft::restore(raftpb::snapshot&& snapshot) {
   // config. This shouldn't ever happen (at the time of writing) but lots of
   // code here and there assumes that r.id is in the progress tracker.
   auto found = false;
-  auto cs = snapshot.metadata().conf_state();
-  for (const auto& set : {cs.voters(), cs.learners(), cs.voters_outgoing()}) {
-    for (const auto& id : set) {
+  if (!snapshot.has_metadata() || !snapshot.metadata().has_conf_state()) {
+    LOG_WARN(logger_, "{} attempted to restore snapshot with no ConfState; should never happen", id_);
+    return false;
+  }
+  const auto& cs = snapshot.metadata().conf_state();
+  auto found_id_func = [&](const pb::repeated_uint64& ids) {
+    for (const auto& id : ids) {
       if (id == id_) {
-        found = true;
-        break;
+        return true;
       }
     }
-    if (found) {
-      break;
-    }
+    return false;
+  };
+  if (found_id_func(cs.voters()) || found_id_func(cs.learners()) || found_id_func(cs.voters_outgoing())) {
+    found = true;
   }
   if (!found) {
-    LOG_WARN(logger_, "{} attempted to restore snapshot but it is not in the ConfState %v; should never happen", id_,
+    LOG_WARN(logger_, "{} attempted to restore snapshot but it is not in the ConfState {}; should never happen", id_,
              cs.DebugString());
     return false;
   }

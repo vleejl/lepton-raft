@@ -9,7 +9,7 @@ clear
 MODE="debug"
 SANITIZER="none"
 TOOLCHAIN="gcc" # 默认工具链
-JOBS=4 # 默认编译线程数
+JOBS="" # 默认不指定并发线程数
 VERBOSE=false # 默认不显示详细输出
 
 # ----------------------------
@@ -23,7 +23,7 @@ usage() {
     echo "  -s, --sanitizer <asan|tsan|msan|none>"
     echo "                                 Sanitizer type (default: none)"
     echo "  -t, --toolchain <gcc|clang>   Compiler toolchain (default: gcc)"
-    echo "  -j, --jobs <N>                 Number of parallel jobs (default: 4)"
+    echo "  -j, --jobs <N>                 Number of parallel jobs (default: auto)"
     echo "  -c, --clean                    Clean build directory before build"
     echo "  -v, --verbose                  Show verbose build output"
     echo "  -h, --help                     Show this help message"
@@ -31,6 +31,7 @@ usage() {
     echo "Examples:"
     echo "  $0 -m debug -s asan -t clang   # Debug build with AddressSanitizer using Clang"
     echo "  $0 -m release -j 8 -t gcc -v   # Release build with 8 threads using GCC with verbose output"
+    echo "  $0 -m release                  # Release build with auto-detected thread count"
 }
 
 # ----------------------------
@@ -124,12 +125,17 @@ esac
 echo "[INFO] Running xmake with args: ${XMAKE_ARGS[*]}"
 xmake f "${XMAKE_ARGS[@]}"
 
-BUILD_CMD=("build" "-j" "$JOBS")
+BUILD_CMD=("build")
+if [[ -n "$JOBS" ]]; then
+    BUILD_CMD+=("-j" "$JOBS")
+    echo "[INFO] Building with $JOBS parallel jobs using $TOOLCHAIN"
+else
+    echo "[INFO] Building with auto-detected thread count using $TOOLCHAIN"
+fi
+
 if $VERBOSE; then
     BUILD_CMD+=("-v")
-    echo "[INFO] Building with $JOBS parallel jobs using $TOOLCHAIN (verbose output)"
-else
-    echo "[INFO] Building with $JOBS parallel jobs using $TOOLCHAIN"
+    echo "[INFO] Verbose output enabled"
 fi
 
 xmake "${BUILD_CMD[@]}"
@@ -137,4 +143,4 @@ xmake "${BUILD_CMD[@]}"
 # ----------------------------
 # 性能分析（可选）
 # ----------------------------
-# XMAKE_PROFILE=perf:tag xmake -r                              
+# XMAKE_PROFILE=perf:tag xmake -r

@@ -9,6 +9,7 @@
 #include <asio/experimental/channel.hpp>
 #include <cassert>
 #include <cstddef>
+#include <stop_token>
 
 #include "asio/error_code.hpp"
 #include "channel.h"

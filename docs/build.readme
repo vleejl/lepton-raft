@@ -12,4 +12,6 @@
 ./format_all.sh -e build,third_party
 
 # 5. clang 编译
+./build.sh -m debug -t clang -s tsan
+./build.sh -m debug -t clang -s asan
 ./build.sh --clean -m debug -t clang -s asan -j 32
