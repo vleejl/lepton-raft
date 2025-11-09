@@ -120,6 +120,63 @@ case "$SANITIZER" in
 esac
 
 # ----------------------------
+# 复制对应的 launch.json 文件
+# ----------------------------
+setup_vscode_launch() {
+    local vscode_dir=".vscode"
+    local launch_file="$vscode_dir/launch.json"
+    
+    # 检查 .vscode 目录是否存在
+    if [[ ! -d "$vscode_dir" ]]; then
+        echo "[WARNING] .vscode directory not found, skipping launch.json setup"
+        return 0
+    fi
+    
+    # 确定源文件
+    local source_file=""
+    case "$(uname -s)" in
+        Darwin)
+            source_file="$vscode_dir/launch.mac.json"
+            echo "[INFO] Detected macOS, using $source_file"
+            ;;
+        Linux)
+            source_file="$vscode_dir/launch.linux.json"
+            echo "[INFO] Detected Linux, using $source_file"
+            ;;
+        *)
+            echo "[ERROR] Unsupported operating system: $(uname -s)"
+            return 1
+            ;;
+    esac
+    
+    # 检查源文件是否存在
+    if [[ ! -f "$source_file" ]]; then
+        echo "[ERROR] Source file $source_file not found"
+        return 1
+    fi
+    
+    # 删除已存在的 launch.json
+    if [[ -f "$launch_file" ]]; then
+        echo "[INFO] Removing existing $launch_file"
+        rm -f "$launch_file"
+    fi
+    
+    # 复制文件
+    echo "[INFO] Copying $source_file to $launch_file"
+    cp "$source_file" "$launch_file"
+    
+    if [[ $? -eq 0 ]]; then
+        echo "[SUCCESS] VS Code launch.json configured for $(uname -s)"
+    else
+        echo "[ERROR] Failed to copy $source_file to $launch_file"
+        return 1
+    fi
+}
+
+# 设置 VS Code launch.json
+setup_vscode_launch
+
+# ----------------------------
 # 编译
 # ----------------------------
 echo "[INFO] Running xmake with args: ${XMAKE_ARGS[*]}"

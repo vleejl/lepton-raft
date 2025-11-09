@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <rocksdb/env.h>
+#include <rocksdb/status.h>
 
 #include <filesystem>
 #include <iostream>
@@ -11,9 +13,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "test_file.h"
 #include "types.h"
 #include "utility_macros.h"
-
 namespace lepton {
 
 /*
@@ -94,20 +96,8 @@ class rocksdb_storage {
 }  // namespace lepton
 
 namespace lepton {
-leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> rocksdb_storage::initial_state() const {}
+// leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> rocksdb_storage::initial_state() const {}
 }  // namespace lepton
-
-namespace fs = std::filesystem;
-
-void delete_if_exists(const fs::path& file_path) {
-  try {
-    if (fs::exists(file_path)) {
-      fs::remove(file_path);
-    }
-  } catch (const fs::filesystem_error& e) {
-    std::cerr << "文件操作错误: " << e.what() << std::endl;
-  }
-}
 
 class rocksdb_test_suit : public testing::Test {
  protected:
@@ -149,4 +139,73 @@ TEST_F(rocksdb_test_suit, basic_use) {
 
   // Clean up
   delete db;
+}
+
+TEST_F(rocksdb_test_suit, rocks_file_opt) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  rocksdb::EnvOptions env_opts;
+
+  // 1️⃣ 创建/打开文件
+  constexpr auto temp_wal_file = "wal.tmp";
+  constexpr auto temp_wal_log = "wal.log";
+  delete_if_exists(temp_wal_file);
+  delete_if_exists(temp_wal_log);
+  std::unique_ptr<rocksdb::WritableFile> file;
+  auto s = env->NewWritableFile(temp_wal_file, &file, env_opts);
+  if (!s.ok()) {
+    std::cerr << "Failed to create file: " << s.ToString() << std::endl;
+    return;
+  }
+  std::cout << "File created: wal.tmp" << std::endl;
+
+  // 2️⃣ 写入数据
+  std::string data = "entry1\nentry2\n";
+  s = file->Append(rocksdb::Slice(data));
+  if (!s.ok()) {
+    std::cerr << "Failed to write: " << s.ToString() << std::endl;
+    return;
+  }
+  std::cout << "Data written" << std::endl;
+
+  // 3️⃣ fsync（落盘）
+  s = file->Sync();
+  if (!s.ok()) {
+    std::cerr << "Failed to sync: " << s.ToString() << std::endl;
+    return;
+  }
+  std::cout << "File synced" << std::endl;
+
+  // 4️⃣ 关闭文件
+  s = file->Close();
+  if (!s.ok()) {
+    std::cerr << "Failed to close: " << s.ToString() << std::endl;
+    return;
+  }
+  std::cout << "File closed" << std::endl;
+
+  // 5️⃣ 重命名文件
+  s = env->RenameFile(temp_wal_file, temp_wal_log);
+  if (!s.ok()) {
+    std::cerr << "Failed to rename: " << s.ToString() << std::endl;
+    return;
+  }
+  std::cout << "File renamed to wal.log" << std::endl;
+
+  // 6️⃣ 读取文件内容
+  std::unique_ptr<rocksdb::SequentialFile> rfile;
+  s = env->NewSequentialFile(temp_wal_log, &rfile, env_opts);
+  if (!s.ok()) {
+    std::cerr << "Failed to open for read: " << s.ToString() << std::endl;
+    return;
+  }
+
+  char buffer[1024];
+  rocksdb::Slice result;
+  s = rfile->Read(sizeof(buffer), &result, buffer);
+  if (!s.ok()) {
+    std::cerr << "Failed to read: " << s.ToString() << std::endl;
+    return;
+  }
+
+  std::cout << "Read data:\n" << std::string(result.data(), result.size()) << std::endl;
 }

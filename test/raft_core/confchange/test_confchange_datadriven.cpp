@@ -14,6 +14,7 @@
 #include "absl/types/span.h"
 #include "confchange.h"
 #include "data_driven.h"
+#include "defer.h"
 #include "fmt/format.h"
 #include "leaf.h"
 #include "lepton_error.h"
@@ -36,7 +37,7 @@ using namespace lepton;
 static leaf::result<std::string> process_single_test_case(
     const std::string& cmd, const std::string& input, const std::map<std::string, std::vector<std::string>>& args_map,
     confchange::changer& c) {
-  defer func([&c]() { c.increase_last_index(); });
+  DEFER({ c.increase_last_index(); });
   lepton::pb::repeated_conf_change ccs;
   std::vector<std::string> toks = absl::StrSplit(input, ' ', absl::SkipEmpty());
 

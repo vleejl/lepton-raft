@@ -15,3 +15,9 @@
 ./build.sh -m debug -t clang -s tsan
 ./build.sh -m debug -t clang -s asan
 ./build.sh --clean -m debug -t clang -s asan -j 32
+
+# xmake 安装
+curl -fsSL https://xmake.io/shget.text | bash
+
+# 依赖安装（仅适用于debain/ubuntu）
+bash dependency_install.sh
