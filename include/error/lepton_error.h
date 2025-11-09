@@ -10,25 +10,45 @@
 #include "logic_error.h"
 #include "raft_error.h"
 #include "storage_error.h"
+
+#ifdef LEPTON_STORAGE
+#include "rocksdb_err.h"
+#endif
 namespace lepton {
 
+template <typename T>
+inline constexpr bool is_lepton_error_v =
+    std::is_same_v<T, logic_error> || std::is_same_v<T, raft_error> || std::is_same_v<T, storage_error>
+#ifdef LEPTON_STORAGE
+    || std::is_same_v<T, rocksdb::Status>
+#endif
+    ;
+
 template <typename error_code_type>
-concept err_types =
-    std::is_same_v<error_code_type, lepton::logic_error> || std::is_same_v<error_code_type, lepton::raft_error> ||
-    std::is_same_v<error_code_type, lepton::storage_error> || std::is_same_v<error_code_type, asio::error_code>;
+concept lepton_err_types = is_lepton_error_v<error_code_type>;
+
+template <typename error_code_type>
+concept err_types = is_lepton_error_v<error_code_type> || std::is_same_v<error_code_type, asio::error_code> ||
+                    std::is_same_v<error_code_type, std::error_code>;
+
 struct lepton_error {
   std::error_code err_code;
   std::string message;
   std::source_location location;
 
-  template <err_types err_type>
+  lepton_error(std::error_code code, std::source_location location) : err_code(code), location(location) {}
+
+  lepton_error(std::error_code code, std::string msg, std::source_location location)
+      : err_code(code), message(std::move(msg)), location(location) {}
+
+  template <lepton_err_types err_type>
   lepton_error(err_type code, std::source_location location) : err_code(make_error_code(code)), location(location) {}
 
-  template <err_types err_type>
+  template <lepton_err_types err_type>
   lepton_error(err_type code, std::string msg, std::source_location location)
       : err_code(make_error_code(code)), message(std::move(msg)), location(location) {}
 
-  template <err_types err_type>
+  template <lepton_err_types err_type>
   auto operator<=>(err_type error_code) const {
     return err_code <=> make_error_code(error_code);
   }

@@ -1,0 +1,8 @@
+syntax = "proto2";
+package walpb;
+
+message record {
+	optional int64 type  = 1;
+	optional uint32 crc  = 2;
+	optional bytes data  = 3;
+}

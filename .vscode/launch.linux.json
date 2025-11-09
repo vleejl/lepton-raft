@@ -2,21 +2,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug (macOS)",
-            "type": "cppdbg",
-            "request": "launch",
-            "program": "${workspaceFolder}/build/${workspaceFolderBasename}",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "lldb",
-            "osx": {
-                "MIMode": "lldb"
-            }
-        },
-        {
             "name": "Debug (Linux)",
             "type": "cppdbg",
             "request": "launch",

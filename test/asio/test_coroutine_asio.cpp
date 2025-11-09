@@ -4,6 +4,7 @@
 #include <asio/awaitable.hpp>
 #include <asio/co_spawn.hpp>
 #include <asio/io_context.hpp>
+#include <asio/random_access_file.hpp>
 #include <asio/use_awaitable.hpp>
 #include <atomic>
 #include <chrono>
@@ -88,7 +89,7 @@ class RaftNode {
   steady_timer timer_;  // 定时器对象
 };
 
-TEST(asio_test_suit, asio_io_context) {
+TEST(asio_coroutine_test_suit, asio_io_context) {
   io_context io;
   lepton::channel<int> proc_chan(io.get_executor());
   bool has_finish_async = false;
@@ -129,7 +130,7 @@ TEST(asio_test_suit, asio_io_context) {
   ASSERT_FALSE(has_finish_async);
 }
 
-TEST(asio_test_suit, asio_io_context1) {
+TEST(asio_coroutine_test_suit, asio_io_context1) {
   io_context io;
   lepton::channel<int> proc_chan(io.get_executor());
 
@@ -176,7 +177,7 @@ TEST(asio_test_suit, asio_io_context1) {
   io.run();  // run 到 stop 被调用才会返回
 }
 
-TEST(asio_test_suit, asio_io_context2) {
+TEST(asio_coroutine_test_suit, asio_io_context2) {
   io_context io;
 
   // channel容量1，int类型数据
@@ -232,7 +233,7 @@ awaitable<lepton::expected<void>> async_select(lepton::channel<raftpb::message>&
   }
 }
 
-TEST(asio_test_suit, async_select_done_chan) {
+TEST(asio_coroutine_test_suit, async_select_done_chan) {
   // 初始化组件
   asio::io_context io;
   lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
@@ -276,7 +277,7 @@ TEST(asio_test_suit, async_select_done_chan) {
   io.run();
 }
 
-TEST(asio_test_suit, async_select_done) {
+TEST(asio_coroutine_test_suit, async_select_done) {
   // 初始化组件
   asio::io_context io;
   lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
@@ -322,7 +323,7 @@ TEST(asio_test_suit, async_select_done) {
   io.run();
 }
 
-TEST(asio_test_suit, async_select_any_expected_async_send) {
+TEST(asio_coroutine_test_suit, async_select_any_expected_async_send) {
   // 初始化组件
   asio::io_context io;
   lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
@@ -367,7 +368,7 @@ TEST(asio_test_suit, async_select_any_expected_async_send) {
   io.run();
 }
 
-TEST(asio_test_suit, async_select_done_with_raft_message_type) {
+TEST(asio_coroutine_test_suit, async_select_done_with_raft_message_type) {
   // 初始化组件
   asio::io_context io;
   lepton::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
@@ -415,7 +416,7 @@ TEST(asio_test_suit, async_select_done_with_raft_message_type) {
   io.run();
 }
 
-TEST(asio_test_suit, async_select_done_with_expected_error_type) {
+TEST(asio_coroutine_test_suit, async_select_done_with_expected_error_type) {
   // 初始化组件
   asio::io_context io;
   lepton::channel<std::error_code> recvc(io.get_executor());  // 带缓冲的通道
@@ -461,7 +462,7 @@ TEST(asio_test_suit, async_select_done_with_expected_error_type) {
   io.run();
 }
 
-TEST(asio_test_suit, close_channel) {
+TEST(asio_coroutine_test_suit, close_channel) {
   // 初始化组件
   asio::io_context io;
   lepton::channel<std::error_code> recvc1(io.get_executor());  // 带缓冲的通道
@@ -532,7 +533,7 @@ TEST(asio_test_suit, close_channel) {
   io.run();
 }
 
-TEST(asio_test_suit, cancellation_signal) {
+TEST(asio_coroutine_test_suit, cancellation_signal) {
   asio::io_context io;
   asio::cancellation_signal cancel_sig;
 
@@ -591,7 +592,7 @@ TEST(asio_test_suit, cancellation_signal) {
 
 // asio make_parallel_group 与 channel
 // 结合一起使用时，如果其中一个channel收到消息时，会取消其他channel；导致并行发送的消息会丢失
-TEST(asio_test_suit, parallel_send_msg) {
+TEST(asio_coroutine_test_suit, parallel_send_msg) {
   asio::io_context io;
   lepton::channel<std::string> recvc1(io.get_executor());  // 带缓冲的通道
   lepton::channel<std::string> recvc2(io.get_executor());  // 带缓冲的通道
@@ -664,7 +665,7 @@ asio::awaitable<void> parallel_process(lepton::channel<std::string>& recvc, lept
   }
 }
 
-TEST(asio_test_suit, lepton_parallel_send_msg) {
+TEST(asio_coroutine_test_suit, lepton_parallel_send_msg) {
   asio::io_context io;
   lepton::channel<std::string> recvc1(io.get_executor());
   lepton::channel<std::string> recvc2(io.get_executor());
@@ -723,7 +724,7 @@ TEST(asio_test_suit, lepton_parallel_send_msg) {
 }
 
 // 测试验证使用 make_parallel_group 进行消息发送时，预期被done signal已发送消息后，msg channel的接收端不应该收到消息
-TEST(asio_test_suit, async_send_msg_with_done_signal) {
+TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal) {
   asio::io_context io;
   lepton::channel<std::string> ready_chan_(io.get_executor());
   lepton::signal_channel token_chan(io.get_executor());
@@ -811,7 +812,7 @@ using asio::awaitable;
 using asio::use_awaitable;
 using namespace asio::experimental::awaitable_operators;  // ② 引入 operator||
 
-TEST(asio_test_suit, async_send_msg_with_done_signal1) {
+TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal1) {
   asio::io_context io;
 
   // ③ 容量=0，非缓冲，避免 async_send 同步完成
@@ -898,7 +899,7 @@ TEST(asio_test_suit, async_send_msg_with_done_signal1) {
 
 // 验证如果同时收到相应时，是否会把另外一个channel的消息清空
 // 确认会清空
-TEST(asio_test_suit, concurrency_receive_msg) {
+TEST(asio_coroutine_test_suit, concurrency_receive_msg) {
   asio::io_context io;
 
   // ③ 容量=0，非缓冲，避免 async_send 同步完成
