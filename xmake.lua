@@ -174,6 +174,8 @@ target("lepton-raft-core-benchmark-test")
     add_packages("gtest", "benchmark")
 
 target("lepton-raft-storage-unit-test")
+    -- third party include dirs
+    add_includedirs("third_party/CRCpp/inc")
     -- lepton basic include dirs
     add_includedirs("include/basic")
     add_includedirs("include/error")
@@ -185,6 +187,9 @@ target("lepton-raft-storage-unit-test")
     add_includedirs("include/raft_core/tracker")
     -- raft storage include dirs 
     add_includedirs("include/storage/fileutil")
+    add_includedirs("include/storage/ioutil")
+    add_includedirs("include/storage/pb")
+    add_includedirs("include/storage/wal")
     on_load(apply_sanitizers)
     add_defines("LEPTON_TEST")
     add_defines("LEPTON_STORAGE")
@@ -206,10 +211,12 @@ target("lepton-raft-storage-unit-test")
     add_files("src/raft_core/*.cpp|main.cpp")
     -- raft storage include dirs 
     add_files("src/storage/fileutil/*.cpp")
+    add_files("src/storage/ioutil/*.cpp")
     -- lepton-raft unit test file
     add_files("test/storage/utility/src/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/asio/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/rocksdb/*.cpp", {cxflags = test_cxflags})
+    add_files("test/storage/ioutil/*.cpp", {cxflags = test_cxflags})
     -- lepton-raft benchmark test file
     add_files("test/storage/unit_test.cpp")
     if is_plat("linux") then

@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <string>
 
-#include "gtest/gtest.h"
 #include "interaction_env.h"
 
 namespace interaction {

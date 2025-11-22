@@ -16,7 +16,6 @@
 #include "config.h"
 #include "describe.h"
 #include "fmt/format.h"
-#include "gtest/gtest.h"
 #include "joint.h"
 #include "lepton_error.h"
 #include "majority.h"

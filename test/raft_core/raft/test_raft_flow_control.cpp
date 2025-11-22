@@ -10,7 +10,6 @@
 
 #include "fmt/base.h"
 #include "fmt/format.h"
-#include "gtest/gtest.h"
 #include "raft.h"
 #include "storage.h"
 #include "test_diff.h"

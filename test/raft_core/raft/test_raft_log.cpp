@@ -16,7 +16,6 @@
 
 #include "absl/types/span.h"
 #include "config.h"
-#include "gtest/gtest.h"
 #include "memory_storage.h"
 #include "protobuf.h"
 #include "proxy.h"

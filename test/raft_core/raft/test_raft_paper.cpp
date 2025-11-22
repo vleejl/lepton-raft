@@ -19,7 +19,6 @@
 #include "enum_name.h"
 #include "fmt/base.h"
 #include "fmt/format.h"
-#include "gtest/gtest.h"
 #include "lepton_error.h"
 #include "memory_storage.h"
 #include "protobuf.h"

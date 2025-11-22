@@ -25,7 +25,6 @@
 #include "describe.h"
 #include "enum_name.h"
 #include "fmt/format.h"
-#include "gtest/gtest.h"
 #include "joint.h"
 #include "leaf.h"
 #include "lepton_error.h"

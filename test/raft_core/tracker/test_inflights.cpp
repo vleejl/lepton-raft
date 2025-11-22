@@ -4,7 +4,6 @@
 #include <deque>
 #include <vector>
 
-#include "gtest/gtest.h"
 #include "inflights.h"
 #include "test_utility_macros.h"
 using namespace lepton;

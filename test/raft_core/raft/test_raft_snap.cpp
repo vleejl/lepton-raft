@@ -8,7 +8,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "gtest/gtest.h"
 #include "raft.h"
 #include "raft_log.h"
 #include "storage.h"
