@@ -162,7 +162,7 @@ asio::awaitable<expected<void>> node::step(raftpb::message&& msg) {
   if (pb::is_local_msg(msg.type()) && !pb::is_local_msg_target(msg.from())) {
     // Local messages are not handled by step, but by the node's
     // propose method.
-    co_return expected<void>{};
+    co_return ok();
   }
   auto result = co_await step_impl(std::move(msg));
   co_return result;
@@ -541,7 +541,7 @@ asio::awaitable<expected<void>> node::handle_non_prop_msg(raftpb::message&& msg)
     SPDLOG_ERROR("Failed to recv non-proposal message: {}", ec.error().message());
   }
   SPDLOG_TRACE("send non-proposal message {} successful", debugMsg);
-  co_return expected<void>{};
+  co_return ok();
 }
 
 asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {

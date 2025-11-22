@@ -4,6 +4,14 @@
 #include "preallocate.h"
 namespace lepton {
 
+leaf::result<std::size_t> wal_file::size() const {
+  std::size_t file_size = 0;
+  if (auto s = env_->GetFileSize(file_name_, &file_size); !s.ok()) {
+    return new_error(s, fmt::format("Failed to get size of WAL file {}: {}", file_name_, s.ToString()));
+  }
+  return file_size;
+}
+
 leaf::result<void> wal_file::seek_to_end() {
   asio::error_code ec;
   file_.seek(0, asio::file_base::seek_end, ec);
@@ -18,6 +26,24 @@ leaf::result<void> wal_file::pre_allocate(uint64_t length) {
     return new_error(ec);
   }
   return {};
+}
+
+leaf::result<std::size_t> wal_file::read(asio::mutable_buffer buffer) {
+  std::error_code ec;
+  auto read_size = file_.read_some(asio::buffer(buffer.data(), buffer.size()), ec);
+  if (ec) {
+    return new_error(ec, fmt::format("Failed to read from WAL file: {}", ec.message()));
+  }
+  return read_size;
+}
+
+asio::awaitable<expected<std::size_t>> wal_file::async_read(asio::mutable_buffer buffer) {
+  std::error_code ec;
+  auto read_size = co_await file_.async_read_some(buffer, asio::redirect_error(asio::use_awaitable, ec));
+  if (ec) {
+    co_return tl::unexpected(ec);
+  }
+  co_return read_size;
 }
 
 leaf::result<std::size_t> wal_file::write(byte_span data) {

@@ -100,7 +100,7 @@ TEST(asio_coroutine_test_suit, asio_io_context) {
     SPDLOG_INFO("finish async send result info {}", ec.value());
     has_finish_async = true;
     CO_CHECK_EXPECTED(ec);
-    co_return lepton::expected<void>{};
+    co_return lepton::ok();
   };
   asio::co_spawn(
       io,
@@ -140,7 +140,7 @@ TEST(asio_coroutine_test_suit, asio_io_context1) {
     SPDLOG_INFO("ready send async send result info");
     co_await proc_chan.async_send(asio::error_code{}, 10, redirect_error(use_awaitable, ec));
     SPDLOG_INFO("finish async send result info {}", ec.value());
-    co_return ec ? tl::unexpected(ec) : lepton::expected<void>{};
+    co_return ec ? tl::unexpected(ec) : lepton::ok();
   };
 
   // 启动发送协程
@@ -225,7 +225,7 @@ awaitable<lepton::expected<void>> async_select(lepton::channel<raftpb::message>&
   // 根据第一个完成的操作返回结果
   switch (order[0]) {  // 查看哪个操作先完成
     case 0:            // 发送成功
-      co_return lepton::expected<void>{};
+      co_return lepton::ok();
     case 1:  // 节点停止
       co_return tl::unexpected{lepton::raft_error::STOPPED};
     default:

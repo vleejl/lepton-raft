@@ -23,6 +23,8 @@ enum class storage_error {
   // the required
   // snapshot is temporarily unavailable.
   SNAPSHOT_TEMPORARILY_UNAVAILABLE,
+  // ErrCRCMismatch is returned when there is a crc mismatch detected
+  ERR_CRC_MISMATCH,
 };
 
 // storage_error_category
@@ -40,6 +42,8 @@ class storage_error_category : public base_error_category {
         return "requested entry at index is unavailable";
       case storage_error::SNAPSHOT_TEMPORARILY_UNAVAILABLE:
         return "snapshot is temporarily unavailable";
+      case storage_error::ERR_CRC_MISMATCH:
+        return "walpb: crc mismatch";
       default:
         assert(false);
         return "Unrecognized storage error";

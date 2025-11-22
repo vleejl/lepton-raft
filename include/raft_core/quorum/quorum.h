@@ -45,7 +45,7 @@ struct acked_indexer_builder : pro::facade_builder
 // clang-format on
 
 class map_ack_indexer {
-  NONCOPYABLE_NONMOVABLE(map_ack_indexer)
+  NOT_COPYABLE_NOT_MOVABLE(map_ack_indexer)
   map_ack_indexer() = delete;
 
  public:

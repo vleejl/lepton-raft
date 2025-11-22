@@ -7,7 +7,6 @@
 
 #include "byte_span.h"
 #include "expected.h"
-#include "lepton_error.h"
 
 namespace lepton {
 
@@ -17,7 +16,7 @@ PRO_DEF_MEM_DISPATCH(writer_async_write, async_write);
 
 // clang-format off
 struct writer : pro::facade_builder 
-  ::add_convention<writer_write, leaf::result<std::size_t>(byte_span data)> 
+  // ::add_convention<writer_write, leaf::result<std::size_t>(byte_span data)> 
   ::add_convention<writer_async_write, asio::awaitable<expected<std::size_t>>(byte_span data)> 
   ::add_skill<pro::skills::as_view>
   ::build{};

@@ -44,7 +44,7 @@ using msg_with_result_channel_handle = channel_endpoint<msg_with_result>*;
 
 // node is the canonical implementation of the Node interface
 class node {
-  NONCOPYABLE_NONMOVABLE(node)
+  NOT_COPYABLE_NOT_MOVABLE(node)
  public:
   node(asio::any_io_executor executor, raw_node&& raw_node)
       : executor_(executor),

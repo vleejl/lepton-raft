@@ -31,7 +31,7 @@ asio::awaitable<expected<void>> async_select_done(async_func &&main_op, signal_c
         SPDLOG_ERROR("main_op failed with error: {}", ec1.message());
         co_return tl::unexpected(ec1);
       }
-      co_return expected<void>{};
+      co_return ok();
     case 1:
       co_return tl::unexpected{raft_error::STOPPED};
     default:
