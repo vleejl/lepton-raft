@@ -111,7 +111,7 @@ target("lepton-raft-core-unit-test")
     add_rules("protobuf.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
     add_packages("protoc", "protobuf-cpp")
-    -- lepton-raft souce file
+    -- lepton-raft source file
     add_files("src/raft_core/confchange/*.cpp")
     add_files("src/raft_core/pb/*.cpp")
     add_files("src/raft_core/tracker/*.cpp")
@@ -156,7 +156,7 @@ target("lepton-raft-core-benchmark-test")
     add_rules("protobuf.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
     add_packages("protoc", "protobuf-cpp")
-    -- lepton-raft souce file
+    -- lepton-raft source file
     add_files("src/raft_core/confchange/*.cpp")
     add_files("src/raft_core/pb/*.cpp")
     add_files("src/raft_core/tracker/*.cpp")
@@ -174,8 +174,6 @@ target("lepton-raft-core-benchmark-test")
     add_packages("gtest", "benchmark")
 
 target("lepton-raft-storage-unit-test")
-    -- third party include dirs
-    add_includedirs("third_party/CRCpp/inc")
     -- lepton basic include dirs
     add_includedirs("include/basic")
     add_includedirs("include/error")
@@ -204,14 +202,16 @@ target("lepton-raft-storage-unit-test")
     add_rules("protobuf.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
     add_packages("protoc", "protobuf-cpp")
-    -- lepton-raft souce file
+    -- lepton-raft source file
     add_files("src/raft_core/confchange/*.cpp")
     add_files("src/raft_core/pb/*.cpp")
     add_files("src/raft_core/tracker/*.cpp")
     add_files("src/raft_core/*.cpp|main.cpp")
-    -- raft storage include dirs 
+    -- raft storage source dirs 
     add_files("src/storage/fileutil/*.cpp")
     add_files("src/storage/ioutil/*.cpp")
+    add_files("src/storage/pb/*.cpp")
+    add_files("src/storage/wal/*.cpp")  
     -- lepton-raft unit test file
     add_files("test/storage/utility/src/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/asio/*.cpp", {cxflags = test_cxflags})
@@ -222,7 +222,7 @@ target("lepton-raft-storage-unit-test")
     if is_plat("linux") then
         add_packages("liburing")
     end    
-    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "rocksdb", "spdlog", "tl_expected")
+    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "poco", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
 
 -- 更新本地仓库 package 版本

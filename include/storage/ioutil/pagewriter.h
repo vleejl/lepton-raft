@@ -1,5 +1,6 @@
 #ifndef _LEPTON_PAGEWRITER_H_
 #define _LEPTON_PAGEWRITER_H_
+#include <cassert>
 #include <cstddef>
 
 #include "expected.h"
@@ -9,6 +10,7 @@
 
 namespace lepton {
 
+// 128 KB
 constexpr size_t DEFAULT_BUFFER_BYTES = 128 * 1024;
 
 // PageWriter implements the io.Writer interface so that writes will
@@ -22,8 +24,12 @@ class page_writer {
         page_offset_(page_offset),
         page_bytes_(page_bytes),
         buffered_bytes_(0),
+        // 设置为 defaultBufferBytes + pageBytes的原因是为了处理页面对齐的边界情况
         buf_(std::make_unique<std::byte[]>(DEFAULT_BUFFER_BYTES + page_bytes)),
-        buf_watermark_bytes_(DEFAULT_BUFFER_BYTES) {}
+        buf_watermark_bytes_(DEFAULT_BUFFER_BYTES) {
+    // invalid pageBytes (%d) value, it must be greater than 0
+    assert(page_bytes > 0);
+  }
 
   /*
       +--------------------------+

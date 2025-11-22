@@ -6,6 +6,9 @@
 namespace lepton {
 template <typename T>
 using expected = tl::expected<T, std::error_code>;
+
+inline expected<void> ok() { return expected<void>{}; }
+
 }  // namespace lepton
 
 #define CO_CHECK_EXPECTED(ec)                                \

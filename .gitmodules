@@ -4,6 +4,3 @@
 [submodule "third_party/dtl"]
 	path = third_party/dtl
 	url = https://github.com/cubicdaiya/dtl.git
-[submodule "third_party/CRCpp"]
-	path = third_party/CRCpp
-	url = https://github.com/d-bahr/CRCpp.git

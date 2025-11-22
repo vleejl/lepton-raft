@@ -74,7 +74,7 @@ asio::awaitable<expected<std::size_t>> page_writer::async_write(byte_span data) 
 // flush buffer to underlying writer
 asio::awaitable<expected<void>> page_writer::async_flush() {
   if (buffered_bytes_ == 0) {
-    co_return expected<void>{};
+    co_return ok();
   }
 
   auto result = co_await w_->async_write(byte_span{buf_.get(), buffered_bytes_});
@@ -83,7 +83,7 @@ asio::awaitable<expected<void>> page_writer::async_flush() {
   }
   page_offset_ += result.value();
   buffered_bytes_ = 0;
-  co_return expected<void>{};
+  co_return ok();
 }
 
 }  // namespace lepton

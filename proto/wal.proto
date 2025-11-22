@@ -1,8 +1,16 @@
 syntax = "proto2";
 package walpb;
 
+enum record_type {
+  	METADATA_TYPE        = 1;
+	ENTRY_TYPE           = 2;
+	STATE_TYPE			 = 3;
+	CRC_TYPE			 = 4;
+	SNAPSHOT_TYPE		 = 5;
+}
+
 message record {
-	optional int64 type  = 1;
+	optional record_type type  = 1;
 	optional uint32 crc  = 2;
 	optional bytes data  = 3;
 }

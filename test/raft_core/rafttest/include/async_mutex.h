@@ -6,7 +6,7 @@
 #include "utility_macros.h"
 
 class async_mutex {
-  NONCOPYABLE_NONMOVABLE(async_mutex)
+  NOT_COPYABLE_NOT_MOVABLE(async_mutex)
  public:
   explicit async_mutex(asio::any_io_executor ex)
       : ch_(ex, 1)  // capacity = 1

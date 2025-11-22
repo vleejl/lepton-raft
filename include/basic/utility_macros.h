@@ -11,13 +11,13 @@
   Type(const Type &) = delete;         \
   Type &operator=(const Type &) = delete;
 
-#define NO_MOVABLE_BUT_COPYABLE(Type)      \
+#define NOT_MOVABLE_BUT_COPYABLE(Type)     \
   Type(const Type &) = default;            \
   Type &operator=(const Type &) = default; \
   Type(Type &&) = delete;                  \
   Type &operator=(Type &&) = delete;
 
-#define NONCOPYABLE_NONMOVABLE(Type)      \
+#define NOT_COPYABLE_NOT_MOVABLE(Type)    \
   Type(const Type &) = delete;            \
   Type &operator=(const Type &) = delete; \
   Type(Type &&) = delete;                 \

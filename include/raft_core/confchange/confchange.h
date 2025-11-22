@@ -28,7 +28,7 @@ namespace confchange {
 class changer {
  public:
   using result = leaf::result<std::tuple<tracker::config, tracker::progress_map>>;
-  NONCOPYABLE_NONMOVABLE(changer)
+  NOT_COPYABLE_NOT_MOVABLE(changer)
   changer() = delete;
 
   void increase_last_index() { last_index_++; }
