@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "fixed_byte_buffer.h"
 namespace lepton {
 
 class byte_span {
@@ -37,6 +38,8 @@ class byte_span {
   // from std::array<std::byte>
   template <size_t N>
   byte_span(const std::array<std::uint8_t, N>& arr) : view_(reinterpret_cast<const std::byte*>(arr.data()), N) {}
+
+  byte_span(const fixed_byte_buffer& buf) : view_(buf.data(), buf.size()) {}
 
   std::span<const std::byte> view() const { return view_; }
 

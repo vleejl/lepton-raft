@@ -20,6 +20,25 @@ leaf::result<void> wal_file::pre_allocate(uint64_t length) {
   return {};
 }
 
+leaf::result<std::size_t> wal_file::read(fixed_byte_buffer& buffer) {
+  std::error_code ec;
+  auto read_size = file_.read_some(asio::buffer(buffer.data(), buffer.size()), ec);
+  if (ec) {
+    return new_error(ec, fmt::format("Failed to read from WAL file: {}", ec.message()));
+  }
+  return read_size;
+}
+
+asio::awaitable<expected<std::size_t>> wal_file::async_read(fixed_byte_buffer& buffer) {
+  std::error_code ec;
+  auto read_size = co_await file_.async_read_some(asio::buffer(buffer.data(), buffer.size()),
+                                                  asio::redirect_error(asio::use_awaitable, ec));
+  if (ec) {
+    co_return tl::unexpected(ec);
+  }
+  co_return read_size;
+}
+
 leaf::result<std::size_t> wal_file::write(byte_span data) {
   std::error_code ec;
   auto write_size = file_.write_some(asio::buffer(data.data(), data.size()), ec);

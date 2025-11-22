@@ -66,6 +66,7 @@ add_requires("fmt", {configs = {header_only = false}})
 add_requires("gtest")
 add_requires("magic_enum")
 add_requires("nlohmann_json")
+add_requires("poco")
 add_requires("protoc", "protobuf-cpp")
 add_requires("rocksdb", {configs = {rtti = true}})
 add_requires("spdlog", {configs = {fmt_external = true, header_only = false}})
@@ -222,7 +223,7 @@ target("lepton-raft-storage-unit-test")
     if is_plat("linux") then
         add_packages("liburing")
     end    
-    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "rocksdb", "spdlog", "tl_expected")
+    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "poco", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
 
 -- 更新本地仓库 package 版本

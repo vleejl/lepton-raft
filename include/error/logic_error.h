@@ -13,6 +13,7 @@ enum class logic_error {
   KEY_NOT_FOUND,
   INVALID_PARAM,
   EMPTY_ARRAY,
+  UNEXPECTED_EOF,
   LOOP_BREAK,  // 特殊错误码, errBreak is a sentinel error used to break a callback-based loop.
 };
 
@@ -33,6 +34,8 @@ class logic_error_category : public base_error_category {
         return "Invalid param error";
       case logic_error::EMPTY_ARRAY:
         return "Empty array error";
+      case logic_error::UNEXPECTED_EOF:
+        return "Unexpected EOF error";
       case logic_error::LOOP_BREAK:
         return "Loop break error";
       default:

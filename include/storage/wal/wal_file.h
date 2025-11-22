@@ -38,6 +38,10 @@ class wal_file {
 
   leaf::result<void> pre_allocate(uint64_t length);
 
+  leaf::result<std::size_t> read(fixed_byte_buffer& buffer);
+
+  asio::awaitable<expected<std::size_t>> async_read(fixed_byte_buffer& buffer);
+
   leaf::result<std::size_t> write(byte_span data);
 
   asio::awaitable<expected<std::size_t>> async_write(byte_span data);
