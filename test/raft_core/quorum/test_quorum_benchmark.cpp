@@ -8,6 +8,7 @@
 #include "majority.h"
 #include "quorum.h"
 using namespace lepton;
+using namespace lepton::core;
 
 static void BM_majority_config_committed_index(benchmark::State& state) {
   auto n = state.range(0);  // Get the value of n from the benchmark range

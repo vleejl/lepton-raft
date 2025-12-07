@@ -14,7 +14,7 @@
 #include "spdlog/spdlog.h"
 #include "state_trace.h"
 #include "types.h"
-namespace lepton {
+namespace lepton::core {
 
 leaf::result<raw_node> new_raw_node(config &&c) {
   const auto async_storage_writes = c.async_storage_writes;
@@ -273,8 +273,8 @@ std::string get_highres_nanoseconds() {
   return std::to_string(ns.count());
 }
 
-lepton::ready raw_node::ready_without_accept() {
-  lepton::ready rd;
+lepton::core::ready raw_node::ready_without_accept() {
+  lepton::core::ready rd;
   rd.entries = pb::convert_span_entry(raft_.raft_log_handle_.next_unstable_ents());
   rd.committed_entries = raft_.raft_log_handle_.next_committed_ents(this->apply_unstable_entries());
   rd.messages.CopyFrom(raft_.msgs_);
@@ -322,7 +322,7 @@ lepton::ready raw_node::ready_without_accept() {
   return rd;
 }
 
-void raw_node::accept_ready(const lepton::ready &rd) {
+void raw_node::accept_ready(const lepton::core::ready &rd) {
   SPDLOG_TRACE("accept ready, content:\n{}", describe_ready(rd, nullptr));
   if (rd.soft_state) {
     prev_soft_state_ = *rd.soft_state;
@@ -467,4 +467,4 @@ leaf::result<void> raw_node::bootstrap(std::vector<peer> &&peers) {
   return {};
 }
 
-}  // namespace lepton
+}  // namespace lepton::core

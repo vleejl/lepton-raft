@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace lepton {
+namespace lepton::core {
 namespace pb {
 
 // LocalAppendThread is a reference to a local thread that saves unstable
@@ -84,6 +84,6 @@ struct log_slice {
   repeated_entry entries;
 };
 }  // namespace pb
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_TYPES_H_

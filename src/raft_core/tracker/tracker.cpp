@@ -1,7 +1,7 @@
 #include "tracker.h"
 
-namespace lepton {
+namespace lepton::core {
 
 namespace tracker {}  // namespace tracker
 
-}  // namespace lepton
+}  // namespace lepton::core

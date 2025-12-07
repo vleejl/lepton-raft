@@ -33,6 +33,7 @@
 #include "tracker.h"
 #include "types.h"
 using namespace lepton;
+using namespace lepton::core;
 
 static raftpb::hard_state EMPTY_STATE;
 
@@ -40,7 +41,7 @@ static raftpb::hard_state EMPTY_STATE;
 // "most of" Node. The exceptions (some of which are easy to fix) are listed
 // below.
 struct raw_node_adapter {
-  lepton::raw_node node;
+  lepton::core::raw_node node;
 
   // TransferLeadership is to test when node specifies lead, which is pointless, can just be filled in.
   void transfer_leadership(std::uint64_t transferee) { node.transfer_leadership(transferee); }
@@ -75,7 +76,9 @@ struct raw_node_adapter {
 
   leaf::result<void> propose(std::string&& data) { return node.propose(std::move(data)); }
 
-  leaf::result<void> propose_conf_change(const lepton::pb::conf_change_var& cc) { return node.propose_conf_change(cc); }
+  leaf::result<void> propose_conf_change(const lepton::core::pb::conf_change_var& cc) {
+    return node.propose_conf_change(cc);
+  }
 };
 
 leaf::result<void> run_awaitable(auto&& awaitable) {
@@ -116,7 +119,7 @@ TEST_F(raw_node_test_suit, test_raw_node_step) {
     // Append an empty entry to make sure the non-local messages (like
     // vote requests) are ignored and don't trigger assertions.
     auto raw_node_result =
-        lepton::new_raw_node(new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(std::move(ms))));
+        lepton::core::new_raw_node(new_test_config(1, 10, 1, pro::make_proxy<storage_builer>(std::move(ms))));
     ASSERT_TRUE(raw_node_result);
     auto& raw_node = *raw_node_result;
     raftpb::message msg;
@@ -134,7 +137,7 @@ TEST_F(raw_node_test_suit, test_raw_node_step) {
           SPDLOG_ERROR("RawNode step error: {}", e.message);
           return new_error(e);
         });
-    if (lepton::pb::is_local_msg(msg_type)) {
+    if (lepton::core::pb::is_local_msg(msg_type)) {
       ASSERT_EQ(lepton::raft_error::STEP_LOCAL_MSG, err_code);
       ASSERT_TRUE(has_called_error);
     }
@@ -150,7 +153,7 @@ TEST_F(raw_node_test_suit, test_raw_node_step) {
 // joint configurations makes sure that they are exited successfully.
 TEST_F(raw_node_test_suit, test_raw_node_propose_and_conf_change) {
   struct test_case {
-    lepton::pb::conf_change_var cc;
+    lepton::core::pb::conf_change_var cc;
     raftpb::conf_state exp;
     std::optional<raftpb::conf_state> exp2;
   };
@@ -230,7 +233,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_and_conf_change) {
     auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
     auto& mm_storage = *mm_storage_ptr;
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-    auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+    auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
     ASSERT_TRUE(raw_node_result);
     auto& raw_node = *raw_node_result;
     ASSERT_TRUE(raw_node.campaign());
@@ -245,7 +248,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_and_conf_change) {
       auto rd = raw_node.ready();
       ASSERT_TRUE(mm_storage.append(std::move(rd.entries)));
       for (auto& ent : rd.committed_entries) {
-        lepton::pb::conf_change_var cc = std::monostate{};
+        lepton::core::pb::conf_change_var cc = std::monostate{};
         if (ent.type() == raftpb::ENTRY_CONF_CHANGE) {
           raftpb::conf_change cc_v1;
           ASSERT_TRUE(cc_v1.ParseFromString(ent.data()));
@@ -256,7 +259,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_and_conf_change) {
           cc = std::move(cc_v2);
         }
         if (!std::holds_alternative<std::monostate>(cc)) {
-          conf_state = raw_node.apply_conf_change(lepton::pb::conf_change_var_as_v2(std::move(cc)));
+          conf_state = raw_node.apply_conf_change(lepton::core::pb::conf_change_var_as_v2(std::move(cc)));
         }
       }
       raw_node.advance();
@@ -283,7 +286,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_and_conf_change) {
     ASSERT_TRUE(last_index_result);
     last_index = *last_index_result;
 
-    auto entris_res = mm_storage.entries(last_index - 1, last_index + 1, lepton::NO_LIMIT);
+    auto entris_res = mm_storage.entries(last_index - 1, last_index + 1, lepton::core::NO_LIMIT);
     ASSERT_TRUE(entris_res);
     auto& entries = *entris_res;
     ASSERT_EQ(2, entries.size());
@@ -298,7 +301,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_and_conf_change) {
     ASSERT_TRUE(compare_optional_conf_state(tt.exp, conf_state)) << fmt::format("#{}", i);
 
     std::uint64_t maybe_plus_one = 0;
-    if (auto [ok, autoleve] = lepton::pb::enter_joint(test_conf_change_var_as_v2(tt.cc)); ok && autoleve) {
+    if (auto [ok, autoleve] = lepton::core::pb::enter_joint(test_conf_change_var_as_v2(tt.cc)); ok && autoleve) {
       // If this is an auto-leaving joint conf change, it will have
       // appended the entry that auto-leaves, so add one to the last
       // index that forms the basis of our expectations on
@@ -354,7 +357,7 @@ TEST_F(raw_node_test_suit, test_raw_node_joint_auto_leave) {
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
   raw_node.campaign();
@@ -366,7 +369,7 @@ TEST_F(raw_node_test_suit, test_raw_node_joint_auto_leave) {
     auto rd = raw_node.ready();
     ASSERT_TRUE(mm_storage.append(std::move(rd.entries)));
     for (auto& ent : rd.committed_entries) {
-      lepton::pb::conf_change_var cc = std::monostate{};
+      lepton::core::pb::conf_change_var cc = std::monostate{};
       if (ent.type() == raftpb::ENTRY_CONF_CHANGE_V2) {
         raftpb::conf_change_v2 cc_v2;
         ASSERT_TRUE(cc_v2.ParseFromString(ent.data()));
@@ -379,7 +382,7 @@ TEST_F(raw_node_test_suit, test_raw_node_joint_auto_leave) {
         msg.set_from(1);
         msg.set_term(raw_node.raft_.term() + 1);
         raw_node.step(std::move(msg));
-        conf_state = raw_node.apply_conf_change(lepton::pb::conf_change_var_as_v2(std::move(cc)));
+        conf_state = raw_node.apply_conf_change(lepton::core::pb::conf_change_var_as_v2(std::move(cc)));
       }
     }
     raw_node.advance();
@@ -400,7 +403,7 @@ TEST_F(raw_node_test_suit, test_raw_node_joint_auto_leave) {
   ASSERT_TRUE(last_index_result);
   last_index = *last_index_result;
 
-  auto entris_res = mm_storage.entries(last_index - 1, last_index + 1, lepton::NO_LIMIT);
+  auto entris_res = mm_storage.entries(last_index - 1, last_index + 1, lepton::core::NO_LIMIT);
   ASSERT_TRUE(entris_res);
   auto& entries = *entris_res;
   ASSERT_EQ(2, entries.size());
@@ -419,22 +422,22 @@ TEST_F(raw_node_test_suit, test_raw_node_joint_auto_leave) {
   // Make it leader again. It should leave joint automatically after moving apply index.
   raw_node.campaign();
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
+  SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
+  SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
+  SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
+  SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
   // Check that the right ConfChange comes out.
   ASSERT_EQ(1, rd.entries.size());
   ASSERT_EQ(raftpb::ENTRY_CONF_CHANGE_V2, rd.entries[0].type());
@@ -456,7 +459,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_add_duplicate_node) {
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
 
@@ -479,7 +482,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_add_duplicate_node) {
     auto rd = raw_node.ready();
     ASSERT_TRUE(mm_storage.append(std::move(rd.entries)));
     for (auto& ent : rd.committed_entries) {
-      lepton::pb::conf_change_var cc = std::monostate{};
+      lepton::core::pb::conf_change_var cc = std::monostate{};
       if (ent.type() == raftpb::ENTRY_CONF_CHANGE) {
         raftpb::conf_change cc_v1;
         ASSERT_TRUE(cc_v1.ParseFromString(ent.data()));
@@ -505,7 +508,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_add_duplicate_node) {
   auto last_index = *last_index_result;
 
   // the last three entries should be: ConfChange cc1, cc1, cc2
-  auto entris_res = mm_storage.entries(last_index - 2, last_index + 1, lepton::NO_LIMIT);
+  auto entris_res = mm_storage.entries(last_index - 2, last_index + 1, lepton::core::NO_LIMIT);
   ASSERT_TRUE(entris_res);
   auto& entries = *entris_res;
   ASSERT_EQ(3, entries.size());
@@ -516,20 +519,20 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_add_duplicate_node) {
 // TestRawNodeReadIndex ensures that Rawnode.ReadIndex sends the MsgReadIndex message
 // to the underlying raft. It also ensures that ReadState can be read out.
 TEST_F(raw_node_test_suit, test_raw_node_read_index) {
-  lepton::pb::repeated_message msgs;
+  lepton::core::pb::repeated_message msgs;
   auto append_step = [&](raft& _, raftpb::message&& m) -> leaf::result<void> {
     msgs.Add(std::move(m));
     return {};
   };
 
-  auto wrs = std::vector<lepton::read_state>{
+  auto wrs = std::vector<lepton::core::read_state>{
       {.index = 1, .request_ctx = "somedata"},
   };
 
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
   raw_node.raft_.read_states_ = wrs;
@@ -574,7 +577,7 @@ TEST_F(raw_node_test_suit, test_raw_node_read_index) {
 // requires the application to bootstrap the state, i.e. it does not accept peers
 // and will not create faux configuration change entries.
 TEST_F(raw_node_test_suit, test_raw_node_start) {
-  lepton::pb::repeated_entry entries;
+  lepton::core::pb::repeated_entry entries;
   {
     auto entry1 = entries.Add();  // empty entry
     entry1->set_term(1);
@@ -584,8 +587,8 @@ TEST_F(raw_node_test_suit, test_raw_node_start) {
     entry2->set_index(3);
     entry2->set_data("foo");
   }
-  lepton::ready want;
-  want.soft_state = lepton::soft_state{.leader_id = 1, .raft_state = lepton::state_type::LEADER};
+  lepton::core::ready want;
+  want.soft_state = lepton::core::soft_state{.leader_id = 1, .raft_state = lepton::core::state_type::LEADER};
   want.hard_state.set_term(1);
   want.hard_state.set_commit(3);
   want.hard_state.set_vote(1);
@@ -613,7 +616,7 @@ TEST_F(raw_node_test_suit, test_raw_node_start) {
     ASSERT_TRUE(first_index);
     ASSERT_GE(*first_index, 2) << "FirstIndex >= 2 is prerequisite for bootstrap";
 
-    auto entris_res = storage.entries(*first_index, *first_index, lepton::NO_LIMIT);
+    auto entris_res = storage.entries(*first_index, *first_index, lepton::core::NO_LIMIT);
     // TODO(tbg): match exact error
     ASSERT_FALSE(entris_res) << "should not have been able to load first index";
 
@@ -621,14 +624,14 @@ TEST_F(raw_node_test_suit, test_raw_node_start) {
     ASSERT_TRUE(last_index_result);
     auto last_index = *last_index_result;
 
-    entris_res = storage.entries(last_index, last_index, lepton::NO_LIMIT);
+    entris_res = storage.entries(last_index, last_index, lepton::core::NO_LIMIT);
     // TODO(tbg): match exact error
     ASSERT_FALSE(entris_res) << "should not have been able to load last index";
 
     auto inital_states = storage.initial_state();
     ASSERT_TRUE(inital_states);
     auto& [hard_state, conf_state] = *inital_states;
-    ASSERT_TRUE(lepton::pb::is_empty_hard_state(hard_state));
+    ASSERT_TRUE(lepton::core::pb::is_empty_hard_state(hard_state));
     ASSERT_TRUE(conf_state.voters().empty());
   };
   auto bootstap = [&](memory_storage& storage, raftpb::conf_state&& cs) -> lepton::leaf::result<void> {
@@ -641,7 +644,7 @@ TEST_F(raw_node_test_suit, test_raw_node_start) {
     return storage.apply_snapshot(std::move(snap));
   };
   ASSERT_TRUE(bootstap(mm_storage, create_conf_state({1}, {}, {}, {})));
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
   ASSERT_FALSE(raw_node.has_ready());
@@ -671,7 +674,7 @@ TEST_F(raw_node_test_suit, test_raw_node_start) {
 }
 
 TEST_F(raw_node_test_suit, test_raw_node_restart) {
-  lepton::pb::repeated_entry entries;
+  lepton::core::pb::repeated_entry entries;
   {
     auto entry1 = entries.Add();  // empty entry
     entry1->set_term(1);
@@ -686,7 +689,7 @@ TEST_F(raw_node_test_suit, test_raw_node_restart) {
   hs.set_term(1);
   hs.set_commit(1);
 
-  lepton::ready want;
+  lepton::core::ready want;
   {
     // commit up to commit index in st
     auto entry1 = want.committed_entries.Add();
@@ -700,7 +703,7 @@ TEST_F(raw_node_test_suit, test_raw_node_restart) {
   mm_storage.set_hard_state(std::move(hs));
   mm_storage.append(std::move(entries));
 
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
   auto rd = raw_node.ready();
@@ -711,7 +714,7 @@ TEST_F(raw_node_test_suit, test_raw_node_restart) {
 
 TEST_F(raw_node_test_suit, test_raw_node_restart_from_snapshot) {
   auto snap = create_snapshot(2, 1, {1, 2});
-  lepton::pb::repeated_entry entries;
+  lepton::core::pb::repeated_entry entries;
   {
     auto entry1 = entries.Add();
     entry1->set_term(1);
@@ -723,7 +726,7 @@ TEST_F(raw_node_test_suit, test_raw_node_restart_from_snapshot) {
   hs.set_term(1);
   hs.set_commit(3);
 
-  lepton::ready want;
+  lepton::core::ready want;
   want.committed_entries = entries;
 
   auto mm_storage_ptr = new_test_memory_storage_ptr({});
@@ -731,9 +734,9 @@ TEST_F(raw_node_test_suit, test_raw_node_restart_from_snapshot) {
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
   mm_storage.set_hard_state(std::move(hs));
   mm_storage.apply_snapshot(std::move(snap));
-  mm_storage.append(lepton::pb::repeated_entry(entries));
+  mm_storage.append(lepton::core::pb::repeated_entry(entries));
 
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
   auto rd = raw_node.ready();
@@ -748,7 +751,7 @@ TEST_F(raw_node_test_suit, test_node_advance) {
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
   ASSERT_TRUE(raw_node.status().progress.view().empty());
@@ -759,14 +762,14 @@ TEST_F(raw_node_test_suit, test_node_advance) {
   raw_node.advance();
   auto status = raw_node.status();
   ASSERT_EQ(1, status.basic_status.soft_state.leader_id);
-  ASSERT_EQ(lepton::state_type::LEADER, status.basic_status.soft_state.raft_state);
+  ASSERT_EQ(lepton::core::state_type::LEADER, status.basic_status.soft_state.raft_state);
   const auto& lhs_cfg = raw_node.raft_.trk_.progress_map_view().view().at(1);
   const auto& rhs_cfg = status.progress.view().at(1);
   ASSERT_EQ(lhs_cfg, rhs_cfg);
 
-  lepton::tracker::config exp_cfg;
-  lepton::quorum::majority_config majority_cfg{std::set<std::uint64_t>{1}};
-  lepton::quorum::joint_config joint_cfg{std::move(majority_cfg)};
+  lepton::core::tracker::config exp_cfg;
+  lepton::core::quorum::majority_config majority_cfg{std::set<std::uint64_t>{1}};
+  lepton::core::quorum::joint_config joint_cfg{std::move(majority_cfg)};
   exp_cfg.voters = std::move(joint_cfg);
   ASSERT_EQ(exp_cfg, status.config);
 }
@@ -842,7 +845,7 @@ TEST_F(raw_node_test_suit, test_raw_node_commit_pagination_after_restart) {
     entry->set_data("boom");
   }
 
-  auto raw_node_result = lepton::new_raw_node(std::move(cfg));
+  auto raw_node_result = lepton::core::new_raw_node(std::move(cfg));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
 
@@ -881,7 +884,7 @@ TEST_F(raw_node_test_suit, test_raw_node_bounded_log_growth_with_partition) {
   std::string data = "testdata";
   raftpb::entry test_entry;
   test_entry.set_data(data);
-  auto max_entry_size = MAX_ENTRIES * lepton::pb::payloads_size(test_entry);
+  auto max_entry_size = MAX_ENTRIES * lepton::core::pb::payloads_size(test_entry);
 
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
@@ -889,7 +892,7 @@ TEST_F(raw_node_test_suit, test_raw_node_bounded_log_growth_with_partition) {
   auto cfg = new_test_config(1, 10, 1, std::move(storage_proxy));
   cfg.max_uncommitted_entries_size = max_entry_size;
 
-  auto raw_node_result = lepton::new_raw_node(std::move(cfg));
+  auto raw_node_result = lepton::core::new_raw_node(std::move(cfg));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
 
@@ -915,7 +918,7 @@ TEST_F(raw_node_test_suit, test_raw_node_bounded_log_growth_with_partition) {
 
   // Check the size of leader's uncommitted log tail. It should not exceed the
   // MaxUncommittedEntriesSize limit.
-  auto check_uncommitted = [&raw_node](lepton::pb::entry_payload_size exp) {
+  auto check_uncommitted = [&raw_node](lepton::core::pb::entry_payload_size exp) {
     ASSERT_EQ(exp, raw_node.raft_.uncommitted_size_);
   };
   check_uncommitted(max_entry_size);
@@ -943,7 +946,7 @@ TEST_F(raw_node_test_suit, test_raw_node_consume_ready) {
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   // auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
 
@@ -984,7 +987,7 @@ TEST_F(raw_node_test_suit, test_commit_pagination_with_async_storage_writes) {
   cfg.max_committed_size_per_ready = 2048;
   cfg.async_storage_writes = true;
 
-  auto raw_node_result = lepton::new_raw_node(std::move(cfg));
+  auto raw_node_result = lepton::core::new_raw_node(std::move(cfg));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
 
@@ -999,7 +1002,7 @@ TEST_F(raw_node_test_suit, test_commit_pagination_with_async_storage_writes) {
     EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
     EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
     for (auto& resp : *m.mutable_responses()) {
-      SPDLOG_INFO("ready step message:\n{}", lepton::describe_message(resp, nullptr));
+      SPDLOG_INFO("ready step message:\n{}", lepton::core::describe_message(resp, nullptr));
       auto step_result = raw_node.step(std::move(resp));
       EXPECT_TRUE(step_result);
     }
@@ -1025,9 +1028,9 @@ TEST_F(raw_node_test_suit, test_commit_pagination_with_async_storage_writes) {
     ASSERT_TRUE(raw_node.has_ready());
     auto rd = raw_node.ready_without_accept();
     raw_node.accept_ready(rd);
-    SPDLOG_INFO("[Apply empty entry] ready content:\n{}", lepton::describe_ready(rd, nullptr));
+    SPDLOG_INFO("[Apply empty entry] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
     for (auto& m : rd.messages) {
-      SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::describe_message(m, nullptr));
+      SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::core::describe_message(m, nullptr));
     }
     EXPECT_EQ(2, rd.messages.size());
     for (auto& m : rd.messages) {

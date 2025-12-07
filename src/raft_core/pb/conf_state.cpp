@@ -4,7 +4,7 @@
 
 #include "lepton_error.h"
 
-namespace lepton {
+namespace lepton::core {
 
 namespace pb {
 
@@ -55,4 +55,4 @@ leaf::result<void> conf_state_equivalent(const raftpb::conf_state &lhs, const ra
 
 }  // namespace pb
 
-}  // namespace lepton
+}  // namespace lepton::core

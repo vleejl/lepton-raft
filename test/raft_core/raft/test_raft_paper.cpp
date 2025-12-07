@@ -31,6 +31,7 @@
 #include "test_raft_utils.h"
 #include "types.h"
 using namespace lepton;
+using namespace lepton::core;
 
 static raftpb::message accept_and_reply(const raftpb::message& m) {
   assert(m.type() == raftpb::MSG_APP);
@@ -40,8 +41,8 @@ static raftpb::message accept_and_reply(const raftpb::message& m) {
 }
 
 // raft node 成为 leader 以后，需要发一个空的MSG_APP
-static void commit_noop_entry(lepton::raft& r, lepton::memory_storage& s) {
-  ASSERT_EQ(lepton::state_type::LEADER, r.state_type_) << "it should only be used when it is the leader";
+static void commit_noop_entry(lepton::core::raft& r, lepton::core::memory_storage& s) {
+  ASSERT_EQ(lepton::core::state_type::LEADER, r.state_type_) << "it should only be used when it is the leader";
   r.bcast_append();
   // simulate the response of MsgApp
   auto msgs = r.read_messages();
@@ -54,7 +55,7 @@ static void commit_noop_entry(lepton::raft& r, lepton::memory_storage& s) {
   }
   // ignore further messages to refresh followers' commit index
   r.read_messages();
-  s.append(lepton::pb::convert_span_entry(r.raft_log_handle_.next_unstable_ents()));
+  s.append(lepton::core::pb::convert_span_entry(r.raft_log_handle_.next_unstable_ents()));
   r.raft_log_handle_.applied_to(r.raft_log_handle_.committed(), 0);
   r.raft_log_handle_.stable_to(r.raft_log_handle_.last_entry_id());
 }
@@ -77,7 +78,7 @@ class raft_paper_test_suit : public testing::Test {
 // Reference: section 5.1
 // Raft uses the term number to detect stale messages. If a node receives a message with a term number smaller than its
 // current term, it rejects that message
-static void test_update_term_from_message(lepton::state_type state_type) {
+static void test_update_term_from_message(lepton::core::state_type state_type) {
   auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   switch (state_type) {
     case state_type::FOLLOWER: {
@@ -100,19 +101,19 @@ static void test_update_term_from_message(lepton::state_type state_type) {
   m.set_term(2);
   r.step(std::move(m));
   ASSERT_EQ(2, r.term_);
-  ASSERT_EQ(lepton::state_type::FOLLOWER, r.state_type_);
+  ASSERT_EQ(lepton::core::state_type::FOLLOWER, r.state_type_);
 }
 
 TEST_F(raft_paper_test_suit, test_follower_update_term_from_message) {
-  test_update_term_from_message(lepton::state_type::FOLLOWER);
+  test_update_term_from_message(lepton::core::state_type::FOLLOWER);
 }
 
 TEST_F(raft_paper_test_suit, test_candidate_update_term_from_message) {
-  test_update_term_from_message(lepton::state_type::CANDIDATE);
+  test_update_term_from_message(lepton::core::state_type::CANDIDATE);
 }
 
 TEST_F(raft_paper_test_suit, test_leader_update_term_from_message) {
-  test_update_term_from_message(lepton::state_type::LEADER);
+  test_update_term_from_message(lepton::core::state_type::LEADER);
 }
 
 // TestRejectStaleTermMessage tests that if a server receives a request with
@@ -123,7 +124,7 @@ TEST_F(raft_paper_test_suit, test_leader_update_term_from_message) {
 // current term, it rejects that message
 TEST_F(raft_paper_test_suit, test_reject_stale_term_message) {
   auto called = false;
-  auto fake_step = [&](lepton::raft& r, raftpb::message&& m) -> lepton::leaf::result<void> {
+  auto fake_step = [&](lepton::core::raft& r, raftpb::message&& m) -> lepton::leaf::result<void> {
     called = true;
     return {};
   };
@@ -144,7 +145,7 @@ TEST_F(raft_paper_test_suit, test_reject_stale_term_message) {
 // When servers start up, they begin as followers.
 TEST_F(raft_paper_test_suit, test_start_as_follower) {
   auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
-  ASSERT_EQ(lepton::state_type::FOLLOWER, r.state_type_);
+  ASSERT_EQ(lepton::core::state_type::FOLLOWER, r.state_type_);
 }
 
 // TestLeaderBcastBeat tests that if the leader receives a heartbeat tick,
@@ -160,7 +161,7 @@ TEST_F(raft_paper_test_suit, test_leader_bcast_beat) {
   r.become_candidate();
   r.become_leader();
   for (auto i = 0; i < 10; ++i) {
-    lepton::pb::repeated_entry entries;
+    lepton::core::pb::repeated_entry entries;
     auto entry = entries.Add();
     entry->set_index(static_cast<std::uint64_t>(i) + 1);
     must_append_entry(r, std::move(entries));
@@ -172,7 +173,7 @@ TEST_F(raft_paper_test_suit, test_leader_bcast_beat) {
   auto msgs = r.read_messages();
   auto msg_heartbeat = new_pb_message(1, 2, 1, raftpb::message_type::MSG_HEARTBEAT);
   msg_heartbeat.set_commit(0);
-  lepton::pb::repeated_message expected_msgs;
+  lepton::core::pb::repeated_message expected_msgs;
   expected_msgs.Add()->CopyFrom(msg_heartbeat);
   msg_heartbeat.set_to(3);
   expected_msgs.Add()->CopyFrom(msg_heartbeat);
@@ -189,7 +190,7 @@ TEST_F(raft_paper_test_suit, test_leader_bcast_beat) {
 // start a new election by incrementing its term and initiating another
 // round of RequestVote RPCs.
 // Reference: section 5.2
-static void test_nonleader_start_election(lepton::state_type state_type) {
+static void test_nonleader_start_election(lepton::core::state_type state_type) {
   constexpr auto et = 10;
   auto r = new_test_raft(1, et, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   switch (state_type) {
@@ -215,14 +216,14 @@ static void test_nonleader_start_election(lepton::state_type state_type) {
 
   ASSERT_EQ(2, r.term_) << fmt::format("randomized_election_timeout:{} election_elapsed:{}",
                                        r.randomized_election_timeout_, r.election_elapsed_);
-  ASSERT_EQ(lepton::state_type::CANDIDATE, r.state_type_);
+  ASSERT_EQ(lepton::core::state_type::CANDIDATE, r.state_type_);
   ASSERT_TRUE(r.trk_.votes_view().at(r.id_));
 
   auto msgs = r.read_messages();
   auto msg_vote = new_pb_message(1, 2, 2, raftpb::message_type::MSG_VOTE);
   msg_vote.set_log_term(0);
   msg_vote.set_index(0);
-  lepton::pb::repeated_message expected_msgs;
+  lepton::core::pb::repeated_message expected_msgs;
   expected_msgs.Add()->CopyFrom(msg_vote);
   msg_vote.set_to(3);
   expected_msgs.Add()->CopyFrom(msg_vote);
@@ -230,11 +231,11 @@ static void test_nonleader_start_election(lepton::state_type state_type) {
 }
 
 TEST_F(raft_paper_test_suit, test_follower_start_election) {
-  test_nonleader_start_election(lepton::state_type::FOLLOWER);
+  test_nonleader_start_election(lepton::core::state_type::FOLLOWER);
 }
 
 TEST_F(raft_paper_test_suit, test_candidate_start_new_election) {
-  test_nonleader_start_election(lepton::state_type::CANDIDATE);
+  test_nonleader_start_election(lepton::core::state_type::CANDIDATE);
 }
 
 // TestLeaderElectionInOneRoundRPC tests all cases that may happen in
@@ -326,7 +327,7 @@ TEST_F(raft_paper_test_suit, test_follower_vote) {
     if (tt.wreject) {
       msg_vote_resp.set_reject(tt.wreject);
     }
-    lepton::pb::repeated_message expected_msgs;
+    lepton::core::pb::repeated_message expected_msgs;
     expected_msgs.Add()->CopyFrom(msg_vote_resp);
     ASSERT_TRUE(compare_repeated_message(expected_msgs, r.msgs_after_append_)) << fmt::format("#{}", i);
   }
@@ -338,7 +339,7 @@ TEST_F(raft_paper_test_suit, test_follower_vote) {
 // it recognizes the leader as legitimate and returns to follower state.
 // Reference: section 5.2
 TEST_F(raft_paper_test_suit, test_candidate_fallback) {
-  lepton::pb::repeated_message tests;
+  lepton::core::pb::repeated_message tests;
   tests.Add(new_pb_message(2, 1, 1, raftpb::message_type::MSG_APP));
   tests.Add(new_pb_message(2, 1, 2, raftpb::message_type::MSG_APP));
   for (auto i = 0; i < tests.size(); ++i) {
@@ -347,11 +348,11 @@ TEST_F(raft_paper_test_suit, test_candidate_fallback) {
     auto r =
         new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
     r.step(new_pb_message(1, 1, raftpb::message_type::MSG_HUP));
-    ASSERT_EQ(lepton::state_type::CANDIDATE, r.state_type_);
+    ASSERT_EQ(lepton::core::state_type::CANDIDATE, r.state_type_);
 
     r.step(raftpb::message{tt});
 
-    ASSERT_EQ(lepton::state_type::FOLLOWER, r.state_type_);
+    ASSERT_EQ(lepton::core::state_type::FOLLOWER, r.state_type_);
     ASSERT_EQ(tt.term(), r.term_);
   }
 }
@@ -359,7 +360,7 @@ TEST_F(raft_paper_test_suit, test_candidate_fallback) {
 // testNonleaderElectionTimeoutRandomized tests that election timeout for
 // follower or candidate is randomized.
 // Reference: section 5.2
-static void test_nonleader_election_timeout_randomized(lepton::state_type state_type) {
+static void test_nonleader_election_timeout_randomized(lepton::core::state_type state_type) {
   constexpr auto et = 10;
   auto r = new_test_raft(1, et, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   std::unordered_set<int> timeouts;
@@ -393,11 +394,11 @@ static void test_nonleader_election_timeout_randomized(lepton::state_type state_
 }
 
 TEST_F(raft_paper_test_suit, test_follower_election_timeout_randomized) {
-  test_nonleader_election_timeout_randomized(lepton::state_type::FOLLOWER);
+  test_nonleader_election_timeout_randomized(lepton::core::state_type::FOLLOWER);
 }
 
 TEST_F(raft_paper_test_suit, test_candidate_election_timeout_randomized) {
-  test_nonleader_election_timeout_randomized(lepton::state_type::CANDIDATE);
+  test_nonleader_election_timeout_randomized(lepton::core::state_type::CANDIDATE);
 }
 
 // testNonleadersElectionTimeoutNonconflict tests that in most cases only a
@@ -405,10 +406,10 @@ TEST_F(raft_paper_test_suit, test_candidate_election_timeout_randomized) {
 // likelihood of split vote in the new election.
 // Reference: section 5.2
 // 验证目标：​​选举超时随机化如何显著降低多个节点同时发起选举的概率
-static void test_nonleaders_election_timeout_nonconflict(lepton::state_type state_type) {
+static void test_nonleaders_election_timeout_nonconflict(lepton::core::state_type state_type) {
   constexpr auto et = 10;
   std::size_t size = 5;
-  std::vector<lepton::raft> rs;
+  std::vector<lepton::core::raft> rs;
   rs.reserve(size);
   auto ids = ids_by_size(size);
   for (std::size_t i = 0; i < size; ++i) {
@@ -456,11 +457,11 @@ static void test_nonleaders_election_timeout_nonconflict(lepton::state_type stat
 }
 
 TEST_F(raft_paper_test_suit, test_followers_election_timeout_nonconflict) {
-  test_nonleaders_election_timeout_nonconflict(lepton::state_type::FOLLOWER);
+  test_nonleaders_election_timeout_nonconflict(lepton::core::state_type::FOLLOWER);
 }
 
 TEST_F(raft_paper_test_suit, test_candidates_election_timeout_nonconflict) {
-  test_nonleaders_election_timeout_nonconflict(lepton::state_type::CANDIDATE);
+  test_nonleaders_election_timeout_nonconflict(lepton::core::state_type::CANDIDATE);
 }
 
 // TestLeaderStartReplication tests that when receiving client proposals,
@@ -500,7 +501,7 @@ TEST_F(raft_paper_test_suit, test_leader_start_replication) {
 
   ASSERT_EQ(li + 1, r.raft_log_handle_.committed());
   auto ents = r.raft_log_handle_.next_committed_ents(true);
-  lepton::pb::repeated_entry expected_ents;
+  lepton::core::pb::repeated_entry expected_ents;
   auto entry = expected_ents.Add();
   entry->set_index(li + 1);
   entry->set_term(1);
@@ -577,7 +578,7 @@ TEST_F(raft_paper_test_suit, test_leader_acknowledge_commit) {
 // Also, it applies the entry to its local state machine (in log order).
 // Reference: section 5.3
 TEST_F(raft_paper_test_suit, test_leader_commit_preceding_entries) {
-  std::vector<lepton::pb::repeated_entry> tests = {
+  std::vector<lepton::core::pb::repeated_entry> tests = {
       {},
       create_entries({{1, 2}}),
       create_entries(1, {1, 2}),
@@ -587,7 +588,7 @@ TEST_F(raft_paper_test_suit, test_leader_commit_preceding_entries) {
   for (std::size_t i = 0; i < tests.size(); ++i) {
     auto& tt = tests[i];
     const std::uint64_t li = static_cast<std::uint64_t>(tt.size());
-    lepton::pb::repeated_entry expected_ents;
+    lepton::core::pb::repeated_entry expected_ents;
     for (const auto& iter_entry : tt) {
       expected_ents.Add()->CopyFrom(iter_entry);
     }
@@ -630,7 +631,7 @@ TEST_F(raft_paper_test_suit, test_leader_commit_preceding_entries) {
 // Reference: section 5.3
 TEST_F(raft_paper_test_suit, test_follower_commit_entry) {
   struct test_case {
-    lepton::pb::repeated_entry ents;
+    lepton::core::pb::repeated_entry ents;
     std::uint64_t commit;
   };
 
@@ -755,9 +756,9 @@ TEST_F(raft_paper_test_suit, test_follower_append_entries) {
   struct test_case {
     std::uint64_t index;
     std::uint64_t term;
-    lepton::pb::repeated_entry ents;
-    lepton::pb::repeated_entry wents;
-    lepton::pb::repeated_entry wunstable;
+    lepton::core::pb::repeated_entry ents;
+    lepton::core::pb::repeated_entry wents;
+    lepton::core::pb::repeated_entry wunstable;
   };
   std::vector<test_case> tests = {
       // 用例 1：在索引2（任期2）后追加新条目
@@ -844,7 +845,7 @@ entries from the leader’s log​​."
 TEST_F(raft_paper_test_suit, test_leader_sync_follower_log) {
   const auto ents = create_entries(0, {0, 1, 1, 1, 4, 4, 5, 5, 6, 6, 6});
   constexpr std::uint64_t term = 8;
-  std::vector<lepton::pb::repeated_entry> tests = {
+  std::vector<lepton::core::pb::repeated_entry> tests = {
       // 场景 1: follower 日志条目比 leader 少, 几乎相同（少最后一项）
       // 预期 1：follower 与 leader 日志条目完全一致
       create_entries(0, {0, 1, 1, 1, 4, 4, 5, 5, 6, 6}),
@@ -920,7 +921,7 @@ TEST_F(raft_paper_test_suit, test_leader_sync_follower_log) {
 // Reference: section 5.4.1
 TEST_F(raft_paper_test_suit, test_vote_request) {
   struct test_case {
-    lepton::pb::repeated_entry ents;
+    lepton::core::pb::repeated_entry ents;
     std::uint64_t wterm;
   };
   std::vector<test_case> tests = {
@@ -973,10 +974,10 @@ TEST_F(raft_paper_test_suit, test_vote_request) {
 // Reference: section 5.4.1
 TEST_F(raft_paper_test_suit, test_voter) {
   struct test_case {
-    lepton::pb::repeated_entry ents;  // 投票方日志
-    uint64_t logterm;                 // 候选人的日志任期
-    uint64_t index;                   // 候选人的最后日志索引
-    bool wreject;                     // 预期是否拒绝
+    lepton::core::pb::repeated_entry ents;  // 投票方日志
+    uint64_t logterm;                       // 候选人的日志任期
+    uint64_t index;                         // 候选人的最后日志索引
+    bool wreject;                           // 预期是否拒绝
   };
 
   // 创建测试用例数组

@@ -12,7 +12,7 @@
 
 static raftpb::hard_state EMPTY_STATE;
 
-namespace lepton {
+namespace lepton::core {
 
 // 需要放在全局命名空间
 bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
@@ -194,4 +194,4 @@ raftpb::message_type vote_resp_msg_type(raftpb::message_type type) {
 
 }  // namespace pb
 
-}  // namespace lepton
+}  // namespace lepton::core

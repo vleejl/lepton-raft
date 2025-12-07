@@ -18,7 +18,7 @@
 #include "raft.pb.h"
 #include "types.h"
 
-namespace lepton {
+namespace lepton::core {
 raft_log::raft_log(pro::proxy<storage_builer>&& storage, std::uint64_t first_index, std::uint64_t last_index,
                    std::uint64_t max_applying_ents_size, std::shared_ptr<lepton::logger_interface> logger)
     : storage_(std::move(storage)),
@@ -517,4 +517,4 @@ leaf::result<raft_log> new_raft_log_with_size(pro::proxy<storage_builer>&& stora
   BOOST_LEAF_AUTO(last_index, storage->last_index());
   return raft_log{std::move(storage), first_index, last_index, max_applying_ents_size, std::move(logger)};
 }
-}  // namespace lepton
+}  // namespace lepton::core

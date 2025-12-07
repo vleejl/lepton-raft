@@ -16,7 +16,7 @@ lepton::leaf::result<void> interaction_env::status(std::size_t node_idx) {
   }
   // TODO(tbg): actually print the full status.
   auto st = nodes[node_idx].raw_node.status();
-  lepton::tracker::progress_map m;
+  lepton::core::tracker::progress_map m;
   for (const auto &[id, pr] : st.progress.view()) {
     m.add_progress(id, pr.clone());
   }

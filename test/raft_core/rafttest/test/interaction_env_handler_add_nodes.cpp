@@ -13,13 +13,13 @@
 
 namespace interaction {
 
-lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepton::config &config,
+lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepton::core::config &config,
                                                       raftpb::snapshot &snap) {
-  auto bootstrap = !lepton::pb::is_empty_snap(snap);
+  auto bootstrap = !lepton::core::pb::is_empty_snap(snap);
   for (std::size_t i = 0; i < n; ++i) {
     auto id = static_cast<std::uint64_t>(nodes.size() + 1);
     storage_handles.emplace_back(
-        std::make_unique<snap_override_storage>(pro::make_proxy<storage_builer, lepton::memory_storage>(),
+        std::make_unique<snap_override_storage>(pro::make_proxy<storage_builer, lepton::core::memory_storage>(),
                                                 // When you ask for a snapshot, you get the most recent snapshot.
                                                 //
                                                 // TODO(tbg): this is sort of clunky, but MemoryStorage itself will
@@ -61,7 +61,7 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
     // fork the config stub
     auto copy_cfg = config.clone();
     copy_cfg.id = id;
-    pro::proxy<lepton::storage_builer> storage_proxy = storage_ptr.get();
+    pro::proxy<lepton::core::storage_builer> storage_proxy = storage_ptr.get();
     copy_cfg.storage = std::move(storage_proxy);
     if (this->options.on_confg) {
       this->options.on_confg(copy_cfg);
@@ -77,10 +77,10 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
     copy_cfg.logger = output;
     // copy_cfg.logger = std::make_shared<lepton::spdlog_logger>();
 
-    auto rn_result = lepton::new_raw_node(std::move(copy_cfg));
+    auto rn_result = lepton::core::new_raw_node(std::move(copy_cfg));
     assert(rn_result);
     auto &rn = rn_result.value();
-    lepton::pb::repeated_snapshot history;
+    lepton::core::pb::repeated_snapshot history;
     history.Add()->CopyFrom(snap);
     nodes.emplace_back(node{std::move(rn), storage_ptr.get(), std::move(copy_cfg), {}, {}, std::move(history)});
   }
@@ -150,9 +150,9 @@ lepton::leaf::result<void> interaction_env::handle_add_nodes(const datadriven::t
         auto err = arg.scan_err(j, read_only_opt);
         assert(err);
         if (read_only_opt == "safe") {
-          cfg.read_only_opt = lepton::read_only_option::READ_ONLY_SAFE;
+          cfg.read_only_opt = lepton::core::read_only_option::READ_ONLY_SAFE;
         } else if (read_only_opt == "lease-based") {
-          cfg.read_only_opt = lepton::read_only_option::READ_ONLY_LEASE_BASED;
+          cfg.read_only_opt = lepton::core::read_only_option::READ_ONLY_LEASE_BASED;
         } else {
           assert(false);
         }

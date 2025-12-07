@@ -3,7 +3,7 @@
 
 #include "confchange.h"
 
-namespace lepton {
+namespace lepton::core {
 namespace confchange {
 // Restore takes a Changer (which must represent an empty configuration), and
 // runs a sequence of changes enacting the configuration described in the
@@ -15,6 +15,6 @@ namespace confchange {
 // the results from that alone.
 changer::result restor(const raftpb::conf_state &cs, changer &&chg);
 }  // namespace confchange
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_RESTORE_H_

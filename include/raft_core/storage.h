@@ -7,7 +7,7 @@
 
 #include "lepton_error.h"
 #include "types.h"
-namespace lepton {
+namespace lepton::core {
 
 // InitialState returns the saved HardState and ConfState information.
 // 描述：此方法返回保存的硬件状态 (HardState) 和配置状态 (ConfState)。
@@ -87,6 +87,6 @@ struct storage_builer : pro::facade_builder
   ::add_skill<pro::skills::as_view>
   ::build{};
 // clang-format on
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_STORAGE_H_

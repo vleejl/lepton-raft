@@ -6,7 +6,7 @@
 #include "enum_name.h"
 #include "log.h"
 #include "types.h"
-namespace lepton {
+namespace lepton::core {
 
 bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs);
 
@@ -112,10 +112,10 @@ inline constexpr bool is_local_msg_target(uint64_t id) { return id == LOCAL_APPE
 
 }  // namespace pb
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 template <>
-struct fmt::formatter<lepton::pb::repeated_uint64> {
+struct fmt::formatter<lepton::core::pb::repeated_uint64> {
   // 解析格式说明符（这里不需要特殊处理）
   constexpr auto parse(format_parse_context& ctx) {
     return ctx.begin();  // 忽略所有格式说明符
@@ -123,7 +123,7 @@ struct fmt::formatter<lepton::pb::repeated_uint64> {
 
   // 实际格式化函数
   template <typename FormatContext>
-  auto format(const lepton::pb::repeated_uint64& field, FormatContext& ctx) const {
+  auto format(const lepton::core::pb::repeated_uint64& field, FormatContext& ctx) const {
     auto out = ctx.out();
     *out++ = '[';
 

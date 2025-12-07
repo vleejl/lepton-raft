@@ -7,17 +7,19 @@
 
 namespace interaction {
 // isVoter checks whether node id is in the voter list within st.
-static bool is_voter(const lepton::status &st, std::uint64_t id) { return st.config.voters.id_set().contains(id); }
+static bool is_voter(const lepton::core::status &st, std::uint64_t id) {
+  return st.config.voters.id_set().contains(id);
+}
 
-static auto etcd_rafa_state_name(lepton::state_type type) {
+static auto etcd_rafa_state_name(lepton::core::state_type type) {
   switch (type) {
-    case lepton::state_type::FOLLOWER:
+    case lepton::core::state_type::FOLLOWER:
       return "StateFollower";
-    case lepton::state_type::CANDIDATE:
+    case lepton::core::state_type::CANDIDATE:
       return "StateCandidate";
-    case lepton::state_type::LEADER:
+    case lepton::core::state_type::LEADER:
       return "StateLeader";
-    case lepton::state_type::PRE_CANDIDATE:
+    case lepton::core::state_type::PRE_CANDIDATE:
       return "StatePreCandidate";
   }
 }

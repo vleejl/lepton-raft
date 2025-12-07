@@ -11,7 +11,7 @@
 #include "logger.h"
 #include "storage.h"
 #include "types.h"
-namespace lepton {
+namespace lepton::core {
 
 // None is a placeholder node ID used when there is no leader.
 constexpr std::uint64_t NONE = 0;
@@ -269,5 +269,5 @@ struct config {
 
   leaf::result<void> validate() const;
 };
-}  // namespace lepton
+}  // namespace lepton::core
 #endif  // _LEPTON_CONFIG_H_

@@ -17,7 +17,7 @@
 #include "protobuf.h"
 #include "types.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 // unstable.entries[i] has raft log position i+unstable.offset.
 // Note that unstable.offset may be less than the highest log
 // position in storage; this means that the next write to storage
@@ -322,6 +322,6 @@ class unstable {
 static_assert(std::is_move_constructible_v<raftpb::snapshot>, "raftpb::snapshot is not move constructible");
 static_assert(std::is_move_assignable_v<raftpb::snapshot>, "raftpb::snapshot is not move assignable");
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_RAFT_LOG_UNSTABLE_H_

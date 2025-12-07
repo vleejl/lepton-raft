@@ -16,6 +16,7 @@
 #include "test_utility_macros.h"
 #include "types.h"
 using namespace lepton;
+using namespace lepton::core;
 
 class unstable_test_suit : public testing::Test {
  protected:
@@ -28,7 +29,7 @@ class unstable_test_suit : public testing::Test {
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
 
-lepton::pb::snapshot_ptr create_snapshot_ptr(std::uint64_t index, std::uint64_t term) {
+lepton::core::pb::snapshot_ptr create_snapshot_ptr(std::uint64_t index, std::uint64_t term) {
   auto snapshot_metadata = new raftpb::snapshot_metadata();
   snapshot_metadata->set_index(index);
   snapshot_metadata->set_term(term);
@@ -40,7 +41,7 @@ lepton::pb::snapshot_ptr create_snapshot_ptr(std::uint64_t index, std::uint64_t 
 unstable create_unstable(const std::vector<std::tuple<std::uint64_t, std::uint64_t>> &entrie_params,
                          std::uint64_t offset,
                          const std::optional<std::tuple<std::uint64_t, std::uint64_t>> &snapshot_params) {
-  lepton::pb::repeated_entry entries = create_entries(entrie_params);
+  lepton::core::pb::repeated_entry entries = create_entries(entrie_params);
   if (snapshot_params) {
     auto [snapshot_index, snapshot_term] = snapshot_params.value();
     return {create_snapshot(snapshot_index, snapshot_term), std::move(entries), offset,
@@ -267,11 +268,11 @@ TEST_F(unstable_test_suit, restore) {
 
 TEST_F(unstable_test_suit, next_entries) {
   struct test_case {
-    lepton::pb::repeated_entry entries;
+    lepton::core::pb::repeated_entry entries;
     std::uint64_t offset;
     std::uint64_t offset_in_progress;
 
-    lepton::pb::repeated_entry wentries;
+    lepton::core::pb::repeated_entry wentries;
   };
   std::vector<test_case> tests{
       // nothing in progress
@@ -320,7 +321,7 @@ TEST_F(unstable_test_suit, next_snapshot) {
 
 TEST_F(unstable_test_suit, accept_in_progress) {
   struct test_case {
-    lepton::pb::repeated_entry entries;
+    lepton::core::pb::repeated_entry entries;
     std::optional<raftpb::snapshot> snapshot;
     std::uint64_t offset_in_progress;
     bool snapshot_in_progress;
@@ -639,8 +640,8 @@ TEST_F(unstable_test_suit, truncate_and_append) {
       ASSERT_EQ(u.offset(), offset);
     }
 
-    auto compare_entries = [](const lepton::pb::repeated_entry &lhs_entries,
-                              const lepton::pb::repeated_entry &rhs_entries) {
+    auto compare_entries = [](const lepton::core::pb::repeated_entry &lhs_entries,
+                              const lepton::core::pb::repeated_entry &rhs_entries) {
       ASSERT_EQ(lhs_entries.size(), rhs_entries.size());
       for (int i = 0; i < lhs_entries.size(); ++i) {
         auto lhs_entry = lhs_entries[i].DebugString();
@@ -654,7 +655,7 @@ TEST_F(unstable_test_suit, truncate_and_append) {
 }
 
 TEST_F(unstable_test_suit, convert_protobuf_2_vector) {
-  std::vector<lepton::pb::entry_ptr> entries;
+  std::vector<lepton::core::pb::entry_ptr> entries;
   {
     raftpb::message m;
     auto entry1 = m.add_entries();

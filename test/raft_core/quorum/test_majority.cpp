@@ -9,7 +9,8 @@
 #include "quorum.h"
 #include "test_utility_macros.h"
 using namespace lepton;
-using namespace lepton::quorum;
+using namespace lepton::core;
+using namespace lepton::core::quorum;
 
 class majority_test_suit : public testing::Test {
  protected:

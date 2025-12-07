@@ -6,7 +6,7 @@
 
 #include "log.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 namespace tracker {
 // Inflights limits the number of MsgApp (represented by the largest index
 // contained within) sent to followers but not yet acknowledged by them. Callers
@@ -105,6 +105,6 @@ class inflights {
   std::deque<inflights_data> buffer_;
 };
 }  // namespace tracker
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_INFLIGHTS_H_

@@ -13,7 +13,7 @@
 #include "channel.h"
 #include "expected.h"
 
-namespace lepton {
+namespace lepton::core {
 template <typename T>
 class channel_endpoint {
  public:
@@ -50,6 +50,6 @@ class channel_endpoint {
   signal_channel cancel_chan_;
 };
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_CHANNEL_ENDPOINT_H_

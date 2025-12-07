@@ -4,7 +4,7 @@
 #include "raw_node.h"
 #include "state.h"
 
-namespace lepton {
+namespace lepton::core {
 
 using entry_formatter_func = std::string(const std::string &);
 
@@ -18,6 +18,6 @@ std::string describe_ready(const ready &rd, entry_formatter_func f);
 
 std::string describe_entries(const pb::repeated_entry &entries, entry_formatter_func f);
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_DESCRIBE_H_

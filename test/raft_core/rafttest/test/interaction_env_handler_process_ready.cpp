@@ -45,14 +45,14 @@ lepton::leaf::result<void> interaction_env::process_ready(std::size_t node_idx) 
   assert(node_idx < nodes.size());
   auto &n = nodes[node_idx];
   auto rd = n.raw_node.ready();
-  output->write_string(lepton::describe_ready(rd, nullptr));
+  output->write_string(lepton::core::describe_ready(rd, nullptr));
   if (!n.config.async_storage_writes) {
     LEPTON_LEAF_CHECK(process_append(n, std::move(rd.hard_state), std::move(rd.entries), std::move(rd.snapshot)));
     LEPTON_LEAF_CHECK(process_apply(n, rd.committed_entries));
   }
   for (auto &msg : rd.messages) {
     SPDLOG_TRACE("process_ready msg {}", msg.DebugString());
-    if (lepton::pb::is_local_msg_target(msg.to())) {
+    if (lepton::core::pb::is_local_msg_target(msg.to())) {
       if (!n.config.async_storage_writes) {
         LEPTON_CRITICAL("unexpected local msg target");
       }

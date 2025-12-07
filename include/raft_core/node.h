@@ -33,7 +33,7 @@
 #include "utility_macros.h"
 #include "v4/proxy.h"
 
-namespace lepton {
+namespace lepton::core {
 
 struct msg_with_result {
   raftpb::message msg;
@@ -92,7 +92,7 @@ class node {
 
   asio::awaitable<expected<raftpb::conf_state>> apply_conf_change(raftpb::conf_change_v2&& cc);
 
-  asio::awaitable<expected<lepton::status>> status();
+  asio::awaitable<expected<lepton::core::status>> status();
 
   asio::awaitable<void> report_unreachable(std::uint64_t id);
 
@@ -165,7 +165,7 @@ class node {
 
 using node_handle = std::unique_ptr<node>;
 
-node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers);
+node_handle setup_node(asio::any_io_executor executor, lepton::core::config&& config, std::vector<peer>&& peers);
 
 using node_proxy = pro::proxy<node_builder>;
 
@@ -173,13 +173,13 @@ using node_proxy = pro::proxy<node_builder>;
 // It appends a ConfChangeAddNode entry for each given peer to the initial log.
 //
 // Peers must not be zero length; call RestartNode in that case.
-node_proxy start_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers);
+node_proxy start_node(asio::any_io_executor executor, lepton::core::config&& config, std::vector<peer>&& peers);
 
 // RestartNode is similar to StartNode but does not take a list of peers.
 // The current membership of the cluster will be restored from the Storage.
 // If the caller has an existing state machine, pass in the last log index that
 // has been applied to it; otherwise use zero.
-node_proxy restart_node(asio::any_io_executor executor, lepton::config&& config);
-}  // namespace lepton
+node_proxy restart_node(asio::any_io_executor executor, lepton::core::config&& config);
+}  // namespace lepton::core
 
 #endif  // _LEPTON_NODE_

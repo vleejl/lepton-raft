@@ -11,7 +11,7 @@
 #include "quorum.h"
 #include "state.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 namespace tracker {
 // Progress represents a follower’s progress in the view of the leader. Leader
 // maintains progresses of all followers, and sends entries to the follower
@@ -467,6 +467,6 @@ class progress_map {
 // AckedIndex implements IndexLookuper.
 using match_ack_indexer = progress_map;
 }  // namespace tracker
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_PROGRESS_H_

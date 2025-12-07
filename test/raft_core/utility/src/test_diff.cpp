@@ -136,7 +136,7 @@ std::string diffu(const std::string& a, const std::string& b) {
 
   return oss.str();
 }
-std::string ltoa(lepton::raft_log& raft_log_handle) {
+std::string ltoa(lepton::core::raft_log& raft_log_handle) {
   auto s = fmt::format("lastIndex: {}\n", raft_log_handle.last_index());
   s = s + fmt::format("applied:  {}\n", raft_log_handle.applied());
   s = s + fmt::format("applying:  {}\n", raft_log_handle.applying());

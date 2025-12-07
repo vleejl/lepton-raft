@@ -14,7 +14,7 @@
 #include "config.h"
 #include "log.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 
 // ReadState provides state for read only query.
 // It's caller's responsibility to call ReadIndex first before getting
@@ -160,6 +160,6 @@ class read_only {
   std::unordered_map<std::string_view, read_index_status> pending_read_index_;
   std::deque<std::string> read_index_queue_;
 };
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_READ_ONLY_H_

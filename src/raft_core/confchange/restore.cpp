@@ -8,7 +8,7 @@
 #include "confchange.h"
 #include "leaf.h"
 #include "types.h"
-namespace lepton {
+namespace lepton::core {
 
 namespace confchange {
 
@@ -129,4 +129,4 @@ changer::result restor(const raftpb::conf_state &cs, changer &&chg) {
 
 }  // namespace confchange
 
-}  // namespace lepton
+}  // namespace lepton::core

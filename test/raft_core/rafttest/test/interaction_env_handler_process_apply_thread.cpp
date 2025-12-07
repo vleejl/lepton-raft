@@ -49,23 +49,23 @@ lepton::leaf::result<void> interaction_env::process_apply_thread(std::size_t nod
   assert(!n.apply_work.empty());
   auto m = std::move(n.apply_work[0]);       // 移动第一个元素
   n.apply_work.erase(n.apply_work.begin());  // 删除空槽
-  lepton::pb::repeated_message resps;
+  lepton::core::pb::repeated_message resps;
   m.mutable_responses()->Swap(&resps);
   m.clear_responses();
 
   output->write_string("Processing:\n");
-  output->write_string(lepton::describe_message(m, nullptr) + "\n");
+  output->write_string(lepton::core::describe_message(m, nullptr) + "\n");
   LEPTON_LEAF_CHECK(process_apply(n, m.entries()));
 
   output->write_string("Responses:\n");
   for (const auto &resp : resps) {
-    output->write_string(lepton::describe_message(resp, nullptr) + "\n");
+    output->write_string(lepton::core::describe_message(resp, nullptr) + "\n");
   }
   messages.MergeFrom(resps);
   return {};
 }
 
-lepton::leaf::result<void> process_apply(node &n, const lepton::pb::repeated_entry &ents) {
+lepton::leaf::result<void> process_apply(node &n, const lepton::core::pb::repeated_entry &ents) {
   for (const auto &ent : ents) {
     std::string update;
     std::optional<raftpb::conf_state> cs;
@@ -76,7 +76,7 @@ lepton::leaf::result<void> process_apply(node &n, const lepton::pb::repeated_ent
           return lepton::new_error(lepton::logic_error::INVALID_PARAM, "parse failed");
         }
         update = cc.context();
-        cs = n.raw_node.apply_conf_change(lepton::pb::conf_change_as_v2(std::move(cc)));
+        cs = n.raw_node.apply_conf_change(lepton::core::pb::conf_change_as_v2(std::move(cc)));
         break;
       }
       case raftpb::ENTRY_CONF_CHANGE_V2: {

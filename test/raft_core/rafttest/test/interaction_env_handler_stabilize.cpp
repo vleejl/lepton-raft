@@ -14,16 +14,16 @@ namespace interaction {
 
 // Don't drop local messages, which require reliable delivery.
 static bool is_local_msg(const raftpb::message &msg) {
-  return msg.from() == msg.to() || lepton::pb::is_local_msg_target(msg.to()) ||
-         lepton::pb::is_local_msg_target(msg.from());
+  return msg.from() == msg.to() || lepton::core::pb::is_local_msg_target(msg.to()) ||
+         lepton::core::pb::is_local_msg_target(msg.from());
 }
 
 // splitMsgs extracts messages for the given recipient of the given type (-1 for
 // all types) from msgs, and returns them along with the remainder of msgs.
-std::tuple<lepton::pb::repeated_message, lepton::pb::repeated_message> split_msgs(
-    const lepton::pb::repeated_message &msgs, std::uint64_t to, int raftpb_message_type, bool drop) {
-  lepton::pb::repeated_message to_msgs;
-  lepton::pb::repeated_message rmdr;
+std::tuple<lepton::core::pb::repeated_message, lepton::core::pb::repeated_message> split_msgs(
+    const lepton::core::pb::repeated_message &msgs, std::uint64_t to, int raftpb_message_type, bool drop) {
+  lepton::core::pb::repeated_message to_msgs;
+  lepton::core::pb::repeated_message rmdr;
   for (const auto &m : msgs) {
     if ((m.to() == to) && !(drop && is_local_msg(m)) &&
         (raftpb_message_type < 0 || static_cast<int>(m.type()) == raftpb_message_type)) {

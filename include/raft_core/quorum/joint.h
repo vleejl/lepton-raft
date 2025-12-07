@@ -11,7 +11,7 @@
 
 #include "majority.h"
 #include "quorum.h"
-namespace lepton {
+namespace lepton::core {
 namespace quorum {
 // JointConfig 主要用于 Raft
 // 协议中处理联合多数配置的场景，其中要求两个配置的多数节点都同意某项操作（如日志提交或配置变更）。它通过封装两个
@@ -189,6 +189,6 @@ class joint_config {
   std::optional<majority_config> secondary_config_;
 };
 }  // namespace quorum
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_JOINT_H_

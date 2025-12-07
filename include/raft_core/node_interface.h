@@ -7,7 +7,7 @@
 #include "conf_change.h"
 #include "lepton_error.h"
 #include "ready.h"
-namespace lepton {
+namespace lepton::core {
 
 enum class snapshot_status : int {
   SNAPSHOT_FINISH = 1,
@@ -144,7 +144,7 @@ struct node_builder : pro::facade_builder
   ::add_convention<node_apply_conf_change, asio::awaitable<expected<raftpb::conf_state>>(raftpb::conf_change_v2 &&cc)>
   ::add_convention<node_transfer_leadership, asio::awaitable<void>(std::uint64_t leader_id, std::uint64_t transferee)>
   ::add_convention<node_read_index, asio::awaitable<expected<void>>(std::string &&rctx)>
-  ::add_convention<node_status, asio::awaitable<expected<lepton::status>>()>
+  ::add_convention<node_status, asio::awaitable<expected<lepton::core::status>>()>
   ::add_convention<node_report_unreachable, asio::awaitable<void>(std::uint64_t id)>
   ::add_convention<node_report_snapshot, asio::awaitable<void>(std::uint64_t id, snapshot_status status)>
   ::add_convention<node_stop, asio::awaitable<void>()>
@@ -152,6 +152,6 @@ struct node_builder : pro::facade_builder
   ::build{};
 // clang-format on
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_NODE_INTERFACE_H_

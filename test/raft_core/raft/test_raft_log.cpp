@@ -28,6 +28,7 @@
 #include "test_utility_macros.h"
 #include "types.h"
 using namespace lepton;
+using namespace lepton::core;
 
 class raft_log_test_suit : public testing::Test {
  protected:
@@ -46,7 +47,7 @@ leaf::result<raft_log> new_raft_log(pro::proxy<storage_builer> &&storage) {
 
 TEST_F(raft_log_test_suit, test_find_conflict) {
   struct test_case {
-    lepton::pb::repeated_entry entries;
+    lepton::core::pb::repeated_entry entries;
 
     std::uint64_t wconflict;
   };
@@ -85,7 +86,7 @@ TEST_F(raft_log_test_suit, test_find_conflict) {
 TEST_F(raft_log_test_suit, test_find_conflict_by_term) {
   // 测试用例数据结构
   struct test_case {
-    lepton::pb::repeated_entry entries;
+    lepton::core::pb::repeated_entry entries;
     uint64_t index;
     uint64_t term;
     uint64_t want;
@@ -120,7 +121,7 @@ TEST_F(raft_log_test_suit, test_find_conflict_by_term) {
   };
   for (auto &iter_test : test_cases) {
     ASSERT_NE(iter_test.entries.size(), 0);
-    lepton::memory_storage mm_storage;
+    lepton::core::memory_storage mm_storage;
     auto snapshot = create_snapshot(iter_test.entries[0].index(), iter_test.entries[0].term());
     mm_storage.apply_snapshot(std::move(snapshot));
     iter_test.entries.DeleteSubrange(0, 1);
@@ -163,17 +164,17 @@ TEST_F(raft_log_test_suit, is_up_to_date) {
       {raft_log->last_index() + 1, 3, true},
   };
   for (const auto &iter_test : tests) {
-    auto gup_to_date = raft_log->is_up_to_date(lepton::pb::entry_id{iter_test.term, iter_test.last_index});
+    auto gup_to_date = raft_log->is_up_to_date(lepton::core::pb::entry_id{iter_test.term, iter_test.last_index});
     ASSERT_EQ(iter_test.wup_to_date, gup_to_date);
   }
 }
 
 TEST_F(raft_log_test_suit, append) {
   struct test_case {
-    lepton::pb::repeated_entry entries;   // ents
-    std::uint64_t windex;                 // windex
-    lepton::pb::repeated_entry wentries;  // wents
-    std::uint64_t wunstable;              // wunstable
+    lepton::core::pb::repeated_entry entries;   // ents
+    std::uint64_t windex;                       // windex
+    lepton::core::pb::repeated_entry wentries;  // wents
+    std::uint64_t wunstable;                    // wunstable
   };
 
   std::vector<test_case> tests = {// 空输入，追加到索引2，预期生成条目[1:1,2:2]，不稳定点从3开始
@@ -203,7 +204,7 @@ TEST_F(raft_log_test_suit, append) {
                                       2                                          // 不稳定点从冲突位置开始
                                   }};
   for (auto &iter_test : tests) {
-    lepton::memory_storage mm_storage;
+    lepton::core::memory_storage mm_storage;
     mm_storage.append(create_entries({{1, 1}, {2, 2}}));
     auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     auto index = raft_log->append(std::move(iter_test.entries));
@@ -242,7 +243,7 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
     uint64_t log_term;
     uint64_t index;
     uint64_t committed;
-    lepton::pb::repeated_entry ents;  // 使用 protobuf 类型
+    lepton::core::pb::repeated_entry ents;  // 使用 protobuf 类型
 
     uint64_t expected_last;
     bool expected_append;
@@ -360,13 +361,13 @@ TEST_F(raft_log_test_suit, log_maybe_append) {
     raft_log->commit_to(INIT_COMMIT);
 
     // run test
-    lepton::pb::repeated_entry ents;
+    lepton::core::pb::repeated_entry ents;
     ents.CopyFrom(iter_test.ents);
     // TODO(pav-kv): for now, we pick a high enough app.term so that it
     // represents a valid append message. The maybeAppend currently ignores it,
     // but it must check that the append does not regress the term.
-    lepton::pb::entry_id id{iter_test.log_term, iter_test.index};
-    lepton::pb::log_slice app{100, id, std::move(iter_test.ents)};
+    lepton::core::pb::entry_id id{iter_test.log_term, iter_test.index};
+    lepton::core::pb::log_slice app{100, id, std::move(iter_test.ents)};
     if (iter_test.expect_exception) {
       EXPECT_DEATH(raft_log->maybe_append(std::move(app), iter_test.committed), "");
       continue;
@@ -401,7 +402,7 @@ TEST_F(raft_log_test_suit, compaction_side_effects) {
   // Populate the log with 1000 entries; 750 in stable storage and 250 in unstable.
   constexpr std::uint64_t LAST_INDEX = 1000;
   constexpr std::uint64_t UNSTABLE_INDEX = 750;
-  auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+  auto mm_storage_ptr = std::make_unique<lepton::core::memory_storage>();
   auto &mm_storage = *mm_storage_ptr;
   mm_storage.append(create_entries_with_term_range(1, 1, UNSTABLE_INDEX + 1));
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
@@ -478,15 +479,15 @@ TEST_F(raft_log_test_suit, has_next_committed_ents) {
     test_index++;
     printf("current test case index:%d\n", test_index);
     auto ents = create_entries(4, {1, 1, 1});
-    lepton::memory_storage mm_storage;
+    lepton::core::memory_storage mm_storage;
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
-    ASSERT_TRUE(mm_storage.append(lepton::pb::extract_range_without_copy(ents, 0, 1)));
+    ASSERT_TRUE(mm_storage.append(lepton::core::pb::extract_range_without_copy(ents, 0, 1)));
 
     auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     ASSERT_TRUE(raft_log.has_value());
     raft_log->append(create_entries(4, {1, 1, 1}));
-    raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
-    raft_log->maybe_commit(lepton::pb::entry_id{.term = 1, .index = 5});
+    raft_log->stable_to(lepton::core::pb::entry_id{.term = 1, .index = 4});
+    raft_log->maybe_commit(lepton::core::pb::entry_id{.term = 1, .index = 5});
     raft_log->applied_to(iter_test.applied, 0);
     raft_log->accept_applying(iter_test.applying, 0, iter_test.allowUnstable);
     raft_log->set_applying_ents_paused(iter_test.paused);
@@ -508,10 +509,10 @@ TEST_F(raft_log_test_suit, next_committed_ents) {
     bool allowUnstable;
     bool paused;
     bool snap;
-    lepton::pb::repeated_entry wents;
+    lepton::core::pb::repeated_entry wents;
 
     // 构造函数：显式设置默认值
-    test_case(uint64_t applied, uint64_t applying, bool allowUnstable, lepton::pb::repeated_entry wents,
+    test_case(uint64_t applied, uint64_t applying, bool allowUnstable, lepton::core::pb::repeated_entry wents,
               bool paused = false, bool snap = false)
         : applied(applied),
           applying(applying),
@@ -549,15 +550,15 @@ TEST_F(raft_log_test_suit, next_committed_ents) {
   for (const auto &iter_test : tests) {
     test_index++;
     printf("current test case index:%d\n", test_index);
-    lepton::memory_storage mm_storage;
+    lepton::core::memory_storage mm_storage;
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
 
     auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     ASSERT_TRUE(raft_log.has_value());
     raft_log->append(create_entries(4, {1, 1, 1}));
-    raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
-    raft_log->maybe_commit(lepton::pb::entry_id{.term = 1, .index = 5});
+    raft_log->stable_to(lepton::core::pb::entry_id{.term = 1, .index = 4});
+    raft_log->maybe_commit(lepton::core::pb::entry_id{.term = 1, .index = 5});
     raft_log->applied_to(iter_test.applied, 0);
     raft_log->accept_applying(iter_test.applying, 0, iter_test.allowUnstable);
     raft_log->set_applying_ents_paused(iter_test.paused);
@@ -572,11 +573,11 @@ TEST_F(raft_log_test_suit, next_committed_ents) {
 }
 
 TEST_F(raft_log_test_suit, accept_applying) {
-  constexpr lepton::pb::entry_encoding_size MAX_SIZE = 100;
+  constexpr lepton::core::pb::entry_encoding_size MAX_SIZE = 100;
   struct test_case {
     uint64_t index = 0;
     bool allowUnstable = false;
-    lepton::pb::entry_encoding_size size = 0;
+    lepton::core::pb::entry_encoding_size size = 0;
     bool wpaused = false;
   };
   auto ents = create_entries(4, {1, 1, 1});
@@ -604,7 +605,7 @@ TEST_F(raft_log_test_suit, accept_applying) {
       {.index = 5, .allowUnstable = false, .size = MAX_SIZE + 1, .wpaused = true},
   };
   for (const auto &iter_test : tests) {
-    lepton::memory_storage mm_storage;
+    lepton::core::memory_storage mm_storage;
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
 
@@ -613,8 +614,8 @@ TEST_F(raft_log_test_suit, accept_applying) {
     ASSERT_TRUE(raft_log.has_value());
 
     raft_log->append(create_entries(4, {1, 1, 1}));
-    raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
-    raft_log->maybe_commit(lepton::pb::entry_id{.term = 1, .index = 5});
+    raft_log->stable_to(lepton::core::pb::entry_id{.term = 1, .index = 4});
+    raft_log->maybe_commit(lepton::core::pb::entry_id{.term = 1, .index = 5});
     raft_log->applied_to(3, 0);
     raft_log->accept_applying(iter_test.index, iter_test.size, iter_test.allowUnstable);
     if (raft_log->applying_ents_paused() != iter_test.wpaused) {
@@ -624,13 +625,13 @@ TEST_F(raft_log_test_suit, accept_applying) {
 }
 
 TEST_F(raft_log_test_suit, applied_to) {
-  constexpr lepton::pb::entry_encoding_size MAX_SIZE = 100;
-  constexpr lepton::pb::entry_encoding_size OVERSHOOT = 5;
+  constexpr lepton::core::pb::entry_encoding_size MAX_SIZE = 100;
+  constexpr lepton::core::pb::entry_encoding_size OVERSHOOT = 5;
   auto ents = create_entries(4, {1, 1, 1});
   struct test_case {
     uint64_t index = 0;
-    lepton::pb::entry_encoding_size size = 0;
-    lepton::pb::entry_encoding_size wapplyingSize = 0;
+    lepton::core::pb::entry_encoding_size size = 0;
+    lepton::core::pb::entry_encoding_size wapplyingSize = 0;
     bool wpaused = false;
   };
   std::vector<test_case> tests = {
@@ -651,7 +652,7 @@ TEST_F(raft_log_test_suit, applied_to) {
       {.index = 4, .size = MAX_SIZE + OVERSHOOT + 1, .wapplyingSize = 0, .wpaused = false},
   };
   for (const auto &iter_test : tests) {
-    lepton::memory_storage mm_storage;
+    lepton::core::memory_storage mm_storage;
     ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(3, 1)));
     ASSERT_TRUE(mm_storage.append({ents.begin(), ents.begin() + 1}));
 
@@ -660,8 +661,8 @@ TEST_F(raft_log_test_suit, applied_to) {
     ASSERT_TRUE(raft_log.has_value());
 
     raft_log->append(create_entries(4, {1, 1, 1}));
-    raft_log->stable_to(lepton::pb::entry_id{.term = 1, .index = 4});
-    raft_log->maybe_commit(lepton::pb::entry_id{.term = 1, .index = 5});
+    raft_log->stable_to(lepton::core::pb::entry_id{.term = 1, .index = 4});
+    raft_log->maybe_commit(lepton::core::pb::entry_id{.term = 1, .index = 5});
     raft_log->applied_to(3, 0);
     raft_log->accept_applying(5, MAX_SIZE + OVERSHOOT, false);
 
@@ -681,7 +682,7 @@ TEST_F(raft_log_test_suit, next_unstable_ents) {
   auto previous_ents = create_entries({{1, 1}, {2, 2}});
   struct test_case {
     std::uint64_t unstable;
-    lepton::pb::repeated_entry wents;
+    lepton::core::pb::repeated_entry wents;
   };
   std::vector<test_case> tests = {
       {
@@ -690,8 +691,8 @@ TEST_F(raft_log_test_suit, next_unstable_ents) {
       {1, previous_ents},
   };
   for (auto &iter_test : tests) {
-    lepton::memory_storage mm_storage;
-    lepton::pb::repeated_entry ents;
+    lepton::core::memory_storage mm_storage;
+    lepton::core::pb::repeated_entry ents;
     for (int i = 0; i < static_cast<int>(iter_test.unstable - 1); ++i) {
       ents.Add()->CopyFrom(previous_ents[i]);
     }
@@ -771,7 +772,7 @@ TEST_F(raft_log_test_suit, stable_to_with_snapshot) {
   struct test_case {
     std::uint64_t stablei;
     std::uint64_t stablet;
-    lepton::pb::repeated_entry newEnts;  // 使用类似命名风格
+    lepton::core::pb::repeated_entry newEnts;  // 使用类似命名风格
     std::uint64_t wunstable;
   };
 
@@ -800,7 +801,7 @@ TEST_F(raft_log_test_suit, stable_to_with_snapshot) {
   for (auto &iter_test : tests) {
     test_index++;
     printf("current test case index:%d\n", test_index);
-    lepton::memory_storage mm_storage;
+    lepton::core::memory_storage mm_storage;
     mm_storage.apply_snapshot(create_snapshot(snapi, snapt));
     auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
     raft_log->append(std::move(iter_test.newEnts));
@@ -835,7 +836,7 @@ TEST_F(raft_log_test_suit, compactions) {
   for (auto &iter_test : tests) {
     test_index++;
     printf("current test case index:%d\n", test_index);
-    auto mm_storage_ptr = std::make_unique<lepton::memory_storage>();
+    auto mm_storage_ptr = std::make_unique<lepton::core::memory_storage>();
     auto &mm_storage = *mm_storage_ptr;
     std::vector<std::tuple<uint64_t, uint64_t>> entrie_params;
     for (std::uint64_t i = 1; i <= iter_test.lastIndex; ++i) {
@@ -844,7 +845,7 @@ TEST_F(raft_log_test_suit, compactions) {
     mm_storage.append(create_entries(entrie_params));
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
     auto raft_log = new_raft_log(std::move(storage_proxy));
-    raft_log->maybe_commit(lepton::pb::entry_id{.term = 0, .index = iter_test.lastIndex});
+    raft_log->maybe_commit(lepton::core::pb::entry_id{.term = 0, .index = iter_test.lastIndex});
     raft_log->applied_to(raft_log->committed(), 0);
 
     int j = -1;
@@ -869,7 +870,7 @@ TEST_F(raft_log_test_suit, compactions) {
 TEST_F(raft_log_test_suit, log_restore) {
   constexpr std::uint64_t INDEX = 1000;
   constexpr std::uint64_t TERM = 1000;
-  lepton::memory_storage mm_storage;
+  lepton::core::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(INDEX, TERM));
   auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   ASSERT_EQ(raft_log->all_entries().size(), 0);
@@ -909,7 +910,7 @@ TEST_F(raft_log_test_suit, is_out_of_bounds) {
       {first + num + 1, first + num + 1, true, false},  // 完全越界
   };
 
-  lepton::memory_storage mm_storage;
+  lepton::core::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(offset, 0));
   auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   std::vector<std::tuple<uint64_t, uint64_t>> entrie_params;
@@ -949,7 +950,7 @@ TEST_F(raft_log_test_suit, is_out_of_bounds) {
 TEST_F(raft_log_test_suit, term) {
   constexpr std::uint64_t offset = 100;
   constexpr std::uint64_t num = 100;
-  lepton::memory_storage mm_storage;
+  lepton::core::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(offset, 1));
   auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   std::vector<std::tuple<uint64_t, uint64_t>> entrie_params;
@@ -998,7 +999,7 @@ TEST_F(raft_log_test_suit, term_with_unstable_snapshot) {
   constexpr std::uint64_t storagesnapi = 100;
   constexpr std::uint64_t unstablesnapi = storagesnapi + 5;
 
-  lepton::memory_storage mm_storage;
+  lepton::core::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(storagesnapi, 1));
   auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   raft_log->restore(create_snapshot(unstablesnapi, 1));
@@ -1048,7 +1049,7 @@ TEST_F(raft_log_test_suit, slice) {
     std::uint64_t from;
     std::uint64_t to;
     std::uint64_t limit;
-    lepton::pb::repeated_entry w;
+    lepton::core::pb::repeated_entry w;
     bool wpanic;
   };
 
@@ -1083,7 +1084,7 @@ TEST_F(raft_log_test_suit, slice) {
       {half, half + 2, base_entry_size * 2, create_entries({{half, half}, {half + 1, half + 1}}), false},
   };
 
-  lepton::memory_storage mm_storage;
+  lepton::core::memory_storage mm_storage;
   mm_storage.apply_snapshot(create_snapshot(offset, 0));
   std::vector<std::tuple<uint64_t, uint64_t>> entrie_params;
   for (std::uint64_t i = 1; i < num / 2; ++i) {
@@ -1108,11 +1109,11 @@ TEST_F(raft_log_test_suit, slice) {
     std::error_code err_code;
     auto has_called_error = false;
     auto result = leaf::try_handle_some(
-        [&]() -> leaf::result<lepton::pb::repeated_entry> {
+        [&]() -> leaf::result<lepton::core::pb::repeated_entry> {
           BOOST_LEAF_AUTO(v, raft_log->list_entries(iter_test.from, iter_test.to, iter_test.limit));
           return v;
         },
-        [&](const lepton::lepton_error &err) -> leaf::result<lepton::pb::repeated_entry> {
+        [&](const lepton::lepton_error &err) -> leaf::result<lepton::core::pb::repeated_entry> {
           has_called_error = true;
           err_code = err.err_code;
           return new_error(err);
@@ -1139,28 +1140,28 @@ TEST_F(raft_log_test_suit, scan) {
   std::uint64_t num = 20;
   auto last = offset + num;
   auto half = offset + num / 2;
-  auto entries_func = [](std::uint64_t from, std::uint64_t to) -> lepton::pb::repeated_entry {
+  auto entries_func = [](std::uint64_t from, std::uint64_t to) -> lepton::core::pb::repeated_entry {
     return create_entries_with_term_range(from, from, to);
   };
-  auto entry_size = lepton::pb::ent_size(entries_func(half, half + 1));
+  auto entry_size = lepton::core::pb::ent_size(entries_func(half, half + 1));
 
-  lepton::memory_storage mm_storage;
+  lepton::core::memory_storage mm_storage;
   ASSERT_TRUE(mm_storage.apply_snapshot(create_snapshot(offset, 0)));
   ASSERT_TRUE(mm_storage.append(entries_func(offset + 1, half)));
   auto raft_log = new_raft_log(pro::make_proxy<storage_builer>(std::move(mm_storage)));
   raft_log->append(entries_func(half, last));
 
   // Test that scan() returns the same entries as slice(), on all inputs.
-  std::vector<lepton::pb::entry_encoding_size> page_size_list{0, 1, 10, 100, entry_size, entry_size + 1};
+  std::vector<lepton::core::pb::entry_encoding_size> page_size_list{0, 1, 10, 100, entry_size, entry_size + 1};
   for (const auto page_size : page_size_list) {
     for (auto lo = offset + 1; lo < last; lo++) {
       for (auto hi = lo; hi <= last; hi++) {
-        lepton::pb::repeated_entry got;
-        raft_log->scan(lo, hi, page_size, [&](const lepton::pb::entry_view &entries) -> leaf::result<void> {
+        lepton::core::pb::repeated_entry got;
+        raft_log->scan(lo, hi, page_size, [&](const lepton::core::pb::entry_view &entries) -> leaf::result<void> {
           for (const auto &e : entries) {
             got.Add()->CopyFrom(e);
           }
-          auto result = ((entries.size() == 1) || (lepton::pb::ent_size(entries) <= page_size));
+          auto result = ((entries.size() == 1) || (lepton::core::pb::ent_size(entries) <= page_size));
           assert(result);
           return {};
         });
@@ -1180,7 +1181,7 @@ TEST_F(raft_log_test_suit, scan) {
   auto result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
         LEPTON_LEAF_CHECK(
-            raft_log->scan(offset + 1, half, 0, [&](const lepton::pb::entry_view &entries) -> leaf::result<void> {
+            raft_log->scan(offset + 1, half, 0, [&](const lepton::core::pb::entry_view &entries) -> leaf::result<void> {
               iters++;
               if (iters == 2) {
                 return new_error(logic_error::LOOP_BREAK);
@@ -1207,12 +1208,12 @@ TEST_F(raft_log_test_suit, scan) {
   result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
         LEPTON_LEAF_CHECK(raft_log->scan(offset + 1, offset + 11, entry_size * 2,
-                                         [&](const lepton::pb::entry_view &entries) -> leaf::result<void> {
+                                         [&](const lepton::core::pb::entry_view &entries) -> leaf::result<void> {
                                            SPDLOG_INFO("entries size: {}", entries.size());
                                            if (entries.size() != 2) {
                                              assert(entries.size() == 2);
                                            }
-                                           assert(lepton::pb::ent_size(entries) == entry_size * 2);
+                                           assert(lepton::core::pb::ent_size(entries) == entry_size * 2);
                                            return {};
                                          }));
         return {};

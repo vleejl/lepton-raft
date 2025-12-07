@@ -7,7 +7,8 @@
 #include "inflights.h"
 #include "test_utility_macros.h"
 using namespace lepton;
-using namespace lepton::tracker;
+using namespace lepton::core;
+using namespace lepton::core::tracker;
 
 class inflights_test_suit : public testing::Test {
  protected:

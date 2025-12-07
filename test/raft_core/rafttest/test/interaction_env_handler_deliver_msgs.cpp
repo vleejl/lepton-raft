@@ -71,7 +71,7 @@ int interaction_env::deliver_msgs(int raftpb_message_type, const std::vector<rec
       if (r.drop) {
         output->write_string("dropped: ");
       }
-      output->write_string(lepton::describe_message(m, nullptr) + '\n');
+      output->write_string(lepton::core::describe_message(m, nullptr) + '\n');
       if (r.drop) {
         // NB: it's allowed to drop messages to nodes that haven't been instantiated yet,
         // we haven't used msg.To yet.

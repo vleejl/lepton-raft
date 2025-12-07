@@ -17,7 +17,7 @@
 
 #include "quorum.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 namespace quorum {
 // MajorityConfig is a set of IDs that uses majority quorums to make decisions.
 // majority_config 表示集群的标准配置，它包含一组正常的投票节点（voters）。
@@ -203,6 +203,6 @@ class majority_config {
   std::set<std::uint64_t> id_set_;
 };
 }  // namespace quorum
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_MAJORITY_H_

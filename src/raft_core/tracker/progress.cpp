@@ -1,6 +1,6 @@
 #include "progress.h"
 
-namespace lepton {
+namespace lepton::core {
 
 namespace tracker {
 
@@ -39,4 +39,4 @@ leaf::result<quorum::log_index> progress_map::acked_index(std::uint64_t id) {
 
 }  // namespace tracker
 
-}  // namespace lepton
+}  // namespace lepton::core

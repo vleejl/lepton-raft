@@ -52,6 +52,7 @@
 #include "tracker.h"
 #include "types.h"
 using namespace lepton;
+using namespace lepton::core;
 using namespace asio::experimental::awaitable_operators;
 using asio::steady_timer;
 
@@ -135,15 +136,15 @@ TEST_F(node_adapter_test_suit, test_network_delay) {
   constexpr std::size_t node_count = 5;
   asio::io_context io_context;
   std::vector<std::uint64_t> node_ids;
-  std::vector<lepton::peer> peers;
+  std::vector<lepton::core::peer> peers;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
     node_ids.push_back(i);
-    peers.push_back(lepton::peer{.ID = i, .context = std::string{}});
+    peers.push_back(lepton::core::peer{.ID = i, .context = std::string{}});
   }
   rafttest::raft_network nt{io_context.get_executor(), node_ids};
   std::vector<std::unique_ptr<rafttest::node_adapter>> nodes;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
-    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::peer>(peers),
+    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::core::peer>(peers),
                                             std::make_unique<rafttest::node_network>(i, &nt)));
   }
 
@@ -175,15 +176,15 @@ TEST_F(node_adapter_test_suit, test_restart_simplify) {
   constexpr std::size_t node_count = 1;
   asio::io_context io_context;
   std::vector<std::uint64_t> node_ids;
-  std::vector<lepton::peer> peers;
+  std::vector<lepton::core::peer> peers;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
     node_ids.push_back(i);
-    peers.push_back(lepton::peer{.ID = i, .context = std::string{}});
+    peers.push_back(lepton::core::peer{.ID = i, .context = std::string{}});
   }
   rafttest::raft_network nt{io_context.get_executor(), node_ids};
   std::vector<std::unique_ptr<rafttest::node_adapter>> nodes;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
-    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::peer>(peers),
+    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::core::peer>(peers),
                                             std::make_unique<rafttest::node_network>(i, &nt)));
   }
 
@@ -221,15 +222,15 @@ TEST_F(node_adapter_test_suit, test_restart) {
   constexpr std::size_t node_count = 5;
   asio::io_context io_context;
   std::vector<std::uint64_t> node_ids;
-  std::vector<lepton::peer> peers;
+  std::vector<lepton::core::peer> peers;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
     node_ids.push_back(i);
-    peers.push_back(lepton::peer{.ID = i, .context = std::string{}});
+    peers.push_back(lepton::core::peer{.ID = i, .context = std::string{}});
   }
   rafttest::raft_network nt{io_context.get_executor(), node_ids};
   std::vector<std::unique_ptr<rafttest::node_adapter>> nodes;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
-    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::peer>(peers),
+    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::core::peer>(peers),
                                             std::make_unique<rafttest::node_network>(i, &nt)));
   }
 
@@ -279,15 +280,15 @@ TEST_F(node_adapter_test_suit, test_simple_pause) {
   constexpr std::size_t node_count = 1;
   asio::io_context io_context;
   std::vector<std::uint64_t> node_ids;
-  std::vector<lepton::peer> peers;
+  std::vector<lepton::core::peer> peers;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
     node_ids.push_back(i);
-    peers.push_back(lepton::peer{.ID = i, .context = std::string{}});
+    peers.push_back(lepton::core::peer{.ID = i, .context = std::string{}});
   }
   rafttest::raft_network nt{io_context.get_executor(), node_ids};
   std::vector<std::unique_ptr<rafttest::node_adapter>> nodes;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
-    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::peer>(peers),
+    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::core::peer>(peers),
                                             std::make_unique<rafttest::node_network>(i, &nt)));
   }
 
@@ -340,15 +341,15 @@ TEST_F(node_adapter_test_suit, test_pause) {
   constexpr std::size_t node_count = 5;
   asio::io_context io_context;
   std::vector<std::uint64_t> node_ids;
-  std::vector<lepton::peer> peers;
+  std::vector<lepton::core::peer> peers;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
     node_ids.push_back(i);
-    peers.push_back(lepton::peer{.ID = i, .context = std::string{}});
+    peers.push_back(lepton::core::peer{.ID = i, .context = std::string{}});
   }
   rafttest::raft_network nt{io_context.get_executor(), node_ids};
   std::vector<std::unique_ptr<rafttest::node_adapter>> nodes;
   for (std::uint64_t i = 1; i <= node_count; ++i) {
-    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::peer>(peers),
+    nodes.emplace_back(rafttest::start_node(io_context.get_executor(), i, std::vector<lepton::core::peer>(peers),
                                             std::make_unique<rafttest::node_network>(i, &nt)));
   }
 

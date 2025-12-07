@@ -22,6 +22,7 @@
 #include "quorum.h"
 #include "test_utility_data.h"
 using namespace lepton;
+using namespace lepton::core;
 
 std::string vote_result2etcd_raft(quorum::vote_result v) {
   switch (v) {

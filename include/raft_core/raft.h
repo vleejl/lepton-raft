@@ -16,7 +16,7 @@
 #include "tracker.h"
 #include "types.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 
 enum class campaign_type {
   PRE_ELECTION,
@@ -188,11 +188,11 @@ class raft {
   void reduce_uncommitted_size(pb::entry_encoding_size size);
 
 #ifdef LEPTON_TEST
-  lepton::pb::repeated_message read_messages();
+  lepton::core::pb::repeated_message read_messages();
 
   void advance_messages_after_append();
 
-  lepton::pb::repeated_message take_messages_after_append();
+  lepton::core::pb::repeated_message take_messages_after_append();
 
   leaf::result<void> step_or_send(pb::repeated_message&& m);
 #endif
@@ -237,7 +237,7 @@ class raft {
 
   const auto& raft_log_handle() const { return raft_log_handle_; }
 
-  lepton::soft_state soft_state() const { return lepton::soft_state{lead_, state_type_}; }
+  lepton::core::soft_state soft_state() const { return lepton::core::soft_state{lead_, state_type_}; }
 
   raftpb::hard_state hard_state() const;
 
@@ -422,6 +422,6 @@ class raft {
   std::shared_ptr<lepton::logger_interface> logger_;
 };
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_RAFT_H_

@@ -9,7 +9,7 @@
 #include "progress.h"
 #include "tracker.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 namespace confchange {
 // Changer facilitates configuration changes. It exposes methods to handle
 // simple and joint consensus while performing the proper validation that allows
@@ -130,6 +130,6 @@ class changer {
   std::uint64_t last_index_;
 };
 }  // namespace confchange
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_CONFCHANGE_H_

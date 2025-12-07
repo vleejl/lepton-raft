@@ -11,6 +11,7 @@
 #include "test_raft_utils.h"
 
 using namespace lepton;
+using namespace lepton::core;
 
 class raft_network_test_suit : public testing::Test {
  protected:

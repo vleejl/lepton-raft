@@ -7,7 +7,7 @@
 #include "leaf.h"
 #include "lepton_error.h"
 #include "types.h"
-namespace lepton {
+namespace lepton::core {
 namespace pb {
 
 // replace etcd raft pb.ConfChangeI
@@ -48,6 +48,6 @@ leaf::result<repeated_conf_change> conf_changes_from_string(const std::string& s
 std::string describe_conf_change_v2(const raftpb::conf_change_v2& cc);
 
 }  // namespace pb
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_CONF_CHANGE_

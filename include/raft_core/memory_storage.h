@@ -7,7 +7,7 @@
 #include "raft.pb.h"
 #include "types.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 // MemoryStorage implements the Storage interface backed by an
 // in-memory array.
 class memory_storage {
@@ -78,6 +78,6 @@ class memory_storage {
   // ents[i] has raft log position i+snapshot.Metadata.Index
   pb::repeated_entry ents_;
 };
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_MEMORY_STORAGE_H_

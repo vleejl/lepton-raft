@@ -46,34 +46,36 @@ raftpb::conf_change_v2 create_conf_change_v2(std::vector<conf_change_v2_change> 
 raftpb::conf_state create_conf_state(std::vector<std::uint64_t> &&voters, std::vector<std::uint64_t> &&voters_outgoing,
                                      std::vector<std::uint64_t> &&learners, std::vector<std::uint64_t> &&learners_next,
                                      bool auto_leave = false);
-lepton::leaf::result<raftpb::conf_change> test_conf_change_var_as_v1(const lepton::pb::conf_change_var &cc);
-raftpb::conf_change_v2 test_conf_change_var_as_v2(const lepton::pb::conf_change_var &cc);
+lepton::leaf::result<raftpb::conf_change> test_conf_change_var_as_v1(const lepton::core::pb::conf_change_var &cc);
+raftpb::conf_change_v2 test_conf_change_var_as_v2(const lepton::core::pb::conf_change_var &cc);
 raftpb::message convert_test_pb_message(test_pb::message &&);
-lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
+lepton::core::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
 raftpb::entry create_entry(std::uint64_t index, std::uint64_t term, std::string &&data);
-lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms);
-lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params);
-lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from,
-                                                          std::uint64_t term_to);
-lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries);
+lepton::core::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms);
+lepton::core::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params);
+lepton::core::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from,
+                                                                std::uint64_t term_to);
+lepton::core::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries);
 
-bool compare_status(const lepton::status &lhs, const lepton::status &rhs);
-bool compare_read_states(const std::vector<lepton::read_state> &lhs, const std::vector<lepton::read_state> &rhs);
+bool compare_status(const lepton::core::status &lhs, const lepton::core::status &rhs);
+bool compare_read_states(const std::vector<lepton::core::read_state> &lhs,
+                         const std::vector<lepton::core::read_state> &rhs);
 bool operator==(const std::optional<raftpb::conf_state> &lhs, const std::optional<raftpb::conf_state> &rhs);
 bool compare_optional_conf_state(const std::optional<raftpb::conf_state> &lhs,
                                  const std::optional<raftpb::conf_state> &rhs);
 bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs);
 bool operator==(const raftpb::entry &lhs, const raftpb::entry *const rhs);
 bool operator==(const raftpb::entry *const lhs, const raftpb::entry &rhs);
-bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::span_entry &rhs);
-bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::repeated_entry &rhs);
-bool compare_repeated_entry(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs);
-bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs);
-bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
-bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs);
-bool compare_repeated_message(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs);
-bool operator==(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs);
-bool compare_ready(const lepton::ready &lhs, const lepton::ready &rhs);
+bool operator==(const lepton::core::pb::repeated_entry &lhs, const lepton::core::pb::span_entry &rhs);
+bool operator==(const lepton::core::pb::span_entry &lhs, const lepton::core::pb::repeated_entry &rhs);
+bool compare_repeated_entry(const lepton::core::pb::span_entry &lhs, const lepton::core::pb::span_entry &rhs);
+bool operator==(const lepton::core::pb::span_entry &lhs, const lepton::core::pb::span_entry &rhs);
+bool compare_repeated_entry(const lepton::core::pb::repeated_entry &lhs, const lepton::core::pb::repeated_entry &rhs);
+bool operator==(const lepton::core::pb::repeated_entry &lhs, const lepton::core::pb::repeated_entry &rhs);
+bool compare_repeated_message(const lepton::core::pb::repeated_message &lhs,
+                              const lepton::core::pb::repeated_message &rhs);
+bool operator==(const lepton::core::pb::repeated_message &lhs, const lepton::core::pb::repeated_message &rhs);
+bool compare_ready(const lepton::core::ready &lhs, const lepton::core::ready &rhs);
 
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term);
 raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, std::vector<std::uint64_t> &&voters);

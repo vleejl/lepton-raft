@@ -33,7 +33,7 @@
 #include "tracker.h"
 #include "types.h"
 
-namespace lepton {
+namespace lepton::core {
 leaf::result<raft> new_raft(config&& c) {
   LEPTON_LEAF_CHECK(c.validate());
   pro::proxy_view<storage_builer> storage_view = c.storage;
@@ -2149,7 +2149,7 @@ void raft::reduce_uncommitted_size(pb::entry_encoding_size size) {
 }
 
 #ifdef LEPTON_TEST
-lepton::pb::repeated_message raft::read_messages() {
+lepton::core::pb::repeated_message raft::read_messages() {
   advance_messages_after_append();
   auto msgs = std::move(msgs_);
   msgs_.Clear();
@@ -2166,7 +2166,7 @@ void raft::advance_messages_after_append() {
   }
 }
 
-lepton::pb::repeated_message raft::take_messages_after_append() {
+lepton::core::pb::repeated_message raft::take_messages_after_append() {
   auto msgs = std::move(msgs_after_append_);
   msgs_after_append_.Clear();
   return msgs;
@@ -2186,4 +2186,4 @@ leaf::result<void> raft::step_or_send(pb::repeated_message&& m) {
   return {};
 }
 #endif
-}  // namespace lepton
+}  // namespace lepton::core

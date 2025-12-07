@@ -15,7 +15,7 @@
 #include "state.h"
 #include "types.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 
 enum class progress_type {
   // ProgressTypePeer accompanies a Progress for a regular peer replica.
@@ -34,7 +34,7 @@ class raw_node {
   friend class node;
 
  public:
-  raw_node(lepton::raft &&r, bool async_storage_writes)
+  raw_node(lepton::core::raft &&r, bool async_storage_writes)
       : raft_(std::move(r)),
         async_storage_writes_(async_storage_writes),
         prev_soft_state_(raft_.soft_state()),
@@ -92,7 +92,7 @@ class raw_node {
   // includes appending and applying entries or a snapshot, updating the HardState,
   // and sending messages. The returned Ready() *must* be handled and subsequently
   // passed back via Advance().
-  lepton::ready ready() {
+  lepton::core::ready ready() {
     auto rd = ready_without_accept();
     accept_ready(rd);
     return rd;
@@ -100,12 +100,12 @@ class raw_node {
 
   // readyWithoutAccept returns a Ready. This is a read-only operation, i.e. there
   // is no obligation that the Ready must be handled.
-  lepton::ready ready_without_accept();
+  lepton::core::ready ready_without_accept();
 
   // acceptReady is called when the consumer of the RawNode has decided to go
   // ahead and handle a Ready. Nothing must alter the state of the RawNode between
   // this call and the prior call to Ready().
-  void accept_ready(const lepton::ready &rd);
+  void accept_ready(const lepton::core::ready &rd);
 
   // applyUnstableEntries returns whether entries are allowed to be applied once
   // they are known to be committed but before they have been written locally to
@@ -124,11 +124,11 @@ class raw_node {
 
   // Status returns the current status of the given group. This allocates, see
   // BasicStatus and WithProgress for allocation-friendlier choices.
-  lepton::status status() const { return raft_.get_status(); }
+  lepton::core::status status() const { return raft_.get_status(); }
 
   // BasicStatus returns a BasicStatus. Notably this does not contain the
   // Progress map; see WithProgress for an allocation-free way to inspect it.
-  lepton::basic_status basic_status() const { return raft_.get_basic_status(); }
+  lepton::core::basic_status basic_status() const { return raft_.get_basic_status(); }
 
   // WithProgress is a helper to introspect the Progress for this node and its
   // peers.
@@ -203,13 +203,13 @@ class raw_node {
 #else
  private:
 #endif
-  lepton::raft raft_;
+  lepton::core::raft raft_;
   bool async_storage_writes_;
 
   // Mutable fields.
   soft_state prev_soft_state_;
   raftpb::hard_state prev_hard_state_;
-  lepton::pb::repeated_message steps_on_advance_;
+  lepton::core::pb::repeated_message steps_on_advance_;
 };
 
 // NewRawNode instantiates a RawNode from the given configuration.
@@ -221,6 +221,6 @@ class raw_node {
 // stores the desired ConfState as its InitialState.
 leaf::result<raw_node> new_raw_node(config &&c);
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_RAW_NODE_H_

@@ -15,7 +15,7 @@
 #include "progress.h"
 #include "tracker.h"
 
-namespace lepton {
+namespace lepton::core {
 namespace confchange {
 
 leaf::result<void> foreach_id_set(const std::set<std::uint64_t> &set, const tracker::progress_map::type &prs) {
@@ -326,4 +326,4 @@ changer::result changer::simple(absl::Span<const raftpb::conf_change_single *con
 }
 
 }  // namespace confchange
-}  // namespace lepton
+}  // namespace lepton::core

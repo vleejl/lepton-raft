@@ -29,17 +29,17 @@ PRO_DEF_MEM_DISPATCH(storage_append, append);
 // the Ready handling loop.
 // clang-format off
 struct storage_builer : pro::facade_builder 
-  ::add_convention<lepton::storage_initial_state, lepton::leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>() const> 
-  ::add_convention<lepton::storage_entries, lepton::leaf::result<lepton::pb::repeated_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
-  ::add_convention<lepton::storage_entries_view, lepton::leaf::result<lepton::pb::span_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
-  ::add_convention<lepton::storage_term, lepton::leaf::result<std::uint64_t>(std::uint64_t i) const> 
-  ::add_convention<lepton::storage_last_index, lepton::leaf::result<std::uint64_t>() const> 
-  ::add_convention<lepton::storage_first_index, lepton::leaf::result<std::uint64_t>() const> 
-  ::add_convention<lepton::storage_snapshot, lepton::leaf::result<raftpb::snapshot>() const>
+  ::add_convention<lepton::core::storage_initial_state, lepton::leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>() const> 
+  ::add_convention<lepton::core::storage_entries, lepton::leaf::result<lepton::core::pb::repeated_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
+  ::add_convention<lepton::core::storage_entries_view, lepton::leaf::result<lepton::core::pb::span_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
+  ::add_convention<lepton::core::storage_term, lepton::leaf::result<std::uint64_t>(std::uint64_t i) const> 
+  ::add_convention<lepton::core::storage_last_index, lepton::leaf::result<std::uint64_t>() const> 
+  ::add_convention<lepton::core::storage_first_index, lepton::leaf::result<std::uint64_t>() const> 
+  ::add_convention<lepton::core::storage_snapshot, lepton::leaf::result<raftpb::snapshot>() const>
   ::add_convention<storage_set_hard_state, lepton::leaf::result<void>(raftpb::hard_state&& hard_state)>
   ::add_convention<storage_apply_snapshot, lepton::leaf::result<void>(raftpb::snapshot &&snapshot)>
   ::add_convention<storage_compact, lepton::leaf::result<void>(std::uint64_t compact_index)>
-  ::add_convention<storage_append, lepton::leaf::result<void>(lepton::pb::repeated_entry&& entries)>
+  ::add_convention<storage_append, lepton::leaf::result<void>(lepton::core::pb::repeated_entry&& entries)>
   ::add_skill<pro::skills::as_view>
   ::build{};
 // clang-format on
@@ -52,13 +52,13 @@ struct snap_override_storage {
     return storage->initial_state();
   }
 
-  lepton::leaf::result<lepton::pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi,
-                                                           std::uint64_t max_size) const {
+  lepton::leaf::result<lepton::core::pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi,
+                                                                 std::uint64_t max_size) const {
     return storage->entries(lo, hi, max_size);
   }
 
-  lepton::leaf::result<lepton::pb::span_entry> entries_view(std::uint64_t lo, std::uint64_t hi,
-                                                            std::uint64_t max_size) const {
+  lepton::leaf::result<lepton::core::pb::span_entry> entries_view(std::uint64_t lo, std::uint64_t hi,
+                                                                  std::uint64_t max_size) const {
     return storage->entries_view(lo, hi, max_size);
   }
 
@@ -86,30 +86,30 @@ struct snap_override_storage {
 
   lepton::leaf::result<void> compact(std::uint64_t compact_index) { return storage->compact(compact_index); }
 
-  lepton::leaf::result<void> append(lepton::pb::repeated_entry &&entries) {
+  lepton::leaf::result<void> append(lepton::core::pb::repeated_entry &&entries) {
     return storage->append(std::move(entries));
   }
 };
 
 // InteractionOpts groups the options for an InteractionEnv.
 struct interaction_opts {
-  std::function<void(lepton::config &)> on_confg = nullptr;
+  std::function<void(lepton::core::config &)> on_confg = nullptr;
 
   // SetRandomizedElectionTimeout is used to plumb this function down from the
   // raft test package.
-  std::function<void(lepton::raw_node &, std::size_t timeout)> set_randomized_election_timeout = nullptr;
+  std::function<void(lepton::core::raw_node &, std::size_t timeout)> set_randomized_election_timeout = nullptr;
 };
 
 struct node {
-  lepton::raw_node raw_node;
+  lepton::core::raw_node raw_node;
   pro::proxy<storage_builer> storage;
 
-  lepton::config config;
+  lepton::core::config config;
   // []MsgStorageAppend
-  lepton::pb::repeated_message append_work;
+  lepton::core::pb::repeated_message append_work;
   // []MsgStorageApply
-  lepton::pb::repeated_message apply_work;
-  lepton::pb::repeated_snapshot history;
+  lepton::core::pb::repeated_message apply_work;
+  lepton::core::pb::repeated_snapshot history;
 };
 
 struct recipient {
@@ -133,7 +133,7 @@ struct interaction_env {
 
   // AddNodes adds n new nodes initialized from the given snapshot (which may be
   // empty), and using the cfg as template. They will be assigned consecutive IDs.
-  lepton::leaf::result<void> add_nodes(std::size_t, const lepton::config &config, raftpb::snapshot &snap);
+  lepton::leaf::result<void> add_nodes(std::size_t, const lepton::core::config &config, raftpb::snapshot &snap);
   lepton::leaf::result<void> handle_add_nodes(const datadriven::test_data &test_data);
 
   lepton::leaf::result<void> handle_campaign(const datadriven::test_data &test_data);
@@ -219,7 +219,7 @@ struct interaction_env {
   lepton::leaf::result<void> handle_propose_conf_change(const datadriven::test_data &test_data);
 
   // ProposeConfChange proposes a configuration change on the node with the given index.
-  lepton::leaf::result<void> propose_conf_change(std::size_t node_idx, const lepton::pb::conf_change_var &cc);
+  lepton::leaf::result<void> propose_conf_change(std::size_t node_idx, const lepton::core::pb::conf_change_var &cc);
 
   lepton::leaf::result<void> handle_report_unreachable(const datadriven::test_data &test_data);
 
@@ -248,7 +248,7 @@ struct interaction_env {
   interaction_opts options;
   std::vector<std::unique_ptr<snap_override_storage>> storage_handles;
   std::vector<node> nodes;
-  lepton::pb::repeated_message messages;  // in-flight messages
+  lepton::core::pb::repeated_message messages;  // in-flight messages
 
   std::ostringstream logger_buffer;
   std::shared_ptr<redirect_logger> output;
@@ -257,11 +257,11 @@ struct interaction_env {
 // raftConfigStub sets up a raft.Config stub with reasonable testing defaults.
 // In particular, no limits are set. It is not a complete config: ID and Storage
 // must be set for each node using the stub as a template.
-inline lepton::config raft_config_stub() {
-  lepton::config config;
+inline lepton::core::config raft_config_stub() {
+  lepton::core::config config;
   config.election_tick = 3;
   config.heartbeat_tick = 1;
-  config.max_size_per_msg = lepton::NO_LIMIT;
+  config.max_size_per_msg = lepton::core::NO_LIMIT;
   config.max_inflight_msgs = std::numeric_limits<std::size_t>::max();
   return config;
 }
@@ -272,13 +272,13 @@ std::size_t first_as_node_idx(const datadriven::test_data &test_data);
 
 std::vector<std::size_t> node_idxs(const datadriven::test_data &test_data);
 
-std::tuple<lepton::pb::repeated_message, lepton::pb::repeated_message> split_msgs(
-    const lepton::pb::repeated_message &msgs, std::uint64_t to, int raftpb_message_type, bool drop);
+std::tuple<lepton::core::pb::repeated_message, lepton::core::pb::repeated_message> split_msgs(
+    const lepton::core::pb::repeated_message &msgs, std::uint64_t to, int raftpb_message_type, bool drop);
 
-lepton::leaf::result<void> process_append(node &n, raftpb::hard_state &&hard_state, lepton::pb::repeated_entry &&ents,
-                                          raftpb::snapshot &&snap);
+lepton::leaf::result<void> process_append(node &n, raftpb::hard_state &&hard_state,
+                                          lepton::core::pb::repeated_entry &&ents, raftpb::snapshot &&snap);
 
-lepton::leaf::result<void> process_apply(node &n, const lepton::pb::repeated_entry &ents);
+lepton::leaf::result<void> process_apply(node &n, const lepton::core::pb::repeated_entry &ents);
 
 }  // namespace interaction
 

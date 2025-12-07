@@ -11,7 +11,7 @@
 #include "fmt/format.h"
 #include "lepton_error.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 namespace quorum {
 // Index is a Raft log position.
 using log_index = std::uint64_t;
@@ -64,6 +64,6 @@ class map_ack_indexer {
   std::map<std::uint64_t, log_index> map_;
 };
 }  // namespace quorum
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_QUPRUM_H_

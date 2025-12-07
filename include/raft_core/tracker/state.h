@@ -1,7 +1,7 @@
 #ifndef _LEPTON_STATE_H_
 #define _LEPTON_STATE_H_
 #include <cstdint>
-namespace lepton {
+namespace lepton::core {
 namespace tracker {
 enum class state_type : std::uint64_t {
   // StateProbe indicates a follower whose last index isn't known. Such a
@@ -38,6 +38,6 @@ enum class state_type : std::uint64_t {
 };
 
 }  // namespace tracker
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_STATE_H_

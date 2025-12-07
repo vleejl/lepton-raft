@@ -16,7 +16,7 @@
 #include "progress.h"
 #include "quorum.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::core {
 namespace tracker {
 // Config reflects the configuration tracked in a ProgressTracker.
 struct config {
@@ -343,6 +343,6 @@ class progress_tracker {
   std::uint64_t max_inflight_bytes_;
 };
 }  // namespace tracker
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_TRACKER_H_

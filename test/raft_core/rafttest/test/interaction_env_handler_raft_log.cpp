@@ -20,8 +20,8 @@ lepton::leaf::result<void> interaction_env::raft_log(std::size_t node_idx) {
     output->write_string(fmt::format("log is empty: first index={}, last index={}", first_index, last_index));
     return {};
   }
-  BOOST_LEAF_AUTO(ents, s->entries(first_index, last_index + 1, lepton::NO_LIMIT));
-  output->write_string(lepton::describe_entries(ents, nullptr));
+  BOOST_LEAF_AUTO(ents, s->entries(first_index, last_index + 1, lepton::core::NO_LIMIT));
+  output->write_string(lepton::core::describe_entries(ents, nullptr));
   return {};
 }
 }  // namespace interaction

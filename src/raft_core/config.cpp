@@ -2,7 +2,8 @@
 
 #include "lepton_error.h"
 #include "logic_error.h"
-using namespace lepton;
+
+namespace lepton::core {
 
 leaf::result<void> config::validate() const {
   if (this->id == NONE) {
@@ -40,3 +41,5 @@ leaf::result<void> config::validate() const {
   }
   return {};
 }
+
+}  // namespace lepton::core

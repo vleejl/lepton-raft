@@ -7,7 +7,7 @@
 #include "log.h"
 #include "protobuf.h"
 
-namespace lepton {
+namespace lepton::core {
 
 // first index + 1 是因为第一个 entry 是 dummy entry
 auto memory_storage::_first_index() const {
@@ -235,4 +235,4 @@ leaf::result<void> memory_storage::append(pb::repeated_entry&& entries) {
   return {};
 }
 
-}  // namespace lepton
+}  // namespace lepton::core

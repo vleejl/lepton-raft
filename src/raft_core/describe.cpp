@@ -13,7 +13,7 @@
 #include "raft.pb.h"
 #include "types.h"
 
-namespace lepton {
+namespace lepton::core {
 #ifdef LEPTON_TEST
 static auto rafa_state_name(state_type type) {
   switch (type) {
@@ -226,4 +226,4 @@ std::string describe_ready(const ready &rd, entry_formatter_func f) {
   return "<empty Ready>";
 }
 
-}  // namespace lepton
+}  // namespace lepton::core

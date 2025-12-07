@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "types.h"
-namespace lepton {
+namespace lepton::core {
 
 namespace pb {
 
@@ -61,6 +61,6 @@ struct entry_view {
 
 }  // namespace pb
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_ENTRY_VIEW_H_

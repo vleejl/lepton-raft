@@ -18,6 +18,7 @@
 #include "test_raft_utils.h"
 
 using namespace lepton;
+using namespace lepton::core;
 
 static auto BM_status_init_raw_node(std::size_t members) {
   std::vector<std::uint64_t> peers;
@@ -31,7 +32,7 @@ static auto BM_status_init_raw_node(std::size_t members) {
   r.become_follower(1, 1);
   r.become_candidate();
   r.become_leader();
-  return lepton::raw_node{std::move(r), false};
+  return lepton::core::raw_node{std::move(r), false};
 }
 
 static void BM_Status(benchmark::State& state) {
@@ -71,7 +72,7 @@ static void BM_WithProgress(benchmark::State& state) {
   auto rn = BM_status_init_raw_node(static_cast<std::uint64_t>(members));
 
   for (auto _ : state) {
-    rn.with_progress([](std::uint64_t, lepton::progress_type, tracker::progress&) {});
+    rn.with_progress([](std::uint64_t, lepton::core::progress_type, tracker::progress&) {});
   }
 }
 
@@ -81,7 +82,7 @@ static void BM_WithProgressExample(benchmark::State& state) {
 
   for (auto _ : state) {
     std::uint64_t n = 0;
-    rn.with_progress([&n](std::uint64_t, lepton::progress_type, tracker::progress& pr) { n += pr.match(); });
+    rn.with_progress([&n](std::uint64_t, lepton::core::progress_type, tracker::progress& pr) { n += pr.match(); });
     benchmark::DoNotOptimize(n);
   }
 }

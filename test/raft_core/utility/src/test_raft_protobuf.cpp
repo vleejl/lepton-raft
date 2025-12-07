@@ -83,14 +83,14 @@ raftpb::conf_state create_conf_state(std::vector<std::uint64_t> &&voters, std::v
   return cs;
 }
 
-lepton::leaf::result<raftpb::conf_change> test_conf_change_var_as_v1(const lepton::pb::conf_change_var &cc) {
-  lepton::pb::conf_change_var copy_cc = cc;
-  return lepton::pb::conf_change_var_as_v1(std::move(copy_cc));
+lepton::leaf::result<raftpb::conf_change> test_conf_change_var_as_v1(const lepton::core::pb::conf_change_var &cc) {
+  lepton::core::pb::conf_change_var copy_cc = cc;
+  return lepton::core::pb::conf_change_var_as_v1(std::move(copy_cc));
 }
 
-raftpb::conf_change_v2 test_conf_change_var_as_v2(const lepton::pb::conf_change_var &cc) {
-  lepton::pb::conf_change_var copy_cc = cc;
-  return lepton::pb::conf_change_var_as_v2(std::move(copy_cc));
+raftpb::conf_change_v2 test_conf_change_var_as_v2(const lepton::core::pb::conf_change_var &cc) {
+  lepton::core::pb::conf_change_var copy_cc = cc;
+  return lepton::core::pb::conf_change_var_as_v2(std::move(copy_cc));
 }
 
 raftpb::message convert_test_pb_message(test_pb::message &&m) {
@@ -133,7 +133,7 @@ raftpb::message convert_test_pb_message(test_pb::message &&m) {
   return msg;
 }
 
-lepton::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term) {
+lepton::core::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term) {
   auto entry = std::make_unique<raftpb::entry>();
   entry->set_index(index);
   entry->set_term(term);
@@ -148,8 +148,8 @@ raftpb::entry create_entry(std::uint64_t index, std::uint64_t term, std::string 
   return entry;
 }
 
-lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms) {
-  lepton::pb::repeated_entry entries;
+lepton::core::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms) {
+  lepton::core::pb::repeated_entry entries;
   for (const auto &term : terms) {
     auto entry = entries.Add();
     entry->set_index(index);
@@ -159,9 +159,9 @@ lepton::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::
   return entries;
 }
 
-lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from,
-                                                          std::uint64_t term_to) {
-  lepton::pb::repeated_entry entries;
+lepton::core::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from,
+                                                                std::uint64_t term_to) {
+  lepton::core::pb::repeated_entry entries;
   for (auto term = term_from; term < term_to; ++term) {
     auto entry = entries.Add();
     entry->set_index(index);
@@ -171,8 +171,8 @@ lepton::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, s
   return entries;
 }
 
-lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params) {
-  lepton::pb::repeated_entry entries;
+lepton::core::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params) {
+  lepton::core::pb::repeated_entry entries;
   for (const auto &[index, term] : entrie_params) {
     auto entry = entries.Add();
     entry->set_index(index);
@@ -181,21 +181,21 @@ lepton::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t,
   return entries;
 }
 
-lepton::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries) {
-  lepton::pb::repeated_entry resp_entries;
+lepton::core::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries) {
+  lepton::core::pb::repeated_entry resp_entries;
   for (auto &entry : entries) {
     resp_entries.Add(std::move(entry));
   }
   return resp_entries;
 }
 
-bool compare_basic_status(const lepton::basic_status &lhs, const lepton::basic_status &rhs) {
+bool compare_basic_status(const lepton::core::basic_status &lhs, const lepton::core::basic_status &rhs) {
   return lhs.id == rhs.id && lhs.hard_state.DebugString() == rhs.hard_state.DebugString() &&  // protobuf: equality only
          lhs.soft_state == rhs.soft_state &&                                                  // has <=>, so == is OK
          lhs.applied == rhs.applied && lhs.lead_transferee == rhs.lead_transferee;
 }
 
-bool compare_status(const lepton::status &lhs, const lepton::status &rhs) {
+bool compare_status(const lepton::core::status &lhs, const lepton::core::status &rhs) {
   if (!compare_basic_status(lhs.basic_status, rhs.basic_status)) {
     return false;
   }
@@ -208,7 +208,8 @@ bool compare_status(const lepton::status &lhs, const lepton::status &rhs) {
   return true;
 }
 
-bool compare_read_states(const std::vector<lepton::read_state> &lhs, const std::vector<lepton::read_state> &rhs) {
+bool compare_read_states(const std::vector<lepton::core::read_state> &lhs,
+                         const std::vector<lepton::core::read_state> &rhs) {
   if (lhs.size() != rhs.size()) {
     return false;
   }
@@ -278,15 +279,15 @@ bool operator==(const raftpb::entry &lhs, const raftpb::entry *const rhs) { retu
 
 bool operator==(const raftpb::entry *const lhs, const raftpb::entry &rhs) { return operator==(*lhs, rhs); }
 
-bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::span_entry &rhs) {
+bool operator==(const lepton::core::pb::repeated_entry &lhs, const lepton::core::pb::span_entry &rhs) {
   return compare_repeated_entry(absl::MakeSpan(lhs), rhs);
 }
 
-bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::repeated_entry &rhs) {
+bool operator==(const lepton::core::pb::span_entry &lhs, const lepton::core::pb::repeated_entry &rhs) {
   return compare_repeated_entry(lhs, absl::MakeSpan(rhs));
 }
 
-bool compare_repeated_entry(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs) {
+bool compare_repeated_entry(const lepton::core::pb::span_entry &lhs, const lepton::core::pb::span_entry &rhs) {
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
@@ -305,11 +306,11 @@ bool compare_repeated_entry(const lepton::pb::span_entry &lhs, const lepton::pb:
   return true;
 }
 
-bool operator==(const lepton::pb::span_entry &lhs, const lepton::pb::span_entry &rhs) {
+bool operator==(const lepton::core::pb::span_entry &lhs, const lepton::core::pb::span_entry &rhs) {
   return compare_repeated_entry(lhs, rhs);
 }
 
-bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs) {
+bool compare_repeated_entry(const lepton::core::pb::repeated_entry &lhs, const lepton::core::pb::repeated_entry &rhs) {
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
@@ -328,11 +329,12 @@ bool compare_repeated_entry(const lepton::pb::repeated_entry &lhs, const lepton:
   return true;
 }
 
-bool operator==(const lepton::pb::repeated_entry &lhs, const lepton::pb::repeated_entry &rhs) {
+bool operator==(const lepton::core::pb::repeated_entry &lhs, const lepton::core::pb::repeated_entry &rhs) {
   return compare_repeated_entry(lhs, rhs);
 }
 
-bool compare_repeated_message(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs) {
+bool compare_repeated_message(const lepton::core::pb::repeated_message &lhs,
+                              const lepton::core::pb::repeated_message &rhs) {
   const auto lhs_size = lhs.size();
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
@@ -357,17 +359,17 @@ bool compare_repeated_message(const lepton::pb::repeated_message &lhs, const lep
   return true;
 }
 
-bool operator==(const lepton::pb::repeated_message &lhs, const lepton::pb::repeated_message &rhs) {
+bool operator==(const lepton::core::pb::repeated_message &lhs, const lepton::core::pb::repeated_message &rhs) {
   return compare_repeated_message(lhs, rhs);
 }
 
-bool compare_ready(const lepton::ready &lhs, const lepton::ready &rhs) {
+bool compare_ready(const lepton::core::ready &lhs, const lepton::core::ready &rhs) {
   // 1. 比较 soft_state（可选值）
   if (lhs.soft_state.has_value() != rhs.soft_state.has_value()) {
     return false;
   }
   if (lhs.soft_state && rhs.soft_state) {
-    // 假设 lepton::soft_state 有 operator==
+    // 假设 lepton::core::soft_state 有 operator==
     if (*lhs.soft_state != *rhs.soft_state) {
       return false;
     }

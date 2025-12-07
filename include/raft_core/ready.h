@@ -12,7 +12,7 @@
 #include "state.h"
 #include "types.h"
 
-namespace lepton {
+namespace lepton::core {
 // Ready encapsulates the entries and messages that are ready to read,
 // be saved to stable storage, committed or sent to other peers.
 // All fields in Ready are read-only.
@@ -35,7 +35,7 @@ struct ready {
   // State（如 Follower、Candidate、Leader）。
   // 由于 SoftState 不是持久化数据，因此不需要存储，只用于节点间的交互。
   // 如果没有更新，它会是 nil。
-  std::optional<lepton::soft_state> soft_state;
+  std::optional<lepton::core::soft_state> soft_state;
 
   // The current state of a Node to be saved to stable storage BEFORE
   // Messages are sent.
@@ -102,6 +102,6 @@ struct ready {
 using ready_handle = std::shared_ptr<ready>;
 using ready_channel = channel_endpoint<ready_handle>;
 using ready_channel_handle = std::shared_ptr<ready_channel>;
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_READY_H_

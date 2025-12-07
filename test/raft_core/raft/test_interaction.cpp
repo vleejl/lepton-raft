@@ -10,6 +10,7 @@
 #include "interaction_env.h"
 #include "test_raft_utils.h"
 using namespace lepton;
+using namespace lepton::core;
 
 TEST(interaction_test_suit, test_data_driven_impl) {
   // 获取当前文件的路径

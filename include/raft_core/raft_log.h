@@ -12,7 +12,7 @@
 #include "types.h"
 #include "utility_macros.h"
 
-namespace lepton {
+namespace lepton::core {
 class raft_log {
   NOT_COPYABLE(raft_log)
  public:
@@ -253,6 +253,6 @@ inline leaf::result<raft_log> new_raft_log(pro::proxy<storage_builer>&& storage,
   return new_raft_log_with_size(std::move(storage), std::move(logger), NO_LIMIT);
 }
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_RAFT_LOG_H_

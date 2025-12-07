@@ -20,6 +20,7 @@
 #include "test_utility_macros.h"
 #include "types.h"
 using namespace lepton;
+using namespace lepton::core;
 
 class memory_storage_test_suit : public testing::Test {
  protected:
@@ -49,7 +50,7 @@ TEST_F(memory_storage_test_suit, test_storage_term) {
                                   {6, make_error_code(storage_error::UNAVAILABLE), 0}};
   for (const auto &iter_test : tests) {
     auto has_called_error = false;
-    lepton::memory_storage mm_storage{ents};
+    lepton::core::memory_storage mm_storage{ents};
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<std::uint64_t> {
           BOOST_LEAF_AUTO(v, mm_storage.term(iter_test.i));
@@ -83,7 +84,7 @@ TEST_F(memory_storage_test_suit, test_storage_entries) {
     std::uint64_t max_size;
 
     std::error_code werr;
-    lepton::pb::repeated_entry wentries;
+    lepton::core::pb::repeated_entry wentries;
   };
 
   std::vector<test_case> tests = {
@@ -115,13 +116,13 @@ TEST_F(memory_storage_test_suit, test_storage_entries) {
   };
   for (const auto &iter_test : tests) {
     auto has_called_error = false;
-    lepton::memory_storage mm_storage{ents};
+    lepton::core::memory_storage mm_storage{ents};
     auto result = leaf::try_handle_some(
-        [&]() -> leaf::result<lepton::pb::repeated_entry> {
+        [&]() -> leaf::result<lepton::core::pb::repeated_entry> {
           BOOST_LEAF_AUTO(v, mm_storage.entries(iter_test.lo, iter_test.hi, iter_test.max_size));
           return v;
         },
-        [&](const lepton::lepton_error &err) -> leaf::result<lepton::pb::repeated_entry> {
+        [&](const lepton::lepton_error &err) -> leaf::result<lepton::core::pb::repeated_entry> {
           has_called_error = true;
           if (err != iter_test.werr) {
             assert(false);
@@ -146,7 +147,7 @@ TEST_F(memory_storage_test_suit, test_storage_entries) {
 TEST_F(memory_storage_test_suit, test_storage_last_index) {
   SECTION("case 1") {
     auto ents = create_entries({{3, 3}, {4, 4}, {5, 5}});
-    lepton::memory_storage mm_storage{ents};
+    lepton::core::memory_storage mm_storage{ents};
     auto v = mm_storage.last_index();
     GTEST_ASSERT_TRUE(v.has_value());
     ASSERT_EQ(5, v.value());
@@ -154,7 +155,7 @@ TEST_F(memory_storage_test_suit, test_storage_last_index) {
 
   SECTION("case 2") {
     auto ents = create_entries({{3, 3}, {4, 4}, {5, 5}, {6, 5}});
-    lepton::memory_storage mm_storage{ents};
+    lepton::core::memory_storage mm_storage{ents};
     auto v = mm_storage.last_index();
     GTEST_ASSERT_TRUE(v.has_value());
     ASSERT_EQ(6, v.value());
@@ -163,7 +164,7 @@ TEST_F(memory_storage_test_suit, test_storage_last_index) {
 
 TEST_F(memory_storage_test_suit, test_storage_first_index) {
   auto ents = create_entries({{3, 3}, {4, 4}, {5, 5}});
-  lepton::memory_storage mm_storage{ents};
+  lepton::core::memory_storage mm_storage{ents};
 
   SECTION("case 1") {  // dummy entry
     auto v = mm_storage.first_index();
@@ -202,7 +203,7 @@ TEST_F(memory_storage_test_suit, test_storage_compact) {
 
   for (const auto &iter_test : tests) {
     auto has_called_error = false;
-    lepton::memory_storage mm_storage{ents};
+    lepton::core::memory_storage mm_storage{ents};
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
           LEPTON_LEAF_CHECK(mm_storage.compact(iter_test.i));
@@ -253,7 +254,7 @@ TEST_F(memory_storage_test_suit, test_storage_create_snapshot) {
   };
   for (const auto &iter_test : tests) {
     auto has_called_error = false;
-    lepton::memory_storage mm_storage{ents};
+    lepton::core::memory_storage mm_storage{ents};
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<raftpb::snapshot> {
           BOOST_LEAF_AUTO(v, mm_storage.create_snapshot(iter_test.i, cs, "data"));
@@ -281,10 +282,10 @@ TEST_F(memory_storage_test_suit, test_storage_append) {
   auto ents = create_entries({{3, 3}, {4, 4}, {5, 5}});
 
   struct test_case {
-    lepton::pb::repeated_entry entries;
+    lepton::core::pb::repeated_entry entries;
 
     std::error_code werr;
-    lepton::pb::repeated_entry wentries;
+    lepton::core::pb::repeated_entry wentries;
   };
 
   std::vector<test_case> tests = {
@@ -310,7 +311,7 @@ TEST_F(memory_storage_test_suit, test_storage_append) {
       {create_entries({{6, 5}}), EC_SUCCESS, create_entries({{3, 3}, {4, 4}, {5, 5}, {6, 5}})}};
   for (auto &iter_test : tests) {
     auto has_called_error = false;
-    lepton::memory_storage mm_storage{ents};
+    lepton::core::memory_storage mm_storage{ents};
     auto result = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
           LEPTON_LEAF_CHECK(mm_storage.append(std::move(iter_test.entries)));
@@ -351,7 +352,7 @@ TEST_F(memory_storage_test_suit, test_storage_apply_snapshot) {
       {create_snapshot(4, 4, data, cs), EC_SUCCESS},
       {create_snapshot(3, 3, data, cs), make_error_code(storage_error::SNAP_OUT_OF_DATE)},
   };
-  lepton::memory_storage mm_storage;
+  lepton::core::memory_storage mm_storage;
   for (auto &iter_test : tests) {
     auto has_called_error = false;
     auto result = leaf::try_handle_some(

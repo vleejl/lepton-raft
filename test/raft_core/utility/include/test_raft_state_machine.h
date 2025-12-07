@@ -14,7 +14,7 @@ PRO_DEF_MEM_DISPATCH(state_machine_advance_messages_after_append, advance_messag
 // clang-format off
 struct state_machine_builer : pro::facade_builder 
   ::add_convention<state_machine_step, lepton::leaf::result<void>(raftpb::message&&)> 
-  ::add_convention<state_machine_read_messages, lepton::pb::repeated_message()>
+  ::add_convention<state_machine_read_messages, lepton::core::pb::repeated_message()>
   ::add_convention<state_machine_advance_messages_after_append, void()>
   ::add_skill<pro::skills::as_view>
   ::add_skill<pro::skills::rtti>

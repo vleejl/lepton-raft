@@ -14,7 +14,7 @@
 #include "log.h"
 #include "logic_error.h"
 #include "raft.pb.h"
-namespace lepton {
+namespace lepton::core {
 
 namespace pb {
 template <class>
@@ -278,4 +278,4 @@ std::string describe_conf_change_v2(const raftpb::conf_change_v2& cc) {
 
 }  // namespace pb
 
-}  // namespace lepton
+}  // namespace lepton::core

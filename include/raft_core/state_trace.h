@@ -8,7 +8,7 @@
 
 #include "tracker.h"
 #include "types.h"
-namespace lepton {
+namespace lepton::core {
 
 class raft;
 
@@ -32,7 +32,7 @@ void trace_send_message(raft& r, const raftpb::message& m);
 
 void trace_receive_message(raft& r, const raftpb::message& m);
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #pragma GCC diagnostic pop
 

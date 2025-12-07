@@ -36,9 +36,9 @@ lepton::leaf::result<void> interaction_env::handle_propose_conf_change(const dat
     }
   }
 
-  BOOST_LEAF_AUTO(ccs, lepton::pb::conf_changes_from_string(test_data.input));
+  BOOST_LEAF_AUTO(ccs, lepton::core::pb::conf_changes_from_string(test_data.input));
 
-  lepton::pb::conf_change_var cc;
+  lepton::core::pb::conf_change_var cc;
   if (v1) {
     if (ccs.size() > 1 || transition != raftpb::conf_change_transition::CONF_CHANGE_TRANSITION_AUTO) {
       return lepton::new_error(lepton::logic_error::INVALID_PARAM,
@@ -59,7 +59,7 @@ lepton::leaf::result<void> interaction_env::handle_propose_conf_change(const dat
 
 // ProposeConfChange proposes a configuration change on the node with the given index.
 lepton::leaf::result<void> interaction_env::propose_conf_change(std::size_t node_idx,
-                                                                const lepton::pb::conf_change_var &cc) {
+                                                                const lepton::core::pb::conf_change_var &cc) {
   if (node_idx < 0 || node_idx >= nodes.size()) {
     return new_error(lepton::logic_error::INVALID_PARAM);
   }

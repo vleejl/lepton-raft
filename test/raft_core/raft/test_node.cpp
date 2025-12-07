@@ -49,6 +49,7 @@
 #include "types.h"
 #include "v4/proxy.h"
 using namespace lepton;
+using namespace lepton::core;
 using namespace asio::experimental::awaitable_operators;
 using asio::steady_timer;
 
@@ -63,18 +64,18 @@ class node_test_suit : public testing::Test {
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
 
-static node_handle new_node_test_harness(asio::any_io_executor executor, lepton::config&& config,
+static node_handle new_node_test_harness(asio::any_io_executor executor, lepton::core::config&& config,
                                          std::vector<peer>&& peers) {
   node_handle n;
   if (!peers.empty()) {
     n = setup_node(executor, std::move(config), std::move(peers));
   } else {
     auto raw_node_result = leaf::try_handle_some(
-        [&]() -> leaf::result<lepton::raw_node> {
+        [&]() -> leaf::result<lepton::core::raw_node> {
           BOOST_LEAF_AUTO(v, new_raw_node(std::move(config)));
           return v;
         },
-        [&](const lepton_error& e) -> leaf::result<lepton::raw_node> {
+        [&](const lepton_error& e) -> leaf::result<lepton::core::raw_node> {
           LEPTON_CRITICAL(e.message);
           return new_error(e);
         });
@@ -85,8 +86,9 @@ static node_handle new_node_test_harness(asio::any_io_executor executor, lepton:
   return n;
 }
 
-static asio::awaitable<lepton::ready_handle> ready_with_timeout(asio::any_io_executor executor, lepton::node& n,
-                                                                std::chrono::nanoseconds timeout) {
+static asio::awaitable<lepton::core::ready_handle> ready_with_timeout(asio::any_io_executor executor,
+                                                                      lepton::core::node& n,
+                                                                      std::chrono::nanoseconds timeout) {
   asio::steady_timer timeout_timer(executor, timeout);
   auto result = co_await (n.wait_ready(executor) || timeout_timer.async_wait(asio::as_tuple(asio::use_awaitable)));
   switch (result.index()) {
@@ -101,7 +103,8 @@ static asio::awaitable<lepton::ready_handle> ready_with_timeout(asio::any_io_exe
   co_return nullptr;
 }
 
-static asio::awaitable<lepton::ready_handle> ready_with_timeout(asio::any_io_executor executor, lepton::node& n) {
+static asio::awaitable<lepton::core::ready_handle> ready_with_timeout(asio::any_io_executor executor,
+                                                                      lepton::core::node& n) {
   auto result = co_await ready_with_timeout(executor, n, std::chrono::seconds(1));
   co_return result;
 }
@@ -138,10 +141,10 @@ TEST_F(node_test_suit, test_node_step) {
     auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
     // auto& mm_storage = *mm_storage_ptr;
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-    auto raw_node_result = lepton::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
+    auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
     ASSERT_TRUE(raw_node_result);
     auto& raw_node = *raw_node_result;
-    lepton::node n(io.get_executor(), std::move(raw_node));
+    lepton::core::node n(io.get_executor(), std::move(raw_node));
     // Proposal goes to proc chan. Others go to recvc chan.
     auto fut = asio::co_spawn(
         io,
@@ -167,7 +170,7 @@ TEST_F(node_test_suit, test_node_step) {
             auto msg_result = n.recv_chan_.raw_channel().try_receive([&](asio::error_code _, raftpb::message msg) {
               EXPECT_EQ(msg_type, msg.type()) << "msg type: " << magic_enum::enum_name(msg_type);
             });
-            if (lepton::pb::is_local_msg(msg_type)) {
+            if (lepton::core::pb::is_local_msg(msg_type)) {
               EXPECT_FALSE(msg_result) << "msg type: " << magic_enum::enum_name(msg_type);
             } else {
               EXPECT_TRUE(msg_result) << "msg type: " << magic_enum::enum_name(msg_type);  // 非本地消息应该收到
@@ -185,13 +188,13 @@ TEST_F(node_test_suit, test_node_step) {
 // TestNodeStepUnblock should Cancel and Stop should unblock Step()
 TEST_F(node_test_suit, test_node_step_unblock) {
   struct test_case {
-    std::function<void(lepton::node& n, asio::io_context& io)> unblock;
+    std::function<void(lepton::core::node& n, asio::io_context& io)> unblock;
     std::error_code expected_error;
   };
 
   // C++ 中没有context概念，所以不验证该测试case
   std::vector<test_case> tests;
-  tests.push_back(test_case{[&](lepton::node& n, asio::io_context& io) {  // 用一个协程作为 "run 已启动" 的标记
+  tests.push_back(test_case{[&](lepton::core::node& n, asio::io_context& io) {  // 用一个协程作为 "run 已启动" 的标记
                               asio::co_spawn(
                                   io,
                                   [&]() -> asio::awaitable<void> {
@@ -213,12 +216,12 @@ TEST_F(node_test_suit, test_node_step_unblock) {
 
     auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
-    auto raw_node_result = lepton::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
+    auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 3, 1, std::move(storage_proxy)));
     ASSERT_TRUE(raw_node_result);
     auto& raw_node = *raw_node_result;
 
     // 创建 node（未运行主 loop）
-    lepton::node n(io.get_executor(), std::move(raw_node));
+    lepton::core::node n(io.get_executor(), std::move(raw_node));
 
     const auto& tt = tests[i];
 
@@ -259,19 +262,19 @@ TEST_F(node_test_suit, test_node_step_unblock) {
 
 // TestNodePropose ensures that node.Propose sends the given proposal to the underlying raft.
 TEST_F(node_test_suit, test_node_propose) {
-  lepton::pb::repeated_message msgs;
+  lepton::core::pb::repeated_message msgs;
 
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
 
   // 创建配置和节点
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto raw_node = *std::move(raw_node_result);
 
   asio::io_context io_context;
-  lepton::node n(io_context.get_executor(), std::move(raw_node));
+  lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
   // 启动节点运行协程
   asio::co_spawn(
@@ -308,8 +311,9 @@ TEST_F(node_test_suit, test_node_propose) {
           // 检查是否成为leader
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
-            n.raw_node_.raft_.step_func_ = [&](lepton::raft& _, raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::describe_message(msg, nullptr));
+            n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
+                                               raftpb::message&& msg) -> lepton::leaf::result<void> {
+              SPDLOG_INFO(lepton::core::describe_message(msg, nullptr));
               if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
                 return {};  // injected by (*raft).advance
               }
@@ -368,9 +372,9 @@ TEST_F(node_test_suit, test_disable_proposal_forwarding) {
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
-        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
-        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
-        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::core::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::core::state_type::FOLLOWER, 1, 1},
     };
     check_raft_node_after_send_msg(tests);
   }
@@ -408,9 +412,9 @@ TEST_F(node_test_suit, test_node_read_index_to_old_leader) {
   nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
-        {nt.peers.at(1).raft_handle, lepton::state_type::LEADER, 1, 1},
-        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
-        {nt.peers.at(3).raft_handle, lepton::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
+        {nt.peers.at(2).raft_handle, lepton::core::state_type::FOLLOWER, 1, 1},
+        {nt.peers.at(3).raft_handle, lepton::core::state_type::FOLLOWER, 1, 1},
     };
     check_raft_node_after_send_msg(tests);
   }
@@ -435,9 +439,9 @@ TEST_F(node_test_suit, test_node_read_index_to_old_leader) {
   nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
-        {nt.peers.at(1).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
-        {nt.peers.at(2).raft_handle, lepton::state_type::FOLLOWER, 2, 2},
-        {nt.peers.at(3).raft_handle, lepton::state_type::LEADER, 2, 2},
+        {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(2).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
+        {nt.peers.at(3).raft_handle, lepton::core::state_type::LEADER, 2, 2},
     };
     check_raft_node_after_send_msg(tests);
   }
@@ -457,19 +461,19 @@ TEST_F(node_test_suit, test_node_read_index_to_old_leader) {
 // TestNodeProposeConfig ensures that node.ProposeConfChange sends the given configuration proposal
 // to the underlying raft.
 TEST_F(node_test_suit, test_node_propose_config) {
-  lepton::pb::repeated_message msgs;
+  lepton::core::pb::repeated_message msgs;
 
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
 
   // 创建配置和节点
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto raw_node = *std::move(raw_node_result);
 
   asio::io_context io_context;
-  lepton::node n(io_context.get_executor(), std::move(raw_node));
+  lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
   // 启动节点运行协程
   asio::co_spawn(
@@ -506,8 +510,9 @@ TEST_F(node_test_suit, test_node_propose_config) {
           // 检查是否成为leader
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
-            n.raw_node_.raft_.step_func_ = [&](lepton::raft& _, raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::describe_message(msg, nullptr));
+            n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
+                                               raftpb::message&& msg) -> lepton::leaf::result<void> {
+              SPDLOG_INFO(lepton::core::describe_message(msg, nullptr));
               if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
                 return {};  // injected by (*raft).advance
               }
@@ -522,8 +527,8 @@ TEST_F(node_test_suit, test_node_propose_config) {
         }
 
         // 提出提案
-        auto cc =
-            lepton::pb::conf_change_as_v2(create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE));
+        auto cc = lepton::core::pb::conf_change_as_v2(
+            create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE));
         msg_data = cc.SerializeAsString();
         co_await n.propose_conf_change(cc);
 
@@ -563,12 +568,12 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
       [&]() -> asio::awaitable<void> {
         // 发起竞选
         co_await node_handle->campaign();
-        lepton::pb::repeated_entry all_committed_entries;
+        lepton::core::pb::repeated_entry all_committed_entries;
         asio::steady_timer timer(io_context.get_executor());
         timer.expires_after(std::chrono::milliseconds(100));
-        lepton::signal_channel goroutine_stopped_chan(io_context.get_executor());
-        lepton::signal_channel apply_conf_chan(io_context.get_executor());
-        lepton::signal_channel cancel_chan(io_context.get_executor());
+        lepton::core::signal_channel goroutine_stopped_chan(io_context.get_executor());
+        lepton::core::signal_channel apply_conf_chan(io_context.get_executor());
+        lepton::core::signal_channel cancel_chan(io_context.get_executor());
 
         auto rd_result = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
         auto& rd = *rd_result;
@@ -601,7 +606,7 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
                 SPDLOG_INFO("receive new ready");
                 auto msg_result = std::get<2>(result);
                 auto& rd = *msg_result.value();
-                SPDLOG_INFO(lepton::describe_ready(rd, nullptr));
+                SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
                 SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
                             mm_storage.last_index().value(), rd.entries.size());
                 EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
@@ -615,7 +620,7 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
                     case raftpb::ENTRY_CONF_CHANGE: {
                       raftpb::conf_change cc;
                       EXPECT_TRUE(cc.ParseFromString(entry.data()));
-                      co_await node_handle->apply_conf_change(lepton::pb::conf_change_var_as_v2(cc));
+                      co_await node_handle->apply_conf_change(lepton::core::pb::conf_change_var_as_v2(cc));
                       applied = true;
                       break;
                     }
@@ -691,15 +696,15 @@ TEST_F(node_test_suit, test_block_proposal) {
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
 
   // 创建配置和节点
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto raw_node = *std::move(raw_node_result);
 
   asio::io_context io_context;
-  lepton::node n(io_context.get_executor(), std::move(raw_node));
+  lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
   n.start_run();
-  lepton::channel<std::error_code> err_chan(io_context.get_executor());
+  lepton::core::channel<std::error_code> err_chan(io_context.get_executor());
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
@@ -751,19 +756,19 @@ TEST_F(node_test_suit, test_block_proposal) {
 }
 
 TEST_F(node_test_suit, test_node_propose_wait_dropped) {
-  lepton::pb::repeated_message msgs;
+  lepton::core::pb::repeated_message msgs;
 
   auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
 
   // 创建配置和节点
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto raw_node = *std::move(raw_node_result);
 
   asio::io_context io_context;
-  lepton::node n(io_context.get_executor(), std::move(raw_node));
+  lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
   // 启动节点运行协程
   n.start_run();
@@ -790,8 +795,9 @@ TEST_F(node_test_suit, test_node_propose_wait_dropped) {
           // 检查是否成为leader
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
-            n.raw_node_.raft_.step_func_ = [&](lepton::raft& _, raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::describe_message(msg, nullptr));
+            n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
+                                               raftpb::message&& msg) -> lepton::leaf::result<void> {
+              SPDLOG_INFO(lepton::core::describe_message(msg, nullptr));
               if ((msg.type() == raftpb::message_type::MSG_PROP) &&
                   (msg.DebugString().find("test_dropping")) != std::string::npos) {
                 return new_error(lepton::raft_error::PROPOSAL_DROPPED);
@@ -835,12 +841,12 @@ TEST_F(node_test_suit, test_node_tick) {
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
 
   // 创建配置和节点
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto raw_node = *std::move(raw_node_result);
 
   asio::io_context io_context;
-  lepton::node n(io_context.get_executor(), std::move(raw_node));
+  lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
   // 启动节点运行协程
   n.start_run();
@@ -868,12 +874,12 @@ TEST_F(node_test_suit, test_node_simple_stop) {
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
 
   // 创建配置和节点
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto raw_node = *std::move(raw_node_result);
 
   asio::io_context io_context;
-  lepton::node n(io_context.get_executor(), std::move(raw_node));
+  lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
   asio::co_spawn(
       io_context,
@@ -904,14 +910,14 @@ TEST_F(node_test_suit, test_node_stop) {
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
 
   // 创建配置和节点
-  auto raw_node_result = lepton::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto raw_node_result = lepton::core::new_raw_node(new_test_config(1, 10, 1, std::move(storage_proxy)));
   ASSERT_TRUE(raw_node_result);
   auto raw_node = *std::move(raw_node_result);
 
   asio::io_context io_context;
-  lepton::node n(io_context.get_executor(), std::move(raw_node));
+  lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
-  lepton::signal_channel done_chann{io_context.get_executor()};
+  lepton::core::signal_channel done_chann{io_context.get_executor()};
 
   // 启动节点运行协程
   asio::co_spawn(
@@ -950,7 +956,7 @@ TEST_F(node_test_suit, test_node_stop) {
             break;
           }
         }
-        lepton::status empty_status{};
+        lepton::core::status empty_status{};
         EXPECT_FALSE(compare_status(empty_status, running_status));
         // Further status should return be empty, the node is stopped.
         auto stop_status_result = co_await n.status();
@@ -970,9 +976,9 @@ TEST_F(node_test_suit, test_node_stop) {
 TEST_F(node_test_suit, test_node_start) {
   auto cc = create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
   auto ccdata = cc.SerializeAsString();
-  std::vector<lepton::ready> wants;
+  std::vector<lepton::core::ready> wants;
   {
-    lepton::ready ready;
+    lepton::core::ready ready;
     ready.hard_state.set_term(1);
     ready.hard_state.set_commit(1);
     raftpb::entry entry;
@@ -987,7 +993,7 @@ TEST_F(node_test_suit, test_node_start) {
   }
   {
     // 第二个 Ready
-    lepton::ready ready;
+    lepton::core::ready ready;
     ready.hard_state.set_term(2);
     ready.hard_state.set_commit(2);
     ready.hard_state.set_vote(1);
@@ -1011,7 +1017,7 @@ TEST_F(node_test_suit, test_node_start) {
   }
   {
     // 第三个 Ready
-    lepton::ready ready;
+    lepton::core::ready ready;
     ready.hard_state.set_term(2);
     ready.hard_state.set_commit(3);
     ready.hard_state.set_vote(1);
@@ -1034,7 +1040,7 @@ TEST_F(node_test_suit, test_node_start) {
   // 创建配置和节点
   auto config = new_test_config(1, 10, 1, std::move(storage_proxy));
   asio::io_context io_context;
-  auto n = lepton::start_node(io_context.get_executor(), std::move(config), {lepton::peer{.ID = 1}});
+  auto n = lepton::core::start_node(io_context.get_executor(), std::move(config), {lepton::core::peer{.ID = 1}});
   // auto& r = n->raw_node_.raft_;
 
   asio::co_spawn(
@@ -1055,7 +1061,7 @@ TEST_F(node_test_suit, test_node_start) {
           co_await n->advance();
           // SPDLOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
           //             r.raft_log_handle().committed(), r.term());
-          // EXPECT_EQ(lepton::state_type::FOLLOWER, r.state_type_);
+          // EXPECT_EQ(lepton::core::state_type::FOLLOWER, r.state_type_);
           // EXPECT_EQ(1, r.raft_log_handle().committed());
           // EXPECT_EQ(1, r.term());
         }
@@ -1066,7 +1072,7 @@ TEST_F(node_test_suit, test_node_start) {
           auto result = co_await n->campaign();
           EXPECT_TRUE(result);
           SPDLOG_INFO("node send campaign msg successful");
-          // EXPECT_EQ(lepton::state_type::CANDIDATE, r.state_type_);
+          // EXPECT_EQ(lepton::core::state_type::CANDIDATE, r.state_type_);
           // EXPECT_EQ(1, r.raft_log_handle().committed());
           // EXPECT_EQ(2, r.term());
           // SPDLOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
@@ -1089,7 +1095,7 @@ TEST_F(node_test_suit, test_node_start) {
           co_await n->advance();
           // SPDLOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
           //             r.raft_log_handle().committed(), r.term());
-          // EXPECT_EQ(lepton::state_type::CANDIDATE, r.state_type_);
+          // EXPECT_EQ(lepton::core::state_type::CANDIDATE, r.state_type_);
           // EXPECT_EQ(1, r.raft_log_handle().committed());
           // EXPECT_EQ(2, r.term());
         }
@@ -1109,7 +1115,7 @@ TEST_F(node_test_suit, test_node_start) {
           co_await n->advance();
           // SPDLOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
           //             r.raft_log_handle().committed(), r.term());
-          // EXPECT_EQ(lepton::state_type::LEADER, r.state_type_);
+          // EXPECT_EQ(lepton::core::state_type::LEADER, r.state_type_);
           // EXPECT_EQ(1, r.raft_log_handle().committed());
           // EXPECT_EQ(2, r.term());
         }
@@ -1164,7 +1170,7 @@ TEST_F(node_test_suit, test_node_start) {
 }
 
 TEST_F(node_test_suit, test_node_restart) {
-  lepton::pb::repeated_entry entries;
+  lepton::core::pb::repeated_entry entries;
   {
     auto entry = entries.Add();
     entry->set_term(1);
@@ -1185,7 +1191,7 @@ TEST_F(node_test_suit, test_node_restart) {
   want_rd.hard_state = raftpb::hard_state{};
   // commit up to index commit index in st
   want_rd.committed_entries =
-      lepton::pb::repeated_entry{entries.begin(), entries.begin() + static_cast<int>(hs.commit())};
+      lepton::core::pb::repeated_entry{entries.begin(), entries.begin() + static_cast<int>(hs.commit())};
   ASSERT_EQ(1, want_rd.committed_entries.size());
   // MustSync is false because no HardState or new entries are provided.
   want_rd.must_sync = false;
@@ -1197,7 +1203,7 @@ TEST_F(node_test_suit, test_node_restart) {
   ASSERT_TRUE(mm_storage.append(std::move(entries)));
 
   asio::io_context io_context;
-  auto n = lepton::restart_node(io_context.get_executor(), new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto n = lepton::core::restart_node(io_context.get_executor(), new_test_config(1, 10, 1, std::move(storage_proxy)));
 
   asio::co_spawn(
       io_context,
@@ -1219,7 +1225,7 @@ TEST_F(node_test_suit, test_node_restart) {
 TEST_F(node_test_suit, test_node_restart_from_snapshot) {
   auto snap = create_snapshot(2, 1, {1, 2});
 
-  lepton::pb::repeated_entry entries;
+  lepton::core::pb::repeated_entry entries;
   auto& entry = *entries.Add();
   entry.set_term(1);
   entry.set_index(3);
@@ -1247,7 +1253,7 @@ TEST_F(node_test_suit, test_node_restart_from_snapshot) {
   ASSERT_TRUE(mm_storage.append(std::move(entries)));
 
   asio::io_context io_context;
-  auto n = lepton::restart_node(io_context.get_executor(), new_test_config(1, 10, 1, std::move(storage_proxy)));
+  auto n = lepton::core::restart_node(io_context.get_executor(), new_test_config(1, 10, 1, std::move(storage_proxy)));
 
   asio::co_spawn(
       io_context,
@@ -1330,16 +1336,16 @@ TEST_F(node_test_suit, test_node_advance) {
 
 TEST_F(node_test_suit, test_soft_state_equal) {
   struct test_case {
-    lepton::soft_state st;
+    lepton::core::soft_state st;
     bool wt;
   };
   std::vector<test_case> tests = {
-      {.st = lepton::soft_state{}, .wt = true},
-      {.st = lepton::soft_state{.leader_id = 1}, .wt = false},
-      {.st = lepton::soft_state{.raft_state = lepton::state_type::LEADER}, .wt = false},
+      {.st = lepton::core::soft_state{}, .wt = true},
+      {.st = lepton::core::soft_state{.leader_id = 1}, .wt = false},
+      {.st = lepton::core::soft_state{.raft_state = lepton::core::state_type::LEADER}, .wt = false},
   };
   for (const auto& iter : tests) {
-    ASSERT_EQ(iter.wt, iter.st == lepton::soft_state{});
+    ASSERT_EQ(iter.wt, iter.st == lepton::core::soft_state{});
   }
 }
 
@@ -1367,7 +1373,7 @@ TEST_F(node_test_suit, test_is_hard_state_equal) {
     tests.emplace_back(test_case{.hs = hs, .wt = false});
   }
   for (const auto& iter : tests) {
-    ASSERT_EQ(iter.wt, lepton::pb::is_empty_hard_state(iter.hs));
+    ASSERT_EQ(iter.wt, lepton::core::pb::is_empty_hard_state(iter.hs));
   }
 }
 
@@ -1389,9 +1395,9 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
         co_await node_handle->campaign();
         asio::steady_timer timer(io_context.get_executor());
         timer.expires_after(std::chrono::milliseconds(100));
-        lepton::signal_channel goroutine_stopped_chan(io_context.get_executor());
-        lepton::signal_channel apply_conf_chan(io_context.get_executor());
-        lepton::signal_channel cancel_chan(io_context.get_executor());
+        lepton::core::signal_channel goroutine_stopped_chan(io_context.get_executor());
+        lepton::core::signal_channel apply_conf_chan(io_context.get_executor());
+        lepton::core::signal_channel cancel_chan(io_context.get_executor());
 
         auto running_loop = true;
         auto sub_loop = [&]() -> asio::awaitable<void> {
@@ -1414,9 +1420,9 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
               case 2: {
                 auto msg_result = std::get<2>(result);
                 auto& rd = *msg_result.value();
-                SPDLOG_INFO("receive new ready:\n{}", lepton::describe_ready(rd, nullptr));
+                SPDLOG_INFO("receive new ready:\n{}", lepton::core::describe_ready(rd, nullptr));
 
-                EXPECT_TRUE(mm_storage.append(lepton::pb::repeated_entry{rd.entries}));
+                EXPECT_TRUE(mm_storage.append(lepton::core::pb::repeated_entry{rd.entries}));
 
                 for (auto& entry : rd.entries) {
                   auto entry_type = entry.type();
@@ -1424,7 +1430,7 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
                     case raftpb::ENTRY_CONF_CHANGE: {
                       raftpb::conf_change cc;
                       EXPECT_TRUE(cc.ParseFromString(entry.data()));
-                      co_await node_handle->apply_conf_change(lepton::pb::conf_change_var_as_v2(cc));
+                      co_await node_handle->apply_conf_change(lepton::core::pb::conf_change_var_as_v2(cc));
                       co_await apply_conf_chan.async_send(asio::error_code{});
                       break;
                     }
@@ -1476,7 +1482,8 @@ TEST_F(node_test_suit, test_append_pagination) {
   emplace_nil_peer(peers);
   emplace_nil_peer(peers);
   emplace_nil_peer(peers);
-  auto n = new_network_with_config([](lepton::config& c) { c.max_size_per_msg = max_size_per_msg; }, std::move(peers));
+  auto n =
+      new_network_with_config([](lepton::core::config& c) { c.max_size_per_msg = max_size_per_msg; }, std::move(peers));
 
   auto seen_full_message = false;
 
@@ -1610,13 +1617,13 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd, nullptr));
+          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
           EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
-            auto resp_msg = lepton::describe_message(resp, nullptr);
+            auto resp_msg = lepton::core::describe_message(resp, nullptr);
             SPDLOG_INFO("[step 1] ready step message:\n{}", resp_msg);
             auto step_result = co_await node_handle->step(std::move(resp));
             SPDLOG_INFO("[step 1] step message successfult:\n{}", resp_msg);
@@ -1632,13 +1639,13 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd, nullptr));
+          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
           EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
-            auto resp_msg = lepton::describe_message(resp, nullptr);
+            auto resp_msg = lepton::core::describe_message(resp, nullptr);
             SPDLOG_INFO("[step 2] ready step message:\n{}", resp_msg);
             auto step_result = co_await node_handle->step(std::move(resp));
             SPDLOG_INFO("[step 2] step message successfult:\n{}", resp_msg);
@@ -1654,9 +1661,9 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::describe_ready(rd, nullptr));
+          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
           for (auto& m : rd.messages) {
-            SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::describe_message(m, nullptr));
+            SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::core::describe_message(m, nullptr));
           }
           EXPECT_EQ(2, rd.messages.size());
           for (auto& m : rd.messages) {
@@ -1701,7 +1708,7 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
         // Propose second entry.
         co_await node_handle->propose(std::string{blob});
 
-        lepton::pb::repeated_message apply_resps;
+        lepton::core::pb::repeated_message apply_resps;
         {
           // Append second entry. Don't apply first entry yet.
           auto rd_handle = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
@@ -1845,12 +1852,12 @@ TEST_F(node_test_suit, test_node_commit_pagination_after_restart) {
   // this and *will* return it (which is how the Commit index ended up being 10 initially).
   cfg.max_size_per_msg = size - ents.at(ents.size() - 1).ByteSizeLong() - 1;
 
-  auto raw_node_result = lepton::new_raw_node(std::move(cfg));
+  auto raw_node_result = lepton::core::new_raw_node(std::move(cfg));
   ASSERT_TRUE(raw_node_result);
   auto& raw_node = *raw_node_result;
 
   asio::io_context io_context;
-  lepton::node n(io_context.get_executor(), std::move(raw_node));
+  lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
   asio::co_spawn(
       io_context,
@@ -1859,7 +1866,7 @@ TEST_F(node_test_suit, test_node_commit_pagination_after_restart) {
         auto rd_result = co_await ready_with_timeout(io_context.get_executor(), n);
         auto& rd = *rd_result;
 
-        EXPECT_FALSE(!lepton::pb::is_empty_hard_state(rd.hard_state) &&
+        EXPECT_FALSE(!lepton::core::pb::is_empty_hard_state(rd.hard_state) &&
                      rd.hard_state.commit() < persisted_hard_state.commit());
         co_await n.stop();
         co_return;

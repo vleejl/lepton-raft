@@ -26,7 +26,7 @@
 #include "state.h"
 #include "tl/expected.hpp"
 #include "v4/proxy.h"
-namespace lepton {
+namespace lepton::core {
 
 asio::awaitable<void> node::stop() {
   const auto id = raw_node_.raft_.id();
@@ -223,12 +223,13 @@ asio::awaitable<expected<raftpb::conf_state>> node::apply_conf_change(raftpb::co
   co_return cs;
 }
 
-asio::awaitable<expected<lepton::status>> node::status() {
+asio::awaitable<expected<lepton::core::status>> node::status() {
   if (!is_running()) {
     co_return tl::unexpected{raft_error::STOPPED};
   }
-  auto status_chan = std::make_shared<channel_endpoint<lepton::status>>(executor_);
-  if (auto result = co_await status_chan_.async_send(std::weak_ptr<channel_endpoint<lepton::status>>(status_chan));
+  auto status_chan = std::make_shared<channel_endpoint<lepton::core::status>>(executor_);
+  if (auto result =
+          co_await status_chan_.async_send(std::weak_ptr<channel_endpoint<lepton::core::status>>(status_chan));
       !result) {
     SPDLOG_ERROR(result.error().message());
     co_return tl::unexpected(result.error());
@@ -239,7 +240,7 @@ asio::awaitable<expected<lepton::status>> node::status() {
     SPDLOG_ERROR(result.error().message());
     co_return tl::unexpected(result.error());
   }
-  co_return tl::expected<lepton::status, std::error_code>(std::move(result.value()));
+  co_return tl::expected<lepton::core::status, std::error_code>(std::move(result.value()));
 }
 
 asio::awaitable<void> node::report_unreachable(std::uint64_t id) {
@@ -584,16 +585,16 @@ asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor 
   co_return tl::unexpected{result.error()};
 }
 
-node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers) {
+node_handle setup_node(asio::any_io_executor executor, lepton::core::config&& config, std::vector<peer>&& peers) {
   if (peers.empty()) {
     LEPTON_CRITICAL("no peers given; use RestartNode instead");
   }
   auto raw_node_result = leaf::try_handle_some(
-      [&]() -> leaf::result<lepton::raw_node> {
+      [&]() -> leaf::result<lepton::core::raw_node> {
         BOOST_LEAF_AUTO(v, new_raw_node(std::move(config)));
         return v;
       },
-      [&](const lepton_error& e) -> leaf::result<lepton::raw_node> {
+      [&](const lepton_error& e) -> leaf::result<lepton::core::raw_node> {
         LEPTON_CRITICAL(e.message);
         return new_error(e);
       });
@@ -610,19 +611,19 @@ node_handle setup_node(asio::any_io_executor executor, lepton::config&& config, 
   return std::make_unique<node>(executor, std::move(*raw_node_result));
 }
 
-node_proxy start_node(asio::any_io_executor executor, lepton::config&& config, std::vector<peer>&& peers) {
+node_proxy start_node(asio::any_io_executor executor, lepton::core::config&& config, std::vector<peer>&& peers) {
   auto node_handler = setup_node(executor, std::move(config), std::move(peers));
   node_handler->start_run();
   return node_handler;
 }
 
-node_proxy restart_node(asio::any_io_executor executor, lepton::config&& config) {
+node_proxy restart_node(asio::any_io_executor executor, lepton::core::config&& config) {
   auto raw_node_result = leaf::try_handle_some(
-      [&]() -> leaf::result<lepton::raw_node> {
+      [&]() -> leaf::result<lepton::core::raw_node> {
         BOOST_LEAF_AUTO(v, new_raw_node(std::move(config)));
         return v;
       },
-      [&](const lepton_error& e) -> leaf::result<lepton::raw_node> {
+      [&](const lepton_error& e) -> leaf::result<lepton::core::raw_node> {
         LEPTON_CRITICAL(e.message);
         return new_error(e);
       });
@@ -633,4 +634,4 @@ node_proxy restart_node(asio::any_io_executor executor, lepton::config&& config)
   return node_handler;
 }
 
-}  // namespace lepton
+}  // namespace lepton::core

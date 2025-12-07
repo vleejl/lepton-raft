@@ -7,7 +7,7 @@
 
 #include "channel_endpoint.h"
 #include "tracker.h"
-namespace lepton {
+namespace lepton::core {
 
 enum class state_type : std::uint64_t { FOLLOWER, CANDIDATE, LEADER, PRE_CANDIDATE };
 
@@ -27,7 +27,7 @@ struct basic_status {
   std::uint64_t id;
 
   raftpb::hard_state hard_state;
-  lepton::soft_state soft_state;
+  lepton::core::soft_state soft_state;
 
   std::uint64_t applied;
 
@@ -37,13 +37,13 @@ struct basic_status {
 // Status contains information about this Raft peer and its view of the system.
 // The Progress is only populated on the leader.
 struct status {
-  lepton::basic_status basic_status;
+  lepton::core::basic_status basic_status;
   tracker::config config;
   tracker::progress_map progress;
 };
 
 using status_channel = channel_endpoint<std::weak_ptr<channel_endpoint<status>>>;
 
-}  // namespace lepton
+}  // namespace lepton::core
 
 #endif  // _LEPTON_STATUS_H_

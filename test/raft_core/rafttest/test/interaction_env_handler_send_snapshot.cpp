@@ -34,7 +34,7 @@ lepton::leaf::result<void> interaction_env::send_snapshot(std::size_t from_idx, 
   msg.set_to(to);
   msg.set_term(nodes[from_idx].raw_node.basic_status().hard_state.term());
   msg.mutable_snapshot()->Swap(&snap);
-  output->write_string(lepton::describe_message(msg, nullptr));
+  output->write_string(lepton::core::describe_message(msg, nullptr));
   messages.Add(std::move(msg));
   return {};
 }

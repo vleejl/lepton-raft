@@ -23,6 +23,7 @@
 #include "tracker.h"
 #include "types.h"
 using namespace lepton;
+using namespace lepton::core;
 
 // The test files use the commands
 // - simple: run a simple conf change (i.e. no joint consensus),
@@ -38,7 +39,7 @@ static leaf::result<std::string> process_single_test_case(
     const std::string& cmd, const std::string& input, const std::map<std::string, std::vector<std::string>>& args_map,
     confchange::changer& c) {
   DEFER({ c.increase_last_index(); });
-  lepton::pb::repeated_conf_change ccs;
+  lepton::core::pb::repeated_conf_change ccs;
   std::vector<std::string> toks = absl::StrSplit(input, ' ', absl::SkipEmpty());
 
   for (const auto& tok : toks) {

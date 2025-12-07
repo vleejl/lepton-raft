@@ -14,6 +14,7 @@
 #include "test_diff.h"
 #include "test_raft_utils.h"
 using namespace lepton;
+using namespace lepton::core;
 
 class raft_snap_test_suit : public testing::Test {
  protected:

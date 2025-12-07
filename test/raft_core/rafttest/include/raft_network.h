@@ -20,7 +20,7 @@
 
 namespace rafttest {
 
-using channel_msg_handle = std::shared_ptr<lepton::channel_endpoint<raftpb::message>>;
+using channel_msg_handle = std::shared_ptr<lepton::core::channel_endpoint<raftpb::message>>;
 
 // 基础网络接口 (等价于 Go iface)
 struct iface {
@@ -50,7 +50,7 @@ class raft_network {
   explicit raft_network(asio::any_io_executor executor, const std::vector<uint64_t>& nodes)
       : executor_(executor), rng_(1) {
     for (auto n : nodes) {
-      recv_queues_[n] = std::make_shared<lepton::channel_endpoint<raftpb::message>>(executor_, 1024);
+      recv_queues_[n] = std::make_shared<lepton::core::channel_endpoint<raftpb::message>>(executor_, 1024);
       disconnected_[n] = false;
     }
   }
@@ -143,13 +143,13 @@ class raft_network {
   void connect(uint64_t id) {
     std::unique_lock lk(mu_);
     disconnected_[id] = false;
-    recv_queues_[id] = std::make_shared<lepton::channel_endpoint<raftpb::message>>(executor_, 1024);
+    recv_queues_[id] = std::make_shared<lepton::core::channel_endpoint<raftpb::message>>(executor_, 1024);
   }
 
  private:
   std::mutex mu_;
   asio::any_io_executor executor_;
-  std::map<uint64_t, std::shared_ptr<lepton::channel_endpoint<raftpb::message>>> recv_queues_;
+  std::map<uint64_t, std::shared_ptr<lepton::core::channel_endpoint<raftpb::message>>> recv_queues_;
   std::map<uint64_t, bool> disconnected_;
   std::map<conn, double> dropmap_;
   std::map<conn, struct delay> delaymap_;
