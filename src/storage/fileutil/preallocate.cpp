@@ -14,7 +14,7 @@
 #else
 #error "Unsupported platform"
 #endif
-namespace lepton {
+namespace lepton::storage::fileutil {
 
 std::error_code preallocate(int fd, uint64_t length) {
 #if defined(__linux__)
@@ -53,4 +53,4 @@ std::error_code preallocate(int fd, uint64_t length) {
 #endif
 }
 
-}  // namespace lepton
+}  // namespace lepton::storage::fileutil

@@ -14,7 +14,7 @@
 #include "tl/expected.hpp"
 #include "utility_macros.h"
 #include "v4/proxy.h"
-namespace lepton {
+namespace lepton::storage::ioutil {
 // A buffered file reader that wraps a reader and provides buffering capabilities.
 // golang bufio.Reader 类似实现
 class file_buf_reader {
@@ -102,6 +102,6 @@ class file_buf_reader {
   std::size_t buf_read_pos_;
 };
 
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil
 
 #endif  // _LEPTON_FILE_BUF_READER_H_

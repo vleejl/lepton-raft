@@ -5,7 +5,7 @@
 #include "defer.h"
 #include "path.h"
 #include "read_dir.h"
-namespace lepton {
+namespace lepton::storage::wal {
 
 // SegmentSizeBytes is the preallocated size of each wal segment file.
 // The actual size might be larger than this. In general, the default
@@ -40,7 +40,7 @@ leaf::result<void> wal_directory_manager::ensure_directory_writable(const std::s
 
 leaf::result<void> wal_directory_manager::create_dir_all(const std::string& dir_name) {
   LEPTON_LEAF_CHECK(ensure_directory_writable(dir_name));
-  BOOST_LEAF_AUTO(files, read_dir(dir_name));
+  BOOST_LEAF_AUTO(files, fileutil::read_dir(dir_name));
   if (!files.empty()) {
     return new_error(std::make_error_code(std::errc::directory_not_empty),
                      fmt::format("Directory {} is not empty", dir_name));
@@ -85,7 +85,7 @@ leaf::result<void> wal_directory_manager::create_wal(const std::string& dirpath)
       return new_error(s, fmt::format("Failed to delete existing temp dir {}: {}", temp_dir_path_str, s.ToString()));
     }
   }
-  DEFER({ remove_all(temp_dir_path_str); });
+  DEFER({ fileutil::remove_all(temp_dir_path_str); });
 
   LEPTON_LEAF_CHECK(create_dir_all(temp_dir_path_str));
 
@@ -94,4 +94,4 @@ leaf::result<void> wal_directory_manager::create_wal(const std::string& dirpath)
   LEPTON_LEAF_CHECK(file_handle.pre_allocate(SEGMENT_SIZE_BYTES));
 }
 
-}  // namespace lepton
+}  // namespace lepton::storage::wal

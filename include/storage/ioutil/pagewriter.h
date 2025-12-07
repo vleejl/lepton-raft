@@ -8,7 +8,7 @@
 #include "v4/proxy.h"
 #include "writer.h"
 
-namespace lepton {
+namespace lepton::storage::ioutil {
 
 // 128 KB
 constexpr size_t DEFAULT_BUFFER_BYTES = 128 * 1024;
@@ -83,6 +83,6 @@ class page_writer {
   const std::size_t buf_watermark_bytes_;
 };
 
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil
 
 #endif  // _LEPTON_PAGEWRITER_H_

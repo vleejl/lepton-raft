@@ -8,7 +8,7 @@
 #include "byte_span.h"
 #include "expected.h"
 
-namespace lepton {
+namespace lepton::storage::ioutil {
 
 PRO_DEF_MEM_DISPATCH(writer_write, write);
 
@@ -22,6 +22,6 @@ struct writer : pro::facade_builder
   ::build{};
 // clang-format on
 
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil
 
 #endif  // _LEPTON_WRITER_H_

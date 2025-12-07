@@ -10,7 +10,7 @@
 #include "expected.h"
 #include "lepton_error.h"
 
-namespace lepton {
+namespace lepton::storage::ioutil {
 
 PRO_DEF_MEM_DISPATCH(reader_read, read);
 
@@ -30,6 +30,6 @@ struct reader : pro::facade_builder
   ::build{};
 // clang-format on
 
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil
 
 #endif  // _LEPTON_READER_H_

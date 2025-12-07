@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "lepton_error.h"
-namespace lepton {
+namespace lepton::storage::fileutil {
 
 class read_dir_op {
  private:
@@ -53,6 +53,6 @@ std::vector<read_dir_op::option> make_options(Options&&... options) {
   return {std::forward<Options>(options)...};
 }
 
-}  // namespace lepton
+}  // namespace lepton::storage::fileutil
 
 #endif  // _LEPTON_READ_DIR_H_

@@ -5,7 +5,7 @@
 #include "reader.h"
 #include "tl/expected.hpp"
 
-namespace lepton {
+namespace lepton::storage::ioutil {
 
 asio::awaitable<expected<std::size_t>> read_at_least(pro::proxy_view<reader> r, asio::mutable_buffer buf,
                                                      std::size_t min) {
@@ -41,4 +41,4 @@ asio::awaitable<expected<std::size_t>> read_at_least(pro::proxy_view<reader> r, 
 asio::awaitable<expected<std::size_t>> read_full(pro::proxy_view<reader> r, asio::mutable_buffer buf) {
   co_return co_await read_at_least(r, buf, buf.size());
 }
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil

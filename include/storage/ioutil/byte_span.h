@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "fixed_byte_buffer.h"
-namespace lepton {
+namespace lepton::storage::ioutil {
 
 class byte_span {
  public:
@@ -51,6 +51,6 @@ class byte_span {
   std::span<const std::byte> view_;
 };
 
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil
 
 #endif  // _LEPTON_BYTE_SPAN_H_

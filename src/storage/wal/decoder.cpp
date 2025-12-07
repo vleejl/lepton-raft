@@ -21,7 +21,7 @@
 #include "tl/expected.hpp"
 #include "v4/proxy.h"
 #include "wal_protobuf.h"
-namespace lepton {
+namespace lepton::storage::wal {
 
 /*
 WAL 文件结构：
@@ -38,7 +38,7 @@ etcd 中每条 WAL entry 都以前 8 字节开头，这 8 字节是一个 int64�
 // frameSizeBytes is frame size in bytes, including record size and padding size
 constexpr std::size_t FRAME_SIZE_BYTES = 8;
 
-static asio::awaitable<expected<std::uint64_t>> read_uint64(pro::proxy_view<reader> reader) {
+static asio::awaitable<expected<std::uint64_t>> read_uint64(pro::proxy_view<ioutil::reader> reader) {
   std::uint64_t n = 0;
   std::array<std::byte, sizeof(n)> buf;
   auto read_result = co_await reader->async_read(asio::buffer(buf));
@@ -98,11 +98,12 @@ static std::pair<uint64_t, uint64_t> decode_frame_size(uint64_t len_field) {
   return {rec_bytes, pad_bytes};
 }
 
-decoder::decoder(const std::vector<pro::proxy_view<reader>>& readers)
-    : crc_(absl::crc32c_t()), last_valid_off_(0), continue_on_crc_error_(false) {
+decoder::decoder(std::shared_ptr<lepton::logger_interface> logger,
+                 const std::vector<pro::proxy_view<ioutil::reader>>& readers)
+    : crc_(absl::crc32c_t()), last_valid_off_(0), continue_on_crc_error_(false), logger_(std::move(logger)) {
   readers_.reserve(readers.size());
   for (const auto& r : readers) {
-    readers_.emplace_back(pro::make_proxy<reader, file_buf_reader>(r));
+    readers_.emplace_back(pro::make_proxy<ioutil::reader, ioutil::file_buf_reader>(r));
   }
 }
 
@@ -148,7 +149,7 @@ asio::awaitable<expected<void>> decoder::decode_record_impl(walpb::record& rec) 
     co_return tl::unexpected(io_error::UNEXPECTED_EOF);
   }
 
-  fixed_byte_buffer record_buf(static_cast<std::size_t>(rec_bytes + pad_bytes));
+  ioutil::fixed_byte_buffer record_buf(static_cast<std::size_t>(rec_bytes + pad_bytes));
   auto read_full_result = co_await read_full(buf_reader, record_buf.asio_mutable_buffer());
   if (!read_full_result) {
     // ReadFull returns io.EOF only if no bytes were read
@@ -190,7 +191,7 @@ asio::awaitable<expected<void>> decoder::decode_record_impl(walpb::record& rec) 
   co_return ok();
 }
 
-bool decoder::is_torn_entry(fixed_byte_buffer& record_buf) const {
+bool decoder::is_torn_entry(ioutil::fixed_byte_buffer& record_buf) const {
   if (readers_.size() != 1) {
     // 必须是最后一个文件（=最后一个 WAL segment）
     // 因为 torn write 只可能发生在当前 WAL 的最后一个 segment 的末尾。
@@ -227,4 +228,4 @@ bool decoder::is_torn_entry(fixed_byte_buffer& record_buf) const {
   return false;
 }
 
-}  // namespace lepton
+}  // namespace lepton::storage::wal

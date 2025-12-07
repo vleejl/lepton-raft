@@ -5,7 +5,7 @@
 #include <span>
 #include <vector>
 
-namespace lepton {
+namespace lepton::storage::ioutil {
 
 class fixed_byte_buffer {
  public:
@@ -68,6 +68,6 @@ class fixed_byte_buffer {
   std::vector<std::byte> buf_;
 };
 
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil
 
 #endif  // _LEPTON_FIXED_BYTE_BUFFER_H_

@@ -14,7 +14,7 @@
 #include "leaf.h"
 #include "lepton_error.h"
 #include "utility_macros.h"
-namespace lepton {
+namespace lepton::storage::wal {
 class wal_file {
  public:
   MOVABLE_BUT_NOT_COPYABLE(wal_file)
@@ -47,9 +47,9 @@ class wal_file {
 
   asio::awaitable<expected<std::size_t>> async_read(asio::mutable_buffer buffer);
 
-  leaf::result<std::size_t> write(byte_span data);
+  leaf::result<std::size_t> write(ioutil::byte_span data);
 
-  asio::awaitable<expected<std::size_t>> async_write(byte_span data);
+  asio::awaitable<expected<std::size_t>> async_write(ioutil::byte_span data);
 
   auto& file() { return file_; }
 
@@ -59,6 +59,6 @@ class wal_file {
   rocksdb::Env* env_;
   rocksdb::FileLock* lock = nullptr;
 };
-}  // namespace lepton
+}  // namespace lepton::storage::wal
 
 #endif  // _LEPTON_WAL_FILE_H_

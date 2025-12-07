@@ -4,7 +4,7 @@
 #include "expected.h"
 #include "proxy.h"
 #include "reader.h"
-namespace lepton {
+namespace lepton::storage::ioutil {
 
 // ReadAtLeast reads from r into buf until it has read at least min bytes.
 // It returns the number of bytes copied and an error if fewer bytes were read.
@@ -25,6 +25,6 @@ asio::awaitable<expected<std::size_t>> read_at_least(pro::proxy_view<reader> r, 
 // On return, n == len(buf) if and only if err == nil.
 // If r returns an error having read at least len(buf) bytes, the error is dropped.
 asio::awaitable<expected<std::size_t>> read_full(pro::proxy_view<reader> r, asio::mutable_buffer buf);
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil
 
 #endif  // _LEPTON_IO_H_

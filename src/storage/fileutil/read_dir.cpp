@@ -9,7 +9,7 @@
 #include "lepton_error.h"
 namespace fs = std::filesystem;
 
-namespace lepton {
+namespace lepton::storage::fileutil {
 
 leaf::result<std::vector<std::string>> read_dir(const std::string& directory,
                                                 const std::vector<read_dir_op::option>& opts) {
@@ -59,4 +59,4 @@ leaf::result<std::vector<std::string>> read_dir(const std::string& directory,
   return files;
 }
 
-}  // namespace lepton
+}  // namespace lepton::storage::fileutil

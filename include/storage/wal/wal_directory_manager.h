@@ -8,7 +8,7 @@
 
 #include "lepton_error.h"
 #include "wal_file.h"
-namespace lepton {
+namespace lepton::storage::wal {
 class wal_directory_manager {
  public:
   bool file_exist(const std::string& file_name) { return env_->FileExists(file_name).ok(); }
@@ -36,6 +36,6 @@ class wal_directory_manager {
   rocksdb::Env* env_;
   asio::any_io_executor executor_;
 };
-}  // namespace lepton
+}  // namespace lepton::storage::wal
 
 #endif  // _LEPTON_WAL_DIRECTORY_MANAGER_H_

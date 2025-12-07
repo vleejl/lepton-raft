@@ -2,7 +2,7 @@
 
 #include "asio/error_code.hpp"
 #include "preallocate.h"
-namespace lepton {
+namespace lepton::storage::wal {
 
 leaf::result<std::size_t> wal_file::size() const {
   std::size_t file_size = 0;
@@ -22,7 +22,7 @@ leaf::result<void> wal_file::seek_to_end() {
 }
 
 leaf::result<void> wal_file::pre_allocate(uint64_t length) {
-  if (auto ec = preallocate(file_.native_handle(), length); ec) {
+  if (auto ec = fileutil::preallocate(file_.native_handle(), length); ec) {
     return new_error(ec);
   }
   return {};
@@ -46,7 +46,7 @@ asio::awaitable<expected<std::size_t>> wal_file::async_read(asio::mutable_buffer
   co_return read_size;
 }
 
-leaf::result<std::size_t> wal_file::write(byte_span data) {
+leaf::result<std::size_t> wal_file::write(ioutil::byte_span data) {
   std::error_code ec;
   auto write_size = file_.write_some(asio::buffer(data.data(), data.size()), ec);
   if (ec) {
@@ -55,7 +55,7 @@ leaf::result<std::size_t> wal_file::write(byte_span data) {
   return write_size;
 }
 
-asio::awaitable<expected<std::size_t>> wal_file::async_write(byte_span data) {
+asio::awaitable<expected<std::size_t>> wal_file::async_write(ioutil::byte_span data) {
   std::error_code ec;
   auto write_size = co_await file_.async_write_some(asio::buffer(data.data(), data.size()),
                                                     asio::redirect_error(asio::use_awaitable, ec));
@@ -65,4 +65,4 @@ asio::awaitable<expected<std::size_t>> wal_file::async_write(byte_span data) {
   co_return write_size;
 }
 
-}  // namespace lepton
+}  // namespace lepton::storage::wal

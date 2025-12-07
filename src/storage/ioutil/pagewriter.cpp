@@ -5,7 +5,7 @@
 #include "expected.h"
 #include "tl/expected.hpp"
 #include "v4/proxy.h"
-namespace lepton {
+namespace lepton::storage::ioutil {
 
 asio::awaitable<expected<std::size_t>> page_writer::async_write(byte_span data) {
   size_t n = 0;
@@ -86,4 +86,4 @@ asio::awaitable<expected<void>> page_writer::async_flush() {
   co_return ok();
 }
 
-}  // namespace lepton
+}  // namespace lepton::storage::ioutil

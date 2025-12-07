@@ -13,14 +13,15 @@
 #include "reader.h"
 #include "utility_macros.h"
 #include "v4/proxy.h"
-namespace lepton {
+namespace lepton::storage::wal {
 
 constexpr std::size_t MIN_SECTOR_SIZE = 512;
 
 class decoder {
  public:
   NOT_COPYABLE(decoder)
-  explicit decoder(const std::vector<pro::proxy_view<reader>>& readers = {});
+  decoder(std::shared_ptr<lepton::logger_interface> logger,
+          const std::vector<pro::proxy_view<ioutil::reader>>& readers = {});
 
   // Decode reads the next record out of the file.
   // In the success path, fills 'rec' and returns nil.
@@ -35,13 +36,13 @@ class decoder {
   // isTornEntry determines whether the last entry of the WAL was partially written
   // and corrupted because of a torn write.
   // 判断 WAL 的最后一个 entry 是否是 torn write（写一半断电导致的“撕裂写入”）。
-  bool is_torn_entry(fixed_byte_buffer& record_buf) const;
+  bool is_torn_entry(ioutil::fixed_byte_buffer& record_buf) const;
 
  private:
   std::mutex mutex_;
   absl::crc32c_t crc_;
   // 每个 segment 文件一个 reader
-  std::vector<pro::proxy<reader>> readers_;
+  std::vector<pro::proxy<ioutil::reader>> readers_;
 
   // lastValidOff file offset following the last valid decoded record
   std::uint64_t last_valid_off_ = 0;
@@ -54,6 +55,6 @@ class decoder {
   std::shared_ptr<lepton::logger_interface> logger_;
 };
 
-}  // namespace lepton
+}  // namespace lepton::storage::wal
 
 #endif  // _LEPTON_DECODER_H_
