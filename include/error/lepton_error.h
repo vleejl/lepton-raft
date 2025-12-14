@@ -9,6 +9,7 @@
 #include "io_error.h"
 #include "leaf.h"
 #include "logic_error.h"
+#include "protobuf_error.h"
 #include "raft_error.h"
 #include "storage_error.h"
 
@@ -18,10 +19,11 @@
 namespace lepton {
 
 template <typename T>
-inline constexpr bool is_lepton_error_v = std::is_same_v<T, io_error> || std::is_same_v<T, logic_error> ||
-                                          std::is_same_v<T, raft_error> || std::is_same_v<T, storage_error>
+inline constexpr bool is_lepton_error_v =
+    std::is_same_v<T, io_error> || std::is_same_v<T, logic_error> || std::is_same_v<T, raft_error> ||
+    std::is_same_v<T, storage_error> || std::is_same_v<T, protobuf_error>
 #ifdef LEPTON_STORAGE
-                                          || std::is_same_v<T, rocksdb::Status>
+    || std::is_same_v<T, rocksdb::Status>
 #endif
     ;
 

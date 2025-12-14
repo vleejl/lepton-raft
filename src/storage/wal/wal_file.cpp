@@ -1,6 +1,11 @@
 #include "wal_file.h"
 
+#include <utility>
+
 #include "asio/error_code.hpp"
+#include "encoder.h"
+#include "leaf.h"
+#include "leaf.hpp"
 #include "preallocate.h"
 namespace lepton::storage::wal {
 
@@ -12,13 +17,22 @@ leaf::result<std::size_t> wal_file::size() const {
   return file_size;
 }
 
-leaf::result<void> wal_file::seek_to_end() {
+leaf::result<std::uint64_t> wal_file::seek_curr() {
   asio::error_code ec;
-  file_.seek(0, asio::file_base::seek_end, ec);
+  auto offset = file_.seek(0, asio::file_base::seek_cur, ec);
   if (ec) {
     return new_error(ec, fmt::format("Failed to seek to end of WAL file: {}", ec.message()));
   }
-  return {};
+  return offset;
+}
+
+leaf::result<std::uint64_t> wal_file::seek_end() {
+  asio::error_code ec;
+  auto offset = file_.seek(0, asio::file_base::seek_end, ec);
+  if (ec) {
+    return new_error(ec, fmt::format("Failed to seek to end of WAL file: {}", ec.message()));
+  }
+  return offset;
 }
 
 leaf::result<void> wal_file::pre_allocate(uint64_t length) {
@@ -63,6 +77,27 @@ asio::awaitable<expected<std::size_t>> wal_file::async_write(ioutil::byte_span d
     co_return tl::unexpected(ec);
   }
   co_return write_size;
+}
+
+asio::awaitable<expected<std::size_t>> wal_file::async_write_vectored_asio(
+    std::span<const std::span<const std::byte>> spans) {
+  std::vector<asio::const_buffer> buffers;
+  buffers.reserve(spans.size());
+  for (auto s : spans) {
+    if (s.size() == 0) continue;
+    buffers.emplace_back(static_cast<const void*>(s.data()), s.size());
+  }
+  if (buffers.empty()) co_return std::size_t{0};
+
+  std::size_t bytes_transferred = co_await file_.async_write_some(buffers, asio::use_awaitable);
+  co_return bytes_transferred;
+}
+
+leaf::result<encoder> new_file_encoder(wal_file& file, std::uint32_t prev_crc,
+                                       std::shared_ptr<lepton::logger_interface>&& logger) {
+  BOOST_LEAF_AUTO(offset, file.seek_curr());
+  pro::proxy_view<ioutil::writer> writer = &file;
+  return encoder(writer, prev_crc, static_cast<std::uint32_t>(offset), std::move(logger));
 }
 
 }  // namespace lepton::storage::wal

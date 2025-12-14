@@ -5,16 +5,16 @@
 #include <span>
 #include <vector>
 
+#include "utility_macros.h"
+
 namespace lepton::storage::ioutil {
 
 class fixed_byte_buffer {
+  NOT_COPYABLE(fixed_byte_buffer)
  public:
+  fixed_byte_buffer() = default;
   // 构造一个固定大小的 buffer
-  explicit fixed_byte_buffer(std::size_t size) : buf_(size) {}
-
-  // 禁止拷贝
-  fixed_byte_buffer(const fixed_byte_buffer&) = delete;
-  fixed_byte_buffer& operator=(const fixed_byte_buffer&) = delete;
+  explicit fixed_byte_buffer(std::size_t size) : buf_(size, std::byte{0}) {}
 
   // 允许移动
   fixed_byte_buffer(fixed_byte_buffer&&) noexcept = default;

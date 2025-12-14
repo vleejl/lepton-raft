@@ -8,6 +8,7 @@
 #include "absl/crc/crc32c.h"
 #include "asio/buffer.hpp"
 #include "defer.h"
+#include "disk_constants.h"
 #include "expected.h"
 #include "file_buf_reader.h"
 #include "fixed_byte_buffer.h"
@@ -16,6 +17,7 @@
 #include "leaf_expected.h"
 #include "logger.h"
 #include "logic_error.h"
+#include "protobuf_error.h"
 #include "proxy.h"
 #include "reader.h"
 #include "tl/expected.hpp"
@@ -164,7 +166,7 @@ asio::awaitable<expected<void>> decoder::decode_record_impl(walpb::record& rec) 
     if (is_torn_entry(record_buf)) {
       co_return tl::unexpected(io_error::UNEXPECTED_EOF);
     }
-    co_return tl::unexpected(logic_error::PROOBUF_PARSE_FAILED);
+    co_return tl::unexpected(protobuf_error::PROOBUF_PARSE_FAILED);
   }
   // skip crc checking if the record type is CrcType
   if (rec.type() != walpb::record_type::CRC_TYPE) {
@@ -203,7 +205,7 @@ bool decoder::is_torn_entry(ioutil::fixed_byte_buffer& record_buf) const {
   std::size_t curr_off = 0;
   auto file_off = last_valid_off_ + FRAME_SIZE_BYTES;
   while (curr_off < record_buf.size()) {
-    auto sector_remain = MIN_SECTOR_SIZE - (file_off % MIN_SECTOR_SIZE);
+    auto sector_remain = ioutil::MIN_SECTOR_SIZE - (file_off % ioutil::MIN_SECTOR_SIZE);
     if (sector_remain > record_buf.size() - curr_off) {
       sector_remain = record_buf.size() - curr_off;
     }

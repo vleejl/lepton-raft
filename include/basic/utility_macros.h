@@ -33,4 +33,11 @@
 #endif
 #endif
 
+// 在文件中定义
+#ifdef LEPTON_TEST
+#define INTERNAL_FUNC
+#else
+#define INTERNAL_FUNC static
+#endif
+
 #endif  // _LEPTON_UTILITY_MACROS_H_

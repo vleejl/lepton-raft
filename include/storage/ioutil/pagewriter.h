@@ -5,6 +5,7 @@
 
 #include "expected.h"
 #include "leaf.h"
+#include "utility_macros.h"
 #include "v4/proxy.h"
 #include "writer.h"
 
@@ -16,7 +17,10 @@ constexpr size_t DEFAULT_BUFFER_BYTES = 128 * 1024;
 // PageWriter implements the io.Writer interface so that writes will
 // either be in page chunks or from flushing.
 class page_writer {
+  NOT_COPYABLE(page_writer)
  public:
+  page_writer() = default;
+  page_writer(page_writer&&) = default;
   // PageBytes is the number of bytes
   // to write per page. pageOffset is the starting offset of io.Writer.
   page_writer(pro::proxy_view<writer> w, size_t page_offset, size_t page_bytes)
@@ -30,6 +34,8 @@ class page_writer {
     // invalid pageBytes (%d) value, it must be greater than 0
     assert(page_bytes > 0);
   }
+
+  pro::proxy_view<writer> writer_view() const { return w_; }
 
   /*
       +--------------------------+
@@ -71,7 +77,7 @@ class page_writer {
   std::size_t page_offset_;
   // pageBytes is the number of bytes per page
   // 当前 page size
-  const size_t page_bytes_;
+  const size_t page_bytes_ = 0;
   // bufferedBytes counts the number of bytes pending for write in the buffer
   // 当前 buffer 中的数据量
   std::size_t buffered_bytes_;
@@ -80,7 +86,7 @@ class page_writer {
   // bufWatermarkBytes is the number of bytes the buffer can hold before it needs
   // to be flushed. It is less than len(buf) so there is space for slack writes
   // to bring the writer to page alignment.
-  const std::size_t buf_watermark_bytes_;
+  const std::size_t buf_watermark_bytes_ = 0;
 };
 
 }  // namespace lepton::storage::ioutil

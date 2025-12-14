@@ -215,8 +215,9 @@ target("lepton-raft-storage-unit-test")
     -- lepton-raft unit test file
     add_files("test/storage/utility/src/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/asio/*.cpp", {cxflags = test_cxflags})
-    add_files("test/storage/rocksdb/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/ioutil/*.cpp", {cxflags = test_cxflags})
+    add_files("test/storage/rocksdb/*.cpp", {cxflags = test_cxflags})
+    add_files("test/storage/wal/*.cpp", {cxflags = test_cxflags})        
     -- lepton-raft benchmark test file
     add_files("test/storage/unit_test.cpp")
     if is_plat("linux") then

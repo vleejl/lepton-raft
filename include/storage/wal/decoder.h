@@ -2,7 +2,6 @@
 #define _LEPTON_DECODER_H_
 #include <wal.pb.h>
 
-#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <vector>
@@ -14,8 +13,6 @@
 #include "utility_macros.h"
 #include "v4/proxy.h"
 namespace lepton::storage::wal {
-
-constexpr std::size_t MIN_SECTOR_SIZE = 512;
 
 class decoder {
  public:
