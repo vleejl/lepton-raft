@@ -207,7 +207,7 @@ struct node_adapter {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dist(0, 9);  // [0, 9]的均匀分布
 
-    auto waiter = lepton::core::make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
+    auto waiter = lepton::coro::make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_tick(); });
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_ready(); });
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_recv(); });
@@ -341,15 +341,15 @@ struct node_adapter {
  public:
   asio::any_io_executor executor_;
   std::stop_source stop_source_;
-  lepton::core::channel_endpoint<event> event_chan_;
+  lepton::coro::channel_endpoint<event> event_chan_;
 
   lepton::core::node_proxy node_handle_;
   std::uint64_t id_;
   std::shared_ptr<rafttest::iface> iface_;
-  lepton::core::signal_channel done_chan_;
-  lepton::core::signal_channel stop_chan_;
-  lepton::core::signal_channel wait_run_exit_chan_;
-  lepton::core::channel_endpoint<bool> pause_chan_;
+  lepton::coro::signal_channel done_chan_;
+  lepton::coro::signal_channel stop_chan_;
+  lepton::coro::signal_channel wait_run_exit_chan_;
+  lepton::coro::channel_endpoint<bool> pause_chan_;
   std::atomic<bool> paused_{false};
   lepton::core::pb::repeated_message paused_recv_ms_buffer_;
 

@@ -42,5 +42,5 @@ class async_mutex {
   }
 
  private:
-  lepton::core::signal_channel ch_;
+  lepton::coro::signal_channel ch_;
 };

@@ -90,6 +90,7 @@ end
 target("lepton-raft-core-unit-test")
     -- lepton basic include dirs
     add_includedirs("include/basic")
+    add_includedirs("include/coroutine")
     add_includedirs("include/error")
     -- raft core include dirs 
     add_includedirs("include/raft_core")
@@ -138,6 +139,7 @@ target("lepton-raft-core-unit-test")
 target("lepton-raft-core-benchmark-test")
     -- lepton basic include dirs
     add_includedirs("include/basic")
+    add_includedirs("include/coroutine")
     add_includedirs("include/error")
     -- raft core include dirs 
     add_includedirs("include/raft_core")
@@ -176,6 +178,7 @@ target("lepton-raft-core-benchmark-test")
 target("lepton-raft-storage-unit-test")
     -- lepton basic include dirs
     add_includedirs("include/basic")
+    add_includedirs("include/coroutine")
     add_includedirs("include/error")
     -- raft core include dirs 
     add_includedirs("include/raft_core")

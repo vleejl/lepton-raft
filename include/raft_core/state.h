@@ -42,7 +42,7 @@ struct status {
   tracker::progress_map progress;
 };
 
-using status_channel = channel_endpoint<std::weak_ptr<channel_endpoint<status>>>;
+using status_channel = coro::channel_endpoint<std::weak_ptr<coro::channel_endpoint<status>>>;
 
 }  // namespace lepton::core
 

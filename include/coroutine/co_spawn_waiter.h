@@ -4,7 +4,7 @@
 
 #include "channel.h"
 
-namespace lepton::core {
+namespace lepton::coro {
 template <typename AwaitableFunc>
 class co_spawn_waiter : public std::enable_shared_from_this<co_spawn_waiter<AwaitableFunc>> {
  public:
@@ -45,6 +45,6 @@ template <typename AwaitableFunc>
 std::shared_ptr<co_spawn_waiter<AwaitableFunc>> make_co_spawn_waiter(asio::any_io_executor exec) {
   return std::make_shared<co_spawn_waiter<AwaitableFunc>>(exec);
 }
-}  // namespace lepton::core
+}  // namespace lepton::coro
 
 #endif  // _LEPTON_CO_SPAWN_WAITER_H_

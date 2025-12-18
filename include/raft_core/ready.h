@@ -100,7 +100,7 @@ struct ready {
 };
 
 using ready_handle = std::shared_ptr<ready>;
-using ready_channel = channel_endpoint<ready_handle>;
+using ready_channel = coro::channel_endpoint<ready_handle>;
 using ready_channel_handle = std::shared_ptr<ready_channel>;
 }  // namespace lepton::core
 

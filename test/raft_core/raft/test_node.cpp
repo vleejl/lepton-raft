@@ -225,7 +225,7 @@ TEST_F(node_test_suit, test_node_step_unblock) {
 
     const auto& tt = tests[i];
 
-    channel<expected<void>> err_chan(io.get_executor());
+    lepton::coro::channel<expected<void>> err_chan(io.get_executor());
 
     asio::co_spawn(
         io,
@@ -571,9 +571,9 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
         lepton::core::pb::repeated_entry all_committed_entries;
         asio::steady_timer timer(io_context.get_executor());
         timer.expires_after(std::chrono::milliseconds(100));
-        lepton::core::signal_channel goroutine_stopped_chan(io_context.get_executor());
-        lepton::core::signal_channel apply_conf_chan(io_context.get_executor());
-        lepton::core::signal_channel cancel_chan(io_context.get_executor());
+        lepton::coro::signal_channel goroutine_stopped_chan(io_context.get_executor());
+        lepton::coro::signal_channel apply_conf_chan(io_context.get_executor());
+        lepton::coro::signal_channel cancel_chan(io_context.get_executor());
 
         auto rd_result = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
         auto& rd = *rd_result;
@@ -704,7 +704,7 @@ TEST_F(node_test_suit, test_block_proposal) {
   lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
   n.start_run();
-  lepton::core::channel<std::error_code> err_chan(io_context.get_executor());
+  lepton::coro::channel<std::error_code> err_chan(io_context.get_executor());
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
@@ -917,7 +917,7 @@ TEST_F(node_test_suit, test_node_stop) {
   asio::io_context io_context;
   lepton::core::node n(io_context.get_executor(), std::move(raw_node));
 
-  lepton::core::signal_channel done_chann{io_context.get_executor()};
+  lepton::coro::signal_channel done_chann{io_context.get_executor()};
 
   // 启动节点运行协程
   asio::co_spawn(
@@ -1395,9 +1395,9 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
         co_await node_handle->campaign();
         asio::steady_timer timer(io_context.get_executor());
         timer.expires_after(std::chrono::milliseconds(100));
-        lepton::core::signal_channel goroutine_stopped_chan(io_context.get_executor());
-        lepton::core::signal_channel apply_conf_chan(io_context.get_executor());
-        lepton::core::signal_channel cancel_chan(io_context.get_executor());
+        lepton::coro::signal_channel goroutine_stopped_chan(io_context.get_executor());
+        lepton::coro::signal_channel apply_conf_chan(io_context.get_executor());
+        lepton::coro::signal_channel cancel_chan(io_context.get_executor());
 
         auto running_loop = true;
         auto sub_loop = [&]() -> asio::awaitable<void> {

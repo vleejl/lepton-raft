@@ -37,10 +37,10 @@ namespace lepton::core {
 
 struct msg_with_result {
   raftpb::message msg;
-  std::optional<std::weak_ptr<channel_endpoint<std::error_code>>> err_chan;
+  std::optional<std::weak_ptr<coro::channel_endpoint<std::error_code>>> err_chan;
 };
 
-using msg_with_result_channel_handle = channel_endpoint<msg_with_result>*;
+using msg_with_result_channel_handle = coro::channel_endpoint<msg_with_result>*;
 
 // node is the canonical implementation of the Node interface
 class node {
@@ -109,19 +109,20 @@ class node {
 #else
  private:
 #endif
-  asio::awaitable<void> listen_ready(signal_channel_endpoint& token_chan, signal_channel_endpoint& active_ready_chan,
+  asio::awaitable<void> listen_ready(coro::signal_channel_endpoint& token_chan,
+                                     coro::signal_channel_endpoint& active_ready_chan,
                                      std::atomic<bool>& ready_inflight);
 
-  asio::awaitable<void> listen_propose(signal_channel_endpoint& token_chan, signal_channel_endpoint& active_prop_chan,
-                                       bool& is_active_prop_chan);
+  asio::awaitable<void> listen_propose(coro::signal_channel_endpoint& token_chan,
+                                       coro::signal_channel_endpoint& active_prop_chan, bool& is_active_prop_chan);
 
-  asio::awaitable<void> listen_receive(signal_channel_endpoint& token_chan);
+  asio::awaitable<void> listen_receive(coro::signal_channel_endpoint& token_chan);
 
-  asio::awaitable<void> listen_conf_change(signal_channel_endpoint& token_chan, bool& is_active_prop_chan);
+  asio::awaitable<void> listen_conf_change(coro::signal_channel_endpoint& token_chan, bool& is_active_prop_chan);
 
-  asio::awaitable<void> listen_tick(signal_channel_endpoint& token_chan);
+  asio::awaitable<void> listen_tick(coro::signal_channel_endpoint& token_chan);
 
-  asio::awaitable<void> listen_status(signal_channel_endpoint& token_chan);
+  asio::awaitable<void> listen_status(coro::signal_channel_endpoint& token_chan);
 
   asio::awaitable<void> listen_stop();
 
@@ -142,23 +143,23 @@ class node {
   asio::any_io_executor executor_;
   std::stop_source stop_source_;
 
-  signal_channel_endpoint token_chan_;
-  signal_channel_endpoint active_prop_chan_;
-  signal_channel_endpoint active_ready_chan_;
-  signal_channel_endpoint active_advance_chan_;
+  coro::signal_channel_endpoint token_chan_;
+  coro::signal_channel_endpoint active_prop_chan_;
+  coro::signal_channel_endpoint active_ready_chan_;
+  coro::signal_channel_endpoint active_advance_chan_;
 
-  channel_endpoint<msg_with_result> prop_chan_;
-  channel_endpoint<raftpb::message> recv_chan_;
-  channel_endpoint<raftpb::conf_change_v2> conf_chan_;
-  channel_endpoint<raftpb::conf_state> conf_state_chan_;
+  coro::channel_endpoint<msg_with_result> prop_chan_;
+  coro::channel_endpoint<raftpb::message> recv_chan_;
+  coro::channel_endpoint<raftpb::conf_change_v2> conf_chan_;
+  coro::channel_endpoint<raftpb::conf_state> conf_state_chan_;
   ready_channel ready_chan_;
-  channel_endpoint<std::weak_ptr<ready_channel>> ready_request_chan_;
-  signal_channel_endpoint advance_chan_;
-  signal_channel_endpoint tick_chan_;
-  signal_channel done_chan_;
-  signal_channel stop_chan_;
+  coro::channel_endpoint<std::weak_ptr<ready_channel>> ready_request_chan_;
+  coro::signal_channel_endpoint advance_chan_;
+  coro::signal_channel_endpoint tick_chan_;
+  coro::signal_channel done_chan_;
+  coro::signal_channel stop_chan_;
   std::atomic<bool> started_{false};
-  signal_channel wait_run_exit_chan_;
+  coro::signal_channel wait_run_exit_chan_;
   status_channel status_chan_;
   raw_node raw_node_;
 };

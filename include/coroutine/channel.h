@@ -11,7 +11,7 @@
 #include "expected.h"
 #include "raft_error.h"
 
-namespace lepton::core {
+namespace lepton::coro {
 
 template <typename T>
 using channel = asio::experimental::channel<void(asio::error_code, T)>;
@@ -88,6 +88,6 @@ asio::awaitable<expected<std::size_t>> async_select_any_expected(Ops &&...ops) {
   co_return expected<std::size_t>{completed};
 }
 
-}  // namespace lepton::core
+}  // namespace lepton::coro
 
 #endif  // _LEPTON_CHANNEL_H_

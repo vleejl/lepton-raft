@@ -57,18 +57,18 @@ asio::awaitable<void> node::stop() {
 asio::awaitable<void> node::run() {
   started_.store(true, std::memory_order_relaxed);
 
-  signal_channel_endpoint& token_chan = token_chan_;
+  coro::signal_channel_endpoint& token_chan = token_chan_;
 
   bool is_active_prop_chan = false;
-  signal_channel_endpoint& active_prop_chan = active_prop_chan_;
+  coro::signal_channel_endpoint& active_prop_chan = active_prop_chan_;
 
-  signal_channel_endpoint& active_ready_chan = active_ready_chan_;
+  coro::signal_channel_endpoint& active_ready_chan = active_ready_chan_;
   std::atomic<bool> ready_inflight{false};
 
   auto& r = raw_node_.raft_;
   auto lead = NONE;
 
-  auto waiter = make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
+  auto waiter = coro::make_co_spawn_waiter<std::function<asio::awaitable<void>()>>(executor_);
   waiter->add(
       [&]() -> asio::awaitable<void> { co_await listen_propose(token_chan_, active_prop_chan_, is_active_prop_chan); });
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_receive(token_chan); });
@@ -227,9 +227,9 @@ asio::awaitable<expected<lepton::core::status>> node::status() {
   if (!is_running()) {
     co_return tl::unexpected{raft_error::STOPPED};
   }
-  auto status_chan = std::make_shared<channel_endpoint<lepton::core::status>>(executor_);
+  auto status_chan = std::make_shared<coro::channel_endpoint<lepton::core::status>>(executor_);
   if (auto result =
-          co_await status_chan_.async_send(std::weak_ptr<channel_endpoint<lepton::core::status>>(status_chan));
+          co_await status_chan_.async_send(std::weak_ptr<coro::channel_endpoint<lepton::core::status>>(status_chan));
       !result) {
     SPDLOG_ERROR(result.error().message());
     co_return tl::unexpected(result.error());
@@ -305,8 +305,8 @@ asio::awaitable<expected<void>> node::read_index(std::string&& data) {
   co_return result;
 }
 
-asio::awaitable<void> node::listen_ready(signal_channel_endpoint& token_chan,
-                                         signal_channel_endpoint& active_ready_chan,
+asio::awaitable<void> node::listen_ready(coro::signal_channel_endpoint& token_chan,
+                                         coro::signal_channel_endpoint& active_ready_chan,
                                          std::atomic<bool>& ready_inflight) {
   while (is_running()) {
     SPDLOG_TRACE("waiting active_ready_chan signal......");
@@ -355,8 +355,8 @@ asio::awaitable<void> node::listen_ready(signal_channel_endpoint& token_chan,
   co_return;
 }
 
-asio::awaitable<void> node::listen_propose(signal_channel_endpoint& token_chan,
-                                           signal_channel_endpoint& active_prop_chan, bool& is_active_prop_chan) {
+asio::awaitable<void> node::listen_propose(coro::signal_channel_endpoint& token_chan,
+                                           coro::signal_channel_endpoint& active_prop_chan, bool& is_active_prop_chan) {
   while (is_running()) {
     if (!is_active_prop_chan) {
       SPDLOG_TRACE("waiting active_prop_chan signal......");
@@ -395,7 +395,7 @@ asio::awaitable<void> node::listen_propose(signal_channel_endpoint& token_chan,
   co_return;
 }
 
-asio::awaitable<void> node::listen_receive(signal_channel_endpoint& token_chan) {
+asio::awaitable<void> node::listen_receive(coro::signal_channel_endpoint& token_chan) {
   while (is_running()) {
     SPDLOG_TRACE("begin recv_chan_ async_receive....");
     auto result = co_await recv_chan_.async_receive();
@@ -421,7 +421,7 @@ asio::awaitable<void> node::listen_receive(signal_channel_endpoint& token_chan) 
   co_return;
 }
 
-asio::awaitable<void> node::listen_conf_change(signal_channel_endpoint& token_chan, bool& is_active_prop_chan) {
+asio::awaitable<void> node::listen_conf_change(coro::signal_channel_endpoint& token_chan, bool& is_active_prop_chan) {
   auto& r = raw_node_.raft_;
   while (is_running()) {
     auto result = co_await conf_chan_.async_receive();
@@ -472,7 +472,7 @@ asio::awaitable<void> node::listen_conf_change(signal_channel_endpoint& token_ch
   co_return;
 }
 
-asio::awaitable<void> node::listen_tick(signal_channel_endpoint& token_chan) {
+asio::awaitable<void> node::listen_tick(coro::signal_channel_endpoint& token_chan) {
   while (is_running()) {
     asio::error_code ec;
     auto result = co_await tick_chan_.async_receive();
@@ -488,7 +488,7 @@ asio::awaitable<void> node::listen_tick(signal_channel_endpoint& token_chan) {
   co_return;
 }
 
-asio::awaitable<void> node::listen_status(signal_channel_endpoint& token_chan) {
+asio::awaitable<void> node::listen_status(coro::signal_channel_endpoint& token_chan) {
   while (is_running()) {
     asio::error_code ec;
     auto result = co_await status_chan_.async_receive();
@@ -572,7 +572,7 @@ asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor 
     co_return tl::unexpected(raft_error::STOPPED);
   }
 
-  auto err_chan = std::make_shared<channel_endpoint<std::error_code>>(executor);
+  auto err_chan = std::make_shared<coro::channel_endpoint<std::error_code>>(executor);
   auto ec = co_await prop_chan_.async_send(msg_with_result{.msg = std::move(msg), .err_chan = std::weak_ptr(err_chan)});
   if (!ec.has_value()) {
     SPDLOG_ERROR("Failed to handle non-proposal message: {}", ec.error().message());

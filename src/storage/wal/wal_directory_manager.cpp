@@ -48,30 +48,6 @@ leaf::result<void> wal_directory_manager::create_dir_all(const std::string& dir_
   return {};
 }
 
-// createNewWALFile creates a WAL file.
-// To create a locked file, use *fileutil.LockedFile type parameter.
-// To create a standard file, use *os.File type parameter.
-// If forceNew is true, the file will be truncated if it already exists.
-leaf::result<wal_file> wal_directory_manager::create_new_wal_file(const std::string& filename, bool force_new) {
-  asio::stream_file stream_file(executor_);
-  asio::file_base::flags open_flags = asio::random_access_file::read_write | asio::random_access_file::create;
-  if (force_new) {
-    open_flags |= asio::random_access_file::truncate;
-  }
-  asio::error_code ec;
-  stream_file.open(filename, open_flags, ec);  // NOLINT(bugprone-unused-return-value)
-  if (ec) {
-    return new_error(ec, fmt::format("Failed to create WAL file {}: {}", filename, ec.message()));
-  }
-
-  rocksdb::FileLock* lock;
-  if (auto s = env_->LockFile(filename, &lock); !s.ok()) {
-    return new_error(s, fmt::format("Failed to lock WAL file {}: {}", filename, s.ToString()));
-  }
-
-  return wal_file{filename, std::move(stream_file), env_, lock};
-}
-
 leaf::result<void> wal_directory_manager::create_wal(const std::string& dirpath) {
   if (file_exist(dirpath)) {
     return new_error(std::make_error_code(std::errc::file_exists), fmt::format("dirpath {} already exists", dirpath));
@@ -89,9 +65,9 @@ leaf::result<void> wal_directory_manager::create_wal(const std::string& dirpath)
 
   LEPTON_LEAF_CHECK(create_dir_all(temp_dir_path_str));
 
-  auto wal_file_path = temp_dir_path / wal_file::wal_file_name(0, 0);
-  BOOST_LEAF_AUTO(file_handle, create_new_wal_file(wal_file_path.string(), false));
-  LEPTON_LEAF_CHECK(file_handle.pre_allocate(SEGMENT_SIZE_BYTES));
+  auto wal_file_path = temp_dir_path / wal_file_name(0, 0);
+  BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor_, env_, wal_file_path.string(), false));
+  LEPTON_LEAF_CHECK(wal_file_handle.pre_allocate(SEGMENT_SIZE_BYTES));
 }
 
 }  // namespace lepton::storage::wal

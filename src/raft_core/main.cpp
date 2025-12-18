@@ -39,7 +39,7 @@ using message_channel = channel<void(asio::error_code, channel_message)>;
 static int counter(0);
 
 awaitable<void> product_tick(steady_timer::duration interval, message_channel& chann,
-                             lepton::core::signal_channel& close_chan) {
+                             lepton::coro::signal_channel& close_chan) {
   steady_timer timer(co_await this_coro::executor);
   while (close_chan.is_open()) {
     asio::error_code ec;
@@ -68,7 +68,7 @@ awaitable<void> product_tick(steady_timer::duration interval, message_channel& c
   co_return;
 }
 
-awaitable<void> close_message(message_channel& chann, lepton::core::signal_channel& close_chan) {
+awaitable<void> close_message(message_channel& chann, lepton::coro::signal_channel& close_chan) {
   // 等待关闭信号
   co_await close_chan.async_receive(use_awaitable);
   std::cout << "Closing message channel, counter: " << counter << std::endl;
@@ -105,7 +105,7 @@ awaitable<void> consume_message(message_channel& chann) {
   co_return;
 }
 
-awaitable<void> check_counter(lepton::core::signal_channel& close_chan) {
+awaitable<void> check_counter(lepton::coro::signal_channel& close_chan) {
   while (true) {
     // 每秒检查一次计数器
     steady_timer timer(co_await this_coro::executor);
@@ -127,7 +127,7 @@ awaitable<void> check_counter(lepton::core::signal_channel& close_chan) {
 
 awaitable<void> run(io_context& ctx) {
   message_channel chann{ctx.get_executor()};
-  lepton::core::signal_channel stop_chan{ctx.get_executor()};
+  lepton::coro::signal_channel stop_chan{ctx.get_executor()};
   // co_spawn(ctx, product_tick(interval, chann, stop_chan), detached);
   co_spawn(ctx, check_counter(stop_chan), detached);
   // co_await consume_message(chann, stop_chan);

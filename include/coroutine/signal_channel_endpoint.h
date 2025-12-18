@@ -15,7 +15,7 @@
 #include "channel.h"
 #include "expected.h"
 
-namespace lepton::core {
+namespace lepton::coro {
 
 using signal_channel = asio::experimental::channel<void(asio::error_code)>;
 
@@ -68,6 +68,6 @@ class signal_channel_endpoint {
 };
 
 using signal_channel_endpoint_handle = signal_channel_endpoint*;
-}  // namespace lepton::core
+}  // namespace lepton::coro
 
 #endif  // _LEPTON_SIGNAL_CHANNEL_ENDPOINT_H_

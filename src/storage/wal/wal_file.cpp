@@ -1,99 +1,29 @@
 #include "wal_file.h"
 
-#include <utility>
-
-#include "asio/error_code.hpp"
-#include "encoder.h"
-#include "leaf.h"
-#include "leaf.hpp"
-#include "preallocate.h"
 namespace lepton::storage::wal {
 
-leaf::result<std::size_t> wal_file::size() const {
-  std::size_t file_size = 0;
-  if (auto s = env_->GetFileSize(file_name_, &file_size); !s.ok()) {
-    return new_error(s, fmt::format("Failed to get size of WAL file {}: {}", file_name_, s.ToString()));
+leaf::result<fileutil::env_file_endpoint> create_new_wal_file(asio::any_io_executor executor, rocksdb::Env* env,
+                                                              const std::string& filename, bool force_new) {
+  asio::stream_file stream_file(executor);
+  asio::file_base::flags open_flags = asio::random_access_file::read_write | asio::random_access_file::create;
+  if (force_new) {
+    open_flags |= asio::random_access_file::truncate;
   }
-  return file_size;
-}
-
-leaf::result<std::uint64_t> wal_file::seek_curr() {
   asio::error_code ec;
-  auto offset = file_.seek(0, asio::file_base::seek_cur, ec);
+  stream_file.open(filename, open_flags, ec);  // NOLINT(bugprone-unused-return-value)
   if (ec) {
-    return new_error(ec, fmt::format("Failed to seek to end of WAL file: {}", ec.message()));
+    return new_error(ec, fmt::format("Failed to create WAL file {}: {}", filename, ec.message()));
   }
-  return offset;
+
+  rocksdb::FileLock* lock;
+  if (auto s = env->LockFile(filename, &lock); !s.ok()) {
+    return new_error(s, fmt::format("Failed to lock WAL file {}: {}", filename, s.ToString()));
+  }
+
+  return fileutil::env_file_endpoint{filename, std::move(stream_file), env, lock};
 }
 
-leaf::result<std::uint64_t> wal_file::seek_end() {
-  asio::error_code ec;
-  auto offset = file_.seek(0, asio::file_base::seek_end, ec);
-  if (ec) {
-    return new_error(ec, fmt::format("Failed to seek to end of WAL file: {}", ec.message()));
-  }
-  return offset;
-}
-
-leaf::result<void> wal_file::pre_allocate(uint64_t length) {
-  if (auto ec = fileutil::preallocate(file_.native_handle(), length); ec) {
-    return new_error(ec);
-  }
-  return {};
-}
-
-leaf::result<std::size_t> wal_file::read(asio::mutable_buffer buffer) {
-  std::error_code ec;
-  auto read_size = file_.read_some(asio::buffer(buffer.data(), buffer.size()), ec);
-  if (ec) {
-    return new_error(ec, fmt::format("Failed to read from WAL file: {}", ec.message()));
-  }
-  return read_size;
-}
-
-asio::awaitable<expected<std::size_t>> wal_file::async_read(asio::mutable_buffer buffer) {
-  std::error_code ec;
-  auto read_size = co_await file_.async_read_some(buffer, asio::redirect_error(asio::use_awaitable, ec));
-  if (ec) {
-    co_return tl::unexpected(ec);
-  }
-  co_return read_size;
-}
-
-leaf::result<std::size_t> wal_file::write(ioutil::byte_span data) {
-  std::error_code ec;
-  auto write_size = file_.write_some(asio::buffer(data.data(), data.size()), ec);
-  if (ec) {
-    return new_error(ec, fmt::format("Failed to write to WAL file: {}", ec.message()));
-  }
-  return write_size;
-}
-
-asio::awaitable<expected<std::size_t>> wal_file::async_write(ioutil::byte_span data) {
-  std::error_code ec;
-  auto write_size = co_await file_.async_write_some(asio::buffer(data.data(), data.size()),
-                                                    asio::redirect_error(asio::use_awaitable, ec));
-  if (ec) {
-    co_return tl::unexpected(ec);
-  }
-  co_return write_size;
-}
-
-asio::awaitable<expected<std::size_t>> wal_file::async_write_vectored_asio(
-    std::span<const std::span<const std::byte>> spans) {
-  std::vector<asio::const_buffer> buffers;
-  buffers.reserve(spans.size());
-  for (auto s : spans) {
-    if (s.size() == 0) continue;
-    buffers.emplace_back(static_cast<const void*>(s.data()), s.size());
-  }
-  if (buffers.empty()) co_return std::size_t{0};
-
-  std::size_t bytes_transferred = co_await file_.async_write_some(buffers, asio::use_awaitable);
-  co_return bytes_transferred;
-}
-
-leaf::result<encoder> new_file_encoder(wal_file& file, std::uint32_t prev_crc,
+leaf::result<encoder> new_file_encoder(fileutil::env_file_endpoint& file, std::uint32_t prev_crc,
                                        std::shared_ptr<lepton::logger_interface>&& logger) {
   BOOST_LEAF_AUTO(offset, file.seek_curr());
   pro::proxy_view<ioutil::writer> writer = &file;

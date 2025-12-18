@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "env_file_endpoint.h"
 #include "lepton_error.h"
 #include "wal_file.h"
 namespace lepton::storage::wal {
@@ -20,12 +21,6 @@ class wal_directory_manager {
   leaf::result<void> ensure_directory_writable(const std::string& dir_name);
 
   leaf::result<void> create_dir_all(const std::string& dir_name);
-
-  // createNewWALFile creates a WAL file.
-  // To create a locked file, use *fileutil.LockedFile type parameter.
-  // To create a standard file, use *os.File type parameter.
-  // If forceNew is true, the file will be truncated if it already exists.
-  leaf::result<wal_file> create_new_wal_file(const std::string& filename, bool force_new);
 
   // Create creates a WAL ready for appending records. The given metadata is
   // recorded at the head of each WAL file, and can be retrieved with ReadAll
