@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_STATE_TRACE_H_
 #define _LEPTON_STATE_TRACE_H_
 
@@ -6,8 +7,8 @@
 
 #include <raft.pb.h>
 
-#include "tracker.h"
-#include "types.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/tracker/tracker.h"
 namespace lepton::core {
 
 class raft;

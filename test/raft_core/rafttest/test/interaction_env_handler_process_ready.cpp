@@ -2,12 +2,12 @@
 #include <cstddef>
 #include <utility>
 
-#include "describe.h"
+#include "basic/log.h"
+#include "error/leaf.h"
+#include "error/logic_error.h"
 #include "interaction_env.h"
-#include "leaf.h"
-#include "log.h"
-#include "logic_error.h"
-#include "protobuf.h"
+#include "raft_core/describe.h"
+#include "raft_core/pb/protobuf.h"
 #include "spdlog/spdlog.h"
 
 namespace interaction {

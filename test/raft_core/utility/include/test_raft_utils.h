@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_TEST_RAFT_NETWORKING_H_
 #define _LEPTON_TEST_RAFT_NETWORKING_H_
 #include <cstddef>
@@ -6,15 +7,15 @@
 #include <memory>
 #include <vector>
 
-#include "config.h"
-#include "memory_storage.h"
+#include "basic/utility_macros.h"
 #include "proxy.h"
-#include "raft.h"
 #include "raft.pb.h"
-#include "raw_node.h"
+#include "raft_core/config.h"
+#include "raft_core/memory_storage.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/raft.h"
+#include "raft_core/raw_node.h"
 #include "test_raft_state_machine.h"
-#include "types.h"
-#include "utility_macros.h"
 
 using test_memory_storage_options = std::function<void(lepton::core::memory_storage &)>;
 

@@ -9,11 +9,11 @@
 #include <tl/expected.hpp>
 
 #include "asio/awaitable.hpp"
-#include "leaf.h"
-#include "leaf_expected.h"
-#include "lepton_error.h"
+#include "error/leaf.h"
+#include "error/leaf_expected.h"
+#include "error/lepton_error.h"
+#include "error/storage_error.h"
 #include "raft.pb.h"
-#include "storage_error.h"
 using namespace lepton;
 // 模拟存储类
 class Storage {

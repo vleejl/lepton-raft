@@ -2,8 +2,8 @@
 #include <asio.hpp>
 #include <asio/experimental/channel.hpp>
 
-#include "channel.h"
-#include "utility_macros.h"
+#include "basic/utility_macros.h"
+#include "coroutine/channel.h"
 
 class async_mutex {
   NOT_COPYABLE_NOT_MOVABLE(async_mutex)

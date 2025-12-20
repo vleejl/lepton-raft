@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_MAJORITY_H_
 #define _LEPTON_MAJORITY_H_
 
@@ -15,8 +16,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "quorum.h"
-#include "utility_macros.h"
+#include "basic/utility_macros.h"
+#include "raft_core/quorum/quorum.h"
 namespace lepton::core {
 namespace quorum {
 // MajorityConfig is a set of IDs that uses majority quorums to make decisions.

@@ -1,8 +1,8 @@
 #include <cstddef>
 
+#include "error/logic_error.h"
 #include "interaction_env.h"
-#include "logic_error.h"
-#include "progress.h"
+#include "raft_core/tracker/progress.h"
 
 namespace interaction {
 lepton::leaf::result<void> interaction_env::handle_status(const datadriven::test_data &test_data) {

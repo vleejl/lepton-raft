@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_SIGNAL_CHANNEL_ENDPOINT_H_
 #define _LEPTON_SIGNAL_CHANNEL_ENDPOINT_H_
 #include <spdlog/spdlog.h>
@@ -12,12 +13,10 @@
 #include <stop_token>
 
 #include "asio/error_code.hpp"
-#include "channel.h"
-#include "expected.h"
+#include "coroutine/channel.h"
+#include "error/expected.h"
 
 namespace lepton::coro {
-
-using signal_channel = asio::experimental::channel<void(asio::error_code)>;
 
 class signal_channel_endpoint {
  public:
@@ -35,7 +34,7 @@ class signal_channel_endpoint {
   // 发送信号
   asio::awaitable<lepton::expected<void>> async_send() {
     if (stop_source_.stop_requested()) {
-      co_return tl::unexpected(raft_error::STOPPED);
+      co_return tl::unexpected(coro_error::STOPPED);
     }
     auto result = co_await async_select_done([&](auto token) { return chan_.async_send(asio::error_code{}, token); },
                                              cancel_chan_);
@@ -45,7 +44,7 @@ class signal_channel_endpoint {
   // 接收信号
   asio::awaitable<lepton::expected<void>> async_receive() {
     if (stop_source_.stop_requested()) {
-      co_return tl::unexpected(raft_error::STOPPED);
+      co_return tl::unexpected(coro_error::STOPPED);
     }
     auto result = co_await async_select_done([&](auto token) { return chan_.async_receive(token); }, cancel_chan_);
     co_return result;

@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_TYPES_H_
 #define _LEPTON_TYPES_H_
 #include <raft.pb.h>

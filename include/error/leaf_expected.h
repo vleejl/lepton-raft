@@ -2,9 +2,10 @@
 #include <tl/expected.hpp>
 #include <type_traits>
 
-#include "leaf.h"
-#include "lepton_error.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
 
+#pragma once
 #ifndef _LEPTON_LEAF_EXPECTED_H_
 #define _LEPTON_LEAF_EXPECTED_H_
 
@@ -25,7 +26,7 @@ tl::expected<T, std::error_code> leaf_to_expected(F&& f) {
     return tl::unexpected{ec};
   }
 
-  return *r;
+  return std::move(*r);
 }
 
 // void 特化版本

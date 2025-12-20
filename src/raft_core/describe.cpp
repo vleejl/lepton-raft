@@ -1,17 +1,17 @@
-#include "describe.h"
+#include "raft_core/describe.h"
 
 #include <absl/strings/str_join.h>
 #include <fmt/format.h>
 
 #include <string>
 
-#include "conf_change.h"
-#include "config.h"
-#include "enum_name.h"
-#include "log.h"
-#include "protobuf.h"
+#include "basic/enum_name.h"
+#include "basic/log.h"
 #include "raft.pb.h"
-#include "types.h"
+#include "raft_core/config.h"
+#include "raft_core/pb/conf_change.h"
+#include "raft_core/pb/protobuf.h"
+#include "raft_core/pb/types.h"
 
 namespace lepton::core {
 #ifdef LEPTON_TEST

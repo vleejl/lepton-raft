@@ -1,5 +1,6 @@
-#ifndef _LEPTON_CONFIG_H_
-#define _LEPTON_CONFIG_H_
+#pragma once
+#ifndef _LEPTON_RAFT_CORE_CONFIG_H_
+#define _LEPTON_RAFT_CORE_CONFIG_H_
 #include <proxy.h>
 
 #include <cstddef>
@@ -7,10 +8,10 @@
 #include <memory>
 #include <utility>
 
-#include "lepton_error.h"
-#include "logger.h"
-#include "storage.h"
-#include "types.h"
+#include "basic/logger.h"
+#include "error/lepton_error.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/storage.h"
 namespace lepton::core {
 
 // None is a placeholder node ID used when there is no leader.
@@ -270,4 +271,4 @@ struct config {
   leaf::result<void> validate() const;
 };
 }  // namespace lepton::core
-#endif  // _LEPTON_CONFIG_H_
+#endif  // _LEPTON_RAFT_CORE_CONFIG_H_

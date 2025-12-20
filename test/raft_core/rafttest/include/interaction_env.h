@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_INTERACTION_ENV_H_
 #define _LEPTON_INTERACTION_ENV_H_
 #include <cstddef>
@@ -5,14 +6,14 @@
 #include <memory>
 #include <vector>
 
-#include "config.h"
 #include "data_driven.h"
+#include "error/leaf.h"
 #include "interaction_env_logger.h"
-#include "leaf.h"
 #include "raft.pb.h"
-#include "raw_node.h"
-#include "storage.h"
-#include "types.h"
+#include "raft_core/config.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/raw_node.h"
+#include "raft_core/storage.h"
 
 namespace interaction {
 

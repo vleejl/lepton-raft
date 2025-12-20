@@ -1,16 +1,17 @@
+#pragma once
 #ifndef _LEPTON_RAFT_LOG_H_
 #define _LEPTON_RAFT_LOG_H_
 #include <absl/types/span.h>
 #include <proxy.h>
 #include <raft.pb.h>
 
-#include "config.h"
-#include "entry_view.h"
-#include "lepton_error.h"
-#include "raft_log_unstable.h"
-#include "storage.h"
-#include "types.h"
-#include "utility_macros.h"
+#include "basic/utility_macros.h"
+#include "error/lepton_error.h"
+#include "raft_core/config.h"
+#include "raft_core/pb/entry_view.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/raft_log_unstable.h"
+#include "raft_core/storage.h"
 
 namespace lepton::core {
 class raft_log {

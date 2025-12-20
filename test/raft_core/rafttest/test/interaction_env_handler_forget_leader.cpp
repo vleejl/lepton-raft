@@ -1,8 +1,8 @@
 #include <cstddef>
 
 #include "data_driven.h"
+#include "error/logic_error.h"
 #include "interaction_env.h"
-#include "logic_error.h"
 
 namespace interaction {
 

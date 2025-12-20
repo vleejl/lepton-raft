@@ -11,10 +11,10 @@
 #include <utility>
 #include <vector>
 
-#include "raft.h"
-#include "raw_node.h"
-#include "state.h"
-#include "storage.h"
+#include "raft_core/raft.h"
+#include "raft_core/raw_node.h"
+#include "raft_core/storage.h"
+#include "raft_core/tracker/state.h"
 #include "test_raft_utils.h"
 
 using namespace lepton;

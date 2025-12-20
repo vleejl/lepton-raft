@@ -1,8 +1,8 @@
-#include "wal_protobuf.h"
+#include "storage/pb/wal_protobuf.h"
 
 #include <cstdint>
 
-#include "storage_error.h"
+#include "error/storage_error.h"
 
 namespace lepton::storage::pb {
 

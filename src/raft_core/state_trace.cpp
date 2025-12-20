@@ -1,4 +1,4 @@
-#include "state_trace.h"
+#include "raft_core/state_trace.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"

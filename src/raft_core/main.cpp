@@ -11,8 +11,8 @@
 
 #include "asio/awaitable.hpp"
 #include "asio/co_spawn.hpp"
-#include "channel.h"
-#include "node.h"
+#include "coroutine/channel.h"
+#include "raft_core/node.h"
 using asio::as_tuple;
 using asio::awaitable;
 using asio::buffer;

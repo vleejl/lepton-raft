@@ -1,8 +1,9 @@
+#pragma once
 #ifndef _LEPTON_CONF_STATE_H_
 #define _LEPTON_CONF_STATE_H_
 #include <raft.pb.h>
 
-#include "lepton_error.h"
+#include "error/lepton_error.h"
 
 namespace lepton::core {
 

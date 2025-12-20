@@ -1,10 +1,11 @@
+#pragma once
 #ifndef _LEPTON_READ_DIR_H_
 #define _LEPTON_READ_DIR_H_
 #include <functional>
 #include <string>
 #include <vector>
 
-#include "lepton_error.h"
+#include "error/lepton_error.h"
 namespace lepton::storage::fileutil {
 
 class read_dir_op {

@@ -1,4 +1,4 @@
-#include "conf_change.h"
+#include "raft_core/pb/conf_change.h"
 
 #include <absl/strings/str_join.h>
 #include <fmt/format.h>
@@ -8,11 +8,11 @@
 #include <string>
 #include <system_error>
 
-#include "enum_name.h"
-#include "leaf.h"
-#include "lepton_error.h"
-#include "log.h"
-#include "logic_error.h"
+#include "basic/enum_name.h"
+#include "basic/log.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
+#include "error/logic_error.h"
 #include "raft.pb.h"
 namespace lepton::core {
 

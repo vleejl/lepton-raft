@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_ROCKSDB_ERR_H_
 #define _LEPTON_ROCKSDB_ERR_H_
 #include <rocksdb/status.h>
@@ -5,7 +6,7 @@
 #include <string>
 #include <system_error>
 
-#include "base_error_category.h"
+#include "error/base_error_category.h"
 namespace lepton {
 
 using rocksdb::Status;

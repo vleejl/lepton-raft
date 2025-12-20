@@ -2,11 +2,11 @@
 
 #include <cstddef>
 
+#include "error/lepton_error.h"
+#include "error/logic_error.h"
 #include "fmt/format.h"
 #include "interaction_env.h"
 #include "interaction_env_logger.h"
-#include "lepton_error.h"
-#include "logic_error.h"
 
 namespace interaction {
 lepton::leaf::result<void> interaction_env::handle_log_level(const datadriven::test_data &test_data) {

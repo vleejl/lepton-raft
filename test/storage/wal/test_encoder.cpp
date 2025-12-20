@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "encoder.h"
+#include "storage/wal/encoder.h"
 
 using namespace lepton::storage::wal;
 

@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_QUPRUM_H_
 #define _LEPTON_QUPRUM_H_
 
@@ -8,9 +9,9 @@
 #include <limits>
 #include <map>
 
+#include "basic/utility_macros.h"
+#include "error/lepton_error.h"
 #include "fmt/format.h"
-#include "lepton_error.h"
-#include "utility_macros.h"
 namespace lepton::core {
 namespace quorum {
 // Index is a Raft log position.

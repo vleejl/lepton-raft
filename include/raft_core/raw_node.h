@@ -1,20 +1,21 @@
+#pragma once
 #ifndef _LEPTON_RAW_NODE_H_
 #define _LEPTON_RAW_NODE_H_
 
 #include <cassert>
 #include <vector>
 
-#include "conf_change.h"
-#include "leaf.h"
-#include "lepton_error.h"
-#include "node_interface.h"
-#include "protobuf.h"
-#include "raft.h"
+#include "basic/utility_macros.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
+#include "error/raft_error.h"
 #include "raft.pb.h"
-#include "raft_error.h"
-#include "state.h"
-#include "types.h"
-#include "utility_macros.h"
+#include "raft_core/node_interface.h"
+#include "raft_core/pb/conf_change.h"
+#include "raft_core/pb/protobuf.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/raft.h"
+#include "raft_core/tracker/state.h"
 namespace lepton::core {
 
 enum class progress_type {

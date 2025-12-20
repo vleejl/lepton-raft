@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_BASE_ERROR_CATEGORY_H_
 #define _LEPTON_BASE_ERROR_CATEGORY_H_
 #include <system_error>

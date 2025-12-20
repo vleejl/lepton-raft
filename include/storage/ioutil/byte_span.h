@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_BYTE_SPAN_H_
 #define _LEPTON_BYTE_SPAN_H_
 #include <array>
@@ -6,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "fixed_byte_buffer.h"
+#include "storage/ioutil/fixed_byte_buffer.h"
 namespace lepton::storage::ioutil {
 
 class byte_span {

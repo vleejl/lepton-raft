@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_JOINT_H_
 #define _LEPTON_JOINT_H_
 
@@ -9,8 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "majority.h"
-#include "quorum.h"
+#include "raft_core/quorum/majority.h"
+#include "raft_core/quorum/quorum.h"
 namespace lepton::core {
 namespace quorum {
 // JointConfig 主要用于 Raft

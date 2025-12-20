@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_RAFT_H_
 #define _LEPTON_RAFT_H_
 
@@ -6,16 +7,16 @@
 #include <tuple>
 #include <vector>
 
-#include "config.h"
-#include "logger.h"
-#include "progress.h"
-#include "quorum.h"
-#include "raft_log.h"
-#include "read_only.h"
-#include "state.h"
-#include "tracker.h"
-#include "types.h"
-#include "utility_macros.h"
+#include "basic/logger.h"
+#include "basic/utility_macros.h"
+#include "raft_core/config.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/quorum/quorum.h"
+#include "raft_core/raft_log.h"
+#include "raft_core/read_only.h"
+#include "raft_core/state.h"
+#include "raft_core/tracker/progress.h"
+#include "raft_core/tracker/tracker.h"
 namespace lepton::core {
 
 enum class campaign_type {

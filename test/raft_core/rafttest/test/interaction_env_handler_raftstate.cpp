@@ -1,9 +1,9 @@
 #include <string>
 
-#include "enum_name.h"
+#include "basic/enum_name.h"
 #include "fmt/format.h"
 #include "interaction_env.h"
-#include "state.h"
+#include "raft_core/tracker/state.h"
 
 namespace interaction {
 // isVoter checks whether node id is in the voter list within st.

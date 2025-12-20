@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_LOGGER_H_
 #define _LEPTON_LOGGER_H_
 #include <fmt/core.h>

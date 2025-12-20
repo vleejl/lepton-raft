@@ -1,8 +1,9 @@
+#pragma once
 #ifndef _LEPTON_SPDLOG_LOGGER_H_
 #define _LEPTON_SPDLOG_LOGGER_H_
 #include <spdlog/spdlog.h>
 
-#include "logger.h"
+#include "basic/logger.h"
 namespace lepton {
 
 class spdlog_logger : public logger_interface {

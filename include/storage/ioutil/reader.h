@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_READER_H_
 #define _LEPTON_READER_H_
 
@@ -7,8 +8,8 @@
 #include <asio/buffer.hpp>
 #include <cstddef>
 
-#include "expected.h"
-#include "lepton_error.h"
+#include "error/expected.h"
+#include "error/lepton_error.h"
 
 namespace lepton::storage::ioutil {
 

@@ -11,14 +11,14 @@
 #include <utility>
 #include <vector>
 
-#include "config.h"
-#include "leaf.h"
-#include "lepton_error.h"
-#include "memory_storage.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
+#include "raft_core/config.h"
+#include "raft_core/memory_storage.h"
+#include "raft_core/pb/types.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_data.h"
 #include "test_utility_macros.h"
-#include "types.h"
 using namespace lepton;
 using namespace lepton::core;
 

@@ -1,13 +1,13 @@
-#include "restore.h"
+#include "raft_core/confchange/restore.h"
 
 #include <absl/types/span.h>
 
 #include <functional>
 #include <vector>
 
-#include "confchange.h"
-#include "leaf.h"
-#include "types.h"
+#include "error/leaf.h"
+#include "raft_core/confchange/confchange.h"
+#include "raft_core/pb/types.h"
 namespace lepton::core {
 
 namespace confchange {

@@ -1,4 +1,4 @@
-#include "confchange.h"
+#include "raft_core/confchange/confchange.h"
 
 #include <fmt/core.h>
 
@@ -7,13 +7,13 @@
 #include <optional>
 #include <set>
 
+#include "error/leaf.h"
+#include "error/lepton_error.h"
 #include "fmt/format.h"
-#include "inflights.h"
-#include "leaf.h"
-#include "lepton_error.h"
-#include "majority.h"
-#include "progress.h"
-#include "tracker.h"
+#include "raft_core/quorum/majority.h"
+#include "raft_core/tracker/inflights.h"
+#include "raft_core/tracker/progress.h"
+#include "raft_core/tracker/tracker.h"
 
 namespace lepton::core {
 namespace confchange {

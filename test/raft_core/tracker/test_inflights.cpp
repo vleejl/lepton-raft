@@ -4,7 +4,7 @@
 #include <deque>
 #include <vector>
 
-#include "inflights.h"
+#include "raft_core/tracker/inflights.h"
 #include "test_utility_macros.h"
 using namespace lepton;
 using namespace lepton::core;

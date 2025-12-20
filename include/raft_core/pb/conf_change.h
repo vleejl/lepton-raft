@@ -1,12 +1,13 @@
+#pragma once
 #ifndef _LEPTON_CONF_CHANGE_
 #define _LEPTON_CONF_CHANGE_
 #include <raft.pb.h>
 
 #include <tuple>
 
-#include "leaf.h"
-#include "lepton_error.h"
-#include "types.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
+#include "raft_core/pb/types.h"
 namespace lepton::core {
 namespace pb {
 

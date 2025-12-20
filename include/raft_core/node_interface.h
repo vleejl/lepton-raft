@@ -1,12 +1,13 @@
+#pragma once
 #ifndef _LEPTON_NODE_INTERFACE_H_
 #define _LEPTON_NODE_INTERFACE_H_
 #include <absl/types/span.h>
 #include <proxy.h>
 #include <raft.pb.h>
 
-#include "conf_change.h"
-#include "lepton_error.h"
-#include "ready.h"
+#include "error/lepton_error.h"
+#include "raft_core/pb/conf_change.h"
+#include "raft_core/ready.h"
 namespace lepton::core {
 
 enum class snapshot_status : int {

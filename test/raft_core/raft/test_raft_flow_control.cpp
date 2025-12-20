@@ -10,8 +10,8 @@
 
 #include "fmt/base.h"
 #include "fmt/format.h"
-#include "raft.h"
-#include "storage.h"
+#include "raft_core/raft.h"
+#include "raft_core/storage.h"
 #include "test_diff.h"
 #include "test_raft_utils.h"
 using namespace lepton;

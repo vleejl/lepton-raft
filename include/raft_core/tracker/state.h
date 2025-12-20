@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_STATE_H_
 #define _LEPTON_STATE_H_
 #include <cstdint>

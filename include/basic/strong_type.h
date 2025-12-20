@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_STRONG_TYPE_H_
 #define _LEPTON_STRONG_TYPE_H_
 #include <concepts>

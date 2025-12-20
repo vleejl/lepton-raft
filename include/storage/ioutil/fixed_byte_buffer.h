@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_FIXED_BYTE_BUFFER_H_
 #define _LEPTON_FIXED_BYTE_BUFFER_H_
 #include <asio/buffer.hpp>
@@ -5,7 +6,7 @@
 #include <span>
 #include <vector>
 
-#include "utility_macros.h"
+#include "basic/utility_macros.h"
 
 namespace lepton::storage::ioutil {
 

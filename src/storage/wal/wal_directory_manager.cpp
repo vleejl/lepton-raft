@@ -1,17 +1,11 @@
-#include "wal_directory_manager.h"
+#include "storage/wal/wal_directory_manager.h"
 
 #include <filesystem>
 
-#include "defer.h"
-#include "path.h"
-#include "read_dir.h"
+#include "basic/defer.h"
+#include "storage/fileutil/path.h"
+#include "storage/fileutil/read_dir.h"
 namespace lepton::storage::wal {
-
-// SegmentSizeBytes is the preallocated size of each wal segment file.
-// The actual size might be larger than this. In general, the default
-// value should be used, but this is defined as an exported variable
-// so that tests can set a different segment size.
-constexpr static std::uint64_t SEGMENT_SIZE_BYTES = 64 * 1000 * 1000;  // 64MB
 
 leaf::result<void> wal_directory_manager::is_dir_writeable(const std::string& dir_name) {
   std::filesystem::path dir_path(dir_name);
@@ -67,7 +61,8 @@ leaf::result<void> wal_directory_manager::create_wal(const std::string& dirpath)
 
   auto wal_file_path = temp_dir_path / wal_file_name(0, 0);
   BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor_, env_, wal_file_path.string(), false));
-  LEPTON_LEAF_CHECK(wal_file_handle.pre_allocate(SEGMENT_SIZE_BYTES));
+  LEPTON_LEAF_CHECK(wal_file_handle.pre_allocate(SEGMENT_SIZE_BYTES, true));
+  // TODO
 }
 
 }  // namespace lepton::storage::wal

@@ -15,18 +15,18 @@
 #include <vector>
 
 #include "absl/types/span.h"
-#include "config.h"
-#include "memory_storage.h"
-#include "protobuf.h"
+#include "basic/spdlog_logger.h"
 #include "proxy.h"
-#include "raft_log.h"
-#include "raft_log_unstable.h"
-#include "spdlog_logger.h"
-#include "storage.h"
+#include "raft_core/config.h"
+#include "raft_core/memory_storage.h"
+#include "raft_core/pb/protobuf.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/raft_log.h"
+#include "raft_core/raft_log_unstable.h"
+#include "raft_core/storage.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_data.h"
 #include "test_utility_macros.h"
-#include "types.h"
 using namespace lepton;
 using namespace lepton::core;
 

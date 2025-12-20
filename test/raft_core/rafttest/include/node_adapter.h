@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_NODE_H_
 #define _LEPTON_NODE_H_
 #include <cassert>
@@ -14,23 +15,23 @@
 #include "asio/use_awaitable.hpp"
 #include "asio/use_future.hpp"
 #include "async_mutex.h"
-#include "channel.h"
-#include "channel_endpoint.h"
-#include "co_spawn_waiter.h"
-#include "config.h"
-#include "describe.h"
-#include "enum_name.h"
-#include "memory_storage.h"
-#include "node.h"
-#include "node_interface.h"
-#include "protobuf.h"
+#include "basic/enum_name.h"
+#include "basic/spdlog_logger.h"
+#include "coroutine/channel.h"
+#include "coroutine/channel_endpoint.h"
+#include "coroutine/co_spawn_waiter.h"
+#include "coroutine/signal_channel_endpoint.h"
 #include "raft.pb.h"
+#include "raft_core/config.h"
+#include "raft_core/describe.h"
+#include "raft_core/memory_storage.h"
+#include "raft_core/node.h"
+#include "raft_core/node_interface.h"
+#include "raft_core/pb/protobuf.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/ready.h"
 #include "raft_network.h"
-#include "ready.h"
-#include "signal_channel_endpoint.h"
 #include "spdlog/spdlog.h"
-#include "spdlog_logger.h"
-#include "types.h"
 namespace rafttest {
 
 enum class event_type { tick, ready, recv, stop, pause };

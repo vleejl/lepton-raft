@@ -17,9 +17,9 @@
 
 #include "cli.h"
 #include "data_driven.h"
-#include "joint.h"
-#include "majority.h"
-#include "quorum.h"
+#include "raft_core/quorum/joint.h"
+#include "raft_core/quorum/majority.h"
+#include "raft_core/quorum/quorum.h"
 #include "test_utility_data.h"
 using namespace lepton;
 using namespace lepton::core;

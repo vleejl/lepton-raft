@@ -2,13 +2,13 @@
 #include <cstddef>
 #include <optional>
 
-#include "conf_change.h"
-#include "describe.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
+#include "error/logic_error.h"
 #include "interaction_env.h"
-#include "leaf.h"
-#include "lepton_error.h"
-#include "logic_error.h"
 #include "raft.pb.h"
+#include "raft_core/describe.h"
+#include "raft_core/pb/conf_change.h"
 
 namespace interaction {
 lepton::leaf::result<void> interaction_env::handle_process_apply_thread(const datadriven::test_data &test_data) {

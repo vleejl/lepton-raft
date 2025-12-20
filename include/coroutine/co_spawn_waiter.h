@@ -1,8 +1,9 @@
+#pragma once
 #ifndef _LEPTON_CO_SPAWN_WAITER_H_
 #define _LEPTON_CO_SPAWN_WAITER_H_
 #include <memory>
 
-#include "channel.h"
+#include "coroutine/channel.h"
 
 namespace lepton::coro {
 template <typename AwaitableFunc>

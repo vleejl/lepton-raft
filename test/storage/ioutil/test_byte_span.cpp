@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "byte_span.h"
+#include "storage/ioutil/byte_span.h"
 
 class byte_span_test : public ::testing::Test {
  protected:

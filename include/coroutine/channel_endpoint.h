@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_CHANNEL_ENDPOINT_H_
 #define _LEPTON_CHANNEL_ENDPOINT_H_
 #include <spdlog/spdlog.h>
@@ -10,8 +11,8 @@
 #include <cstddef>
 
 #include "asio/error_code.hpp"
-#include "channel.h"
-#include "expected.h"
+#include "coroutine/channel.h"
+#include "error/expected.h"
 
 namespace lepton::coro {
 template <typename T>

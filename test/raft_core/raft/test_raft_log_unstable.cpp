@@ -10,11 +10,11 @@
 #include <vector>
 
 #include "absl/types/span.h"
-#include "raft_log_unstable.h"
-#include "spdlog_logger.h"
+#include "basic/spdlog_logger.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/raft_log_unstable.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_macros.h"
-#include "types.h"
 using namespace lepton;
 using namespace lepton::core;
 

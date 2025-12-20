@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_NODE_
 #define _LEPTON_NODE_
 #include <spdlog/spdlog.h>
@@ -20,17 +21,17 @@
 #include <vector>
 
 #include "asio/awaitable.hpp"
-#include "channel.h"
-#include "channel_endpoint.h"
-#include "expected.h"
-#include "node_interface.h"
-#include "raft.h"
+#include "basic/utility_macros.h"
+#include "coroutine/channel.h"
+#include "coroutine/channel_endpoint.h"
+#include "coroutine/signal_channel_endpoint.h"
+#include "error/expected.h"
 #include "raft.pb.h"
-#include "raw_node.h"
-#include "ready.h"
-#include "signal_channel_endpoint.h"
-#include "state.h"
-#include "utility_macros.h"
+#include "raft_core/node_interface.h"
+#include "raft_core/raft.h"
+#include "raft_core/raw_node.h"
+#include "raft_core/ready.h"
+#include "raft_core/tracker/state.h"
 #include "v4/proxy.h"
 
 namespace lepton::core {

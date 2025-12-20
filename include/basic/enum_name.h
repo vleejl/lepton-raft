@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_LEPTON_MAGIC_ENUM_H_
 #define _LEPTON_LEPTON_MAGIC_ENUM_H_
 #include <string>

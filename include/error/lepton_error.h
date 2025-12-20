@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_ERROR_H_
 #define _LEPTON_ERROR_H_
 #include <asio.hpp>
@@ -6,22 +7,25 @@
 #include <string>
 #include <system_error>
 
-#include "io_error.h"
-#include "leaf.h"
-#include "logic_error.h"
-#include "protobuf_error.h"
-#include "raft_error.h"
-#include "storage_error.h"
+#include "error/coro_error.h"
+#include "error/expected.h"
+#include "error/io_error.h"
+#include "error/leaf.h"
+#include "error/logic_error.h"
+#include "error/protobuf_error.h"
+#include "error/raft_error.h"
+#include "error/storage_error.h"
+#include "tl/expected.hpp"
 
 #ifdef LEPTON_STORAGE
-#include "rocksdb_err.h"
+#include "error/rocksdb_err.h"
 #endif
 namespace lepton {
 
 template <typename T>
 inline constexpr bool is_lepton_error_v =
     std::is_same_v<T, io_error> || std::is_same_v<T, logic_error> || std::is_same_v<T, raft_error> ||
-    std::is_same_v<T, storage_error> || std::is_same_v<T, protobuf_error>
+    std::is_same_v<T, storage_error> || std::is_same_v<T, protobuf_error> || std::is_same_v<T, coro_error>
 #ifdef LEPTON_STORAGE
     || std::is_same_v<T, rocksdb::Status>
 #endif
@@ -105,6 +109,11 @@ auto new_error(error_code_type code, std::source_location location = std::source
 }
 
 inline auto new_error(const lepton::lepton_error& err) { return leaf::new_error(err); }
+
+template <err_types error_code_type>
+inline auto unexpected(error_code_type error_code) {
+  return tl::unexpected(make_error_code(error_code));
+}
 
 }  // namespace lepton
 

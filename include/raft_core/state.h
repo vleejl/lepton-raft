@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_STATUS_H_
 #define _LEPTON_STATUS_H_
 #include <raft.pb.h>
@@ -5,8 +6,8 @@
 #include <cstdint>
 #include <memory>
 
-#include "channel_endpoint.h"
-#include "tracker.h"
+#include "coroutine/channel_endpoint.h"
+#include "raft_core/tracker/tracker.h"
 namespace lepton::core {
 
 enum class state_type : std::uint64_t { FOLLOWER, CANDIDATE, LEADER, PRE_CANDIDATE };

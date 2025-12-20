@@ -1,12 +1,13 @@
+#pragma once
 #ifndef _LEPTON_MEMORY_STORAGE_H_
 #define _LEPTON_MEMORY_STORAGE_H_
 #include <mutex>
 #include <optional>
 
-#include "lepton_error.h"
+#include "basic/utility_macros.h"
+#include "error/lepton_error.h"
 #include "raft.pb.h"
-#include "types.h"
-#include "utility_macros.h"
+#include "raft_core/pb/types.h"
 namespace lepton::core {
 // MemoryStorage implements the Storage interface backed by an
 // in-memory array.

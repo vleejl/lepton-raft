@@ -4,9 +4,9 @@
 #include <tuple>
 #include <vector>
 
+#include "error/leaf.h"
 #include "fmt/format.h"
 #include "interaction_env.h"
-#include "leaf.h"
 #include "raft.pb.h"
 #include "spdlog/spdlog.h"
 

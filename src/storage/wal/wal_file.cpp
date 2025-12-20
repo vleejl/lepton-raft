@@ -1,4 +1,4 @@
-#include "wal_file.h"
+#include "storage/wal/wal_file.h"
 
 namespace lepton::storage::wal {
 

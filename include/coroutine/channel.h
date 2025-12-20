@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_CHANNEL_H_
 #define _LEPTON_CHANNEL_H_
 #include <spdlog/spdlog.h>
@@ -8,16 +9,12 @@
 #include <asio/experimental/awaitable_operators.hpp>
 #include <asio/experimental/channel.hpp>
 
-#include "expected.h"
-#include "raft_error.h"
+#include "coroutine/coro_types.h"
+#include "error/expected.h"
+#include "error/lepton_error.h"
+#include "error/raft_error.h"
 
 namespace lepton::coro {
-
-template <typename T>
-using channel = asio::experimental::channel<void(asio::error_code, T)>;
-
-using signal_channel = asio::experimental::channel<void(asio::error_code)>;
-using signal_channel_handle = signal_channel *;
 
 template <typename async_func>
 asio::awaitable<expected<void>> async_select_done(async_func &&main_op, signal_channel &done_chan) {
@@ -33,9 +30,9 @@ asio::awaitable<expected<void>> async_select_done(async_func &&main_op, signal_c
       }
       co_return ok();
     case 1:
-      co_return tl::unexpected{raft_error::STOPPED};
+      co_return tl::unexpected{coro_error::STOPPED};
     default:
-      co_return tl::unexpected{raft_error::UNKNOWN_ERROR};
+      co_return tl::unexpected{coro_error::UNKNOWN_ERROR};
   }
 }
 
@@ -58,9 +55,9 @@ asio::awaitable<expected<T>> async_select_done_with_value(AsyncFunc &&main_op, s
       co_return tl::expected<T, std::error_code>(std::move(result1));
     }
     case 1:
-      co_return tl::unexpected(make_error_code(raft_error::STOPPED));
+      co_return unexpected(coro_error::STOPPED);
     default:
-      co_return tl::unexpected(make_error_code(raft_error::UNKNOWN_ERROR));
+      co_return unexpected(coro_error::UNKNOWN_ERROR);
   }
 }
 

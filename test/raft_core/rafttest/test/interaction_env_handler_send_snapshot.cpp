@@ -2,11 +2,11 @@
 #include <cstddef>
 
 #include "data_driven.h"
-#include "describe.h"
+#include "error/logic_error.h"
 #include "interaction_env.h"
 #include "leaf.hpp"
-#include "logic_error.h"
 #include "raft.pb.h"
+#include "raft_core/describe.h"
 
 namespace interaction {
 

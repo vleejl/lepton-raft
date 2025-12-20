@@ -1,7 +1,8 @@
+#pragma once
 #ifndef _LEPTON_RESTORE_H_
 #define _LEPTON_RESTORE_H_
 
-#include "confchange.h"
+#include "raft_core/confchange/confchange.h"
 
 namespace lepton::core {
 namespace confchange {

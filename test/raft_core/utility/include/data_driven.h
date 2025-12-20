@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_TEST_DATA_DRIVEN_H_
 #define _LEPTON_TEST_DATA_DRIVEN_H_
 #include <gtest/gtest.h>

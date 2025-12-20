@@ -1,4 +1,4 @@
-#include "node.h"
+#include "raft_core/node.h"
 
 #include <atomic>
 #include <cassert>
@@ -9,23 +9,19 @@
 
 #include "asio/awaitable.hpp"
 #include "asio/error_code.hpp"
-#include "channel.h"
-#include "channel_endpoint.h"
-#include "co_spawn_waiter.h"
-#include "describe.h"
-#include "enum_name.h"
-#include "expected.h"
-#include "leaf_expected.h"
-#include "node_interface.h"
+#include "coroutine/channel_endpoint.h"
+#include "coroutine/co_spawn_waiter.h"
+#include "coroutine/signal_channel_endpoint.h"
+#include "error/expected.h"
+#include "error/leaf_expected.h"
+#include "error/raft_error.h"
 #include "raft.pb.h"
-#include "raft_error.h"
-#include "raw_node.h"
-#include "ready.h"
-#include "signal_channel_endpoint.h"
+#include "raft_core/node_interface.h"
+#include "raft_core/raw_node.h"
+#include "raft_core/ready.h"
+#include "raft_core/tracker/state.h"
 #include "spdlog/spdlog.h"
-#include "state.h"
 #include "tl/expected.hpp"
-#include "v4/proxy.h"
 namespace lepton::core {
 
 asio::awaitable<void> node::stop() {

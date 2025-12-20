@@ -1,7 +1,7 @@
-#include "config.h"
+#include "raft_core/config.h"
 
-#include "lepton_error.h"
-#include "logic_error.h"
+#include "error/lepton_error.h"
+#include "error/logic_error.h"
 
 namespace lepton::core {
 

@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_TRACKER_H_
 #define _LEPTON_TRACKER_H_
 #include <proxy.h>
@@ -11,11 +12,11 @@
 #include <utility>
 #include <vector>
 
-#include "joint.h"
-#include "majority.h"
-#include "progress.h"
-#include "quorum.h"
-#include "utility_macros.h"
+#include "basic/utility_macros.h"
+#include "raft_core/quorum/joint.h"
+#include "raft_core/quorum/majority.h"
+#include "raft_core/quorum/quorum.h"
+#include "raft_core/tracker/progress.h"
 namespace lepton::core {
 namespace tracker {
 // Config reflects the configuration tracked in a ProgressTracker.

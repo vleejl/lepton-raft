@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_READY_H_
 #define _LEPTON_READY_H_
 #include <absl/types/span.h>
@@ -7,10 +8,10 @@
 #include <memory>
 #include <vector>
 
-#include "channel_endpoint.h"
-#include "read_only.h"
-#include "state.h"
-#include "types.h"
+#include "coroutine/channel_endpoint.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/read_only.h"
+#include "raft_core/state.h"
 
 namespace lepton::core {
 // Ready encapsulates the entries and messages that are ready to read,
@@ -35,7 +36,7 @@ struct ready {
   // State（如 Follower、Candidate、Leader）。
   // 由于 SoftState 不是持久化数据，因此不需要存储，只用于节点间的交互。
   // 如果没有更新，它会是 nil。
-  std::optional<lepton::core::soft_state> soft_state;
+  std::optional<core::soft_state> soft_state;
 
   // The current state of a Node to be saved to stable storage BEFORE
   // Messages are sent.

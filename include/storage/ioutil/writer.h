@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_WRITER_H_
 #define _LEPTON_WRITER_H_
 #include <proxy.h>
@@ -5,8 +6,8 @@
 #include <asio/awaitable.hpp>
 #include <cstddef>
 
-#include "byte_span.h"
-#include "expected.h"
+#include "error/expected.h"
+#include "storage/ioutil/byte_span.h"
 
 namespace lepton::storage::ioutil {
 

@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_TEST_FILE_H_
 #define _LEPTON_TEST_FILE_H_
 #include <fmt/format.h>
@@ -9,14 +10,14 @@
 #include <string>
 
 #include "asio/error_code.hpp"
-#include "defer.h"
-#include "leaf.h"
+#include "basic/defer.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
 #include "leaf.hpp"
-#include "lepton_error.h"
-#include "path.h"
-#include "preallocate.h"
-#include "read_dir.h"
-#include "wal_file.h"
+#include "storage/fileutil/path.h"
+#include "storage/fileutil/preallocate.h"
+#include "storage/fileutil/read_dir.h"
+#include "storage/wal/wal_file.h"
 namespace fs = std::filesystem;
 
 void delete_if_exists(const fs::path& file_path);

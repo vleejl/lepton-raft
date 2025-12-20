@@ -1,8 +1,8 @@
-#include "conf_state.h"
+#include "raft_core/pb/conf_state.h"
 
 #include <cstdint>
 
-#include "lepton_error.h"
+#include "error/lepton_error.h"
 
 namespace lepton::core {
 

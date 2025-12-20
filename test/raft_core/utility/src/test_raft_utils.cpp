@@ -9,17 +9,17 @@
 #include <memory>
 #include <vector>
 
-#include "lepton_error.h"
-#include "log.h"
-#include "memory_storage.h"
-#include "progress.h"
+#include "basic/log.h"
+#include "basic/spdlog_logger.h"
+#include "error/lepton_error.h"
 #include "proxy.h"
-#include "raft.h"
 #include "raft.pb.h"
-#include "spdlog_logger.h"
-#include "storage.h"
+#include "raft_core/memory_storage.h"
+#include "raft_core/raft.h"
+#include "raft_core/storage.h"
+#include "raft_core/tracker/progress.h"
+#include "raft_core/tracker/tracker.h"
 #include "test_utility_data.h"
-#include "tracker.h"
 
 using namespace lepton;
 using namespace lepton::core;

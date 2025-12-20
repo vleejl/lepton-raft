@@ -12,16 +12,16 @@
 #include <vector>
 
 #include "absl/types/span.h"
-#include "confchange.h"
+#include "basic/defer.h"
 #include "data_driven.h"
-#include "defer.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
 #include "fmt/format.h"
-#include "leaf.h"
-#include "lepton_error.h"
-#include "progress.h"
+#include "raft_core/confchange/confchange.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/tracker/progress.h"
+#include "raft_core/tracker/tracker.h"
 #include "test_utility_data.h"
-#include "tracker.h"
-#include "types.h"
 using namespace lepton;
 using namespace lepton::core;
 

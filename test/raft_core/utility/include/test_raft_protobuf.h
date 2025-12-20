@@ -1,15 +1,16 @@
+#pragma once
 #ifndef _LEPTON_TEST_RAFT_PROTOBUF_H_
 #define _LEPTON_TEST_RAFT_PROTOBUF_H_
 #include <cstdint>
 #include <vector>
 
-#include "conf_change.h"
-#include "lepton_error.h"
+#include "error/lepton_error.h"
 #include "raft.pb.h"
-#include "read_only.h"
-#include "ready.h"
-#include "state.h"
-#include "types.h"
+#include "raft_core/pb/conf_change.h"
+#include "raft_core/pb/types.h"
+#include "raft_core/read_only.h"
+#include "raft_core/ready.h"
+#include "raft_core/tracker/state.h"
 
 namespace test_pb {
 

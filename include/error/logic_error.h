@@ -1,10 +1,11 @@
+#pragma once
 #ifndef _LEPTON_LOGIC_ERROR_H_
 #define _LEPTON_LOGIC_ERROR_H_
 #include <cassert>
 #include <string>
 #include <system_error>
 
-#include "base_error_category.h"
+#include "error/base_error_category.h"
 namespace lepton {
 
 enum class logic_error {
@@ -14,6 +15,7 @@ enum class logic_error {
   INVALID_PARAM,
   EMPTY_ARRAY,
   LOOP_BREAK,  // 特殊错误码, errBreak is a sentinel error used to break a callback-based loop.
+  COROUTINE_EXIST,
 };
 
 // logic_error_category

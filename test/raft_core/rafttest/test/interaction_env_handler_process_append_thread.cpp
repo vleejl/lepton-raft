@@ -1,12 +1,12 @@
 #include <cassert>
 #include <cstddef>
 
-#include "describe.h"
+#include "error/leaf.h"
+#include "error/logic_error.h"
 #include "interaction_env.h"
-#include "leaf.h"
-#include "logic_error.h"
 #include "raft.pb.h"
-#include "types.h"
+#include "raft_core/describe.h"
+#include "raft_core/pb/types.h"
 
 namespace interaction {
 lepton::leaf::result<void> interaction_env::handle_process_append_thread(const datadriven::test_data &test_data) {

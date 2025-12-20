@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_ENCODER_H_
 #define _LEPTON_ENCODER_H_
 #include <wal.pb.h>
@@ -5,12 +6,12 @@
 #include <cstdint>
 
 #include "absl/crc/crc32c.h"
-#include "fixed_byte_buffer.h"
-#include "logger.h"
-#include "pagewriter.h"
-#include "utility_macros.h"
+#include "basic/logger.h"
+#include "basic/utility_macros.h"
+#include "storage/ioutil/fixed_byte_buffer.h"
+#include "storage/ioutil/pagewriter.h"
+#include "storage/ioutil/writer.h"
 #include "v4/proxy.h"
-#include "writer.h"
 
 namespace lepton::storage::wal {
 class encoder {

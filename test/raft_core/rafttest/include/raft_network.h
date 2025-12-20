@@ -12,9 +12,9 @@
 #include <string>
 #include <thread>
 
-#include "channel.h"
-#include "channel_endpoint.h"
-#include "enum_name.h"
+#include "basic/enum_name.h"
+#include "coroutine/channel.h"
+#include "coroutine/channel_endpoint.h"
 #include "raft.pb.h"
 #include "spdlog/spdlog.h"
 

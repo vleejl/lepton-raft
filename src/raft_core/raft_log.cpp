@@ -1,4 +1,4 @@
-#include "raft_log.h"
+#include "raft_core/raft_log.h"
 
 #include <fmt/core.h>
 #include <fmt/format.h>
@@ -9,14 +9,14 @@
 #include <utility>
 
 #include "absl/types/span.h"
-#include "config.h"
-#include "leaf.h"
-#include "lepton_error.h"
-#include "log.h"
-#include "logger.h"
-#include "protobuf.h"
+#include "basic/log.h"
+#include "basic/logger.h"
+#include "error/leaf.h"
+#include "error/lepton_error.h"
 #include "raft.pb.h"
-#include "types.h"
+#include "raft_core/config.h"
+#include "raft_core/pb/protobuf.h"
+#include "raft_core/pb/types.h"
 
 namespace lepton::core {
 raft_log::raft_log(pro::proxy<storage_builer>&& storage, std::uint64_t first_index, std::uint64_t last_index,

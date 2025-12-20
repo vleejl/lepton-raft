@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_TEST_UTILITY_DATA_H_
 #define _LEPTON_TEST_UTILITY_DATA_H_
 
@@ -9,7 +10,7 @@
 #include <string_view>
 
 #include "absl/strings/str_replace.h"
-#include "leaf.h"
+#include "error/leaf.h"
 
 template <typename T>
 lepton::leaf::result<std::uint64_t> safe_stoull(

@@ -2,8 +2,8 @@
 #include <cstddef>
 #include <vector>
 
+#include "error/leaf.h"
 #include "interaction_env.h"
-#include "leaf.h"
 #include "test_utility_data.h"
 
 namespace interaction {

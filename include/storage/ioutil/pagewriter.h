@@ -1,13 +1,14 @@
+#pragma once
 #ifndef _LEPTON_PAGEWRITER_H_
 #define _LEPTON_PAGEWRITER_H_
 #include <cassert>
 #include <cstddef>
 
-#include "expected.h"
-#include "leaf.h"
-#include "utility_macros.h"
+#include "basic/utility_macros.h"
+#include "error/expected.h"
+#include "error/leaf.h"
+#include "storage/ioutil/writer.h"
 #include "v4/proxy.h"
-#include "writer.h"
 
 namespace lepton::storage::ioutil {
 

@@ -71,7 +71,6 @@ add_requires("rocksdb", {configs = {rtti = true}})
 add_requires("spdlog", {configs = {fmt_external = true, header_only = false}})
 add_requires("tl_expected")
 
-add_includedirs("include/basic")
 add_includedirs("third_party/leaf/")
 add_includedirs("third_party/proxy/include/proxy")
 
@@ -88,17 +87,7 @@ else
 end
 
 target("lepton-raft-core-unit-test")
-    -- lepton basic include dirs
-    add_includedirs("include/basic")
-    add_includedirs("include/coroutine")
-    add_includedirs("include/error")
-    -- raft core include dirs 
-    add_includedirs("include/raft_core")
-    add_includedirs("include/raft_core/confchange")
-    add_includedirs("include/raft_core/quorum")
-    add_includedirs("include/raft_core/pb")
-    add_includedirs("include/raft_core/tracker")
-    -- raft core include dirs 
+    add_includedirs("include/")
     add_includedirs("third_party/dtl")
     on_load(apply_sanitizers)
     add_defines("LEPTON_TEST")
@@ -137,17 +126,7 @@ target("lepton-raft-core-unit-test")
 
 
 target("lepton-raft-core-benchmark-test")
-    -- lepton basic include dirs
-    add_includedirs("include/basic")
-    add_includedirs("include/coroutine")
-    add_includedirs("include/error")
-    -- raft core include dirs 
-    add_includedirs("include/raft_core")
-    add_includedirs("include/raft_core/confchange")
-    add_includedirs("include/raft_core/quorum")
-    add_includedirs("include/raft_core/pb")
-    add_includedirs("include/raft_core/tracker")
-    -- raft core include dirs 
+    add_includedirs("include/")
     add_includedirs("third_party/dtl")
     add_defines("LEPTON_TEST")
     add_defines("LEPTON_PROJECT_DIR=\"$(curdir)\"")
@@ -176,21 +155,7 @@ target("lepton-raft-core-benchmark-test")
     add_packages("gtest", "benchmark")
 
 target("lepton-raft-storage-unit-test")
-    -- lepton basic include dirs
-    add_includedirs("include/basic")
-    add_includedirs("include/coroutine")
-    add_includedirs("include/error")
-    -- raft core include dirs 
-    add_includedirs("include/raft_core")
-    add_includedirs("include/raft_core/confchange")
-    add_includedirs("include/raft_core/quorum")
-    add_includedirs("include/raft_core/pb")
-    add_includedirs("include/raft_core/tracker")
-    -- raft storage include dirs 
-    add_includedirs("include/storage/fileutil")
-    add_includedirs("include/storage/ioutil")
-    add_includedirs("include/storage/pb")
-    add_includedirs("include/storage/wal")
+    add_includedirs("include/")
     on_load(apply_sanitizers)
     add_defines("LEPTON_TEST")
     add_defines("LEPTON_STORAGE")
@@ -218,6 +183,7 @@ target("lepton-raft-storage-unit-test")
     -- lepton-raft unit test file
     add_files("test/storage/utility/src/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/asio/*.cpp", {cxflags = test_cxflags})
+    add_files("test/storage/fileutil/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/ioutil/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/rocksdb/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/wal/*.cpp", {cxflags = test_cxflags})        

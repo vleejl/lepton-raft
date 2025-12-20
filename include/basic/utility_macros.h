@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_UTILITY_MACROS_H_
 #define _LEPTON_UTILITY_MACROS_H_
 
@@ -23,6 +24,7 @@
   Type(Type &&) = delete;                 \
   Type &operator=(Type &&) = delete;
 
+#pragma once
 #ifndef LEPTON_UNUSED
 #if defined(__GNUC__) || defined(__clang__)
 #define LEPTON_UNUSED(x) (void)(x)

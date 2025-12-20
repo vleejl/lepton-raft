@@ -1,8 +1,9 @@
+#pragma once
 #ifndef _LEPTON_DEFER_H_
 #define _LEPTON_DEFER_H_
 #include <utility>
 
-#include "utility_macros.h"
+#include "basic/utility_macros.h"
 namespace lepton {
 
 template <typename F>

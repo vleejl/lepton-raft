@@ -1,10 +1,11 @@
+#pragma once
 #ifndef _LEPTON_STORAGE_ERROR_H_
 #define _LEPTON_STORAGE_ERROR_H_
 #include <cassert>
 #include <string>
 #include <system_error>
 
-#include "base_error_category.h"
+#include "error/base_error_category.h"
 
 namespace lepton {
 

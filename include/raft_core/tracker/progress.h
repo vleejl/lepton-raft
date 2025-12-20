@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_PROGRESS_H_
 #define _LEPTON_PROGRESS_H_
 #include <algorithm>
@@ -5,12 +6,12 @@
 #include <cstdint>
 #include <utility>
 
-#include "enum_name.h"
-#include "inflights.h"
-#include "log.h"
-#include "quorum.h"
-#include "state.h"
-#include "utility_macros.h"
+#include "basic/enum_name.h"
+#include "basic/log.h"
+#include "basic/utility_macros.h"
+#include "raft_core/quorum/quorum.h"
+#include "raft_core/tracker/inflights.h"
+#include "raft_core/tracker/state.h"
 namespace lepton::core {
 namespace tracker {
 // Progress represents a follower’s progress in the view of the leader. Leader

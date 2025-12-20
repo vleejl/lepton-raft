@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_TEST_CLI_H_
 #define _LEPTON_TEST_CLI_H_
 
@@ -12,9 +13,9 @@
 #include <type_traits>
 #include <vector>
 
+#include "error/leaf.h"
+#include "error/lepton_error.h"
 #include "fmt/format.h"
-#include "leaf.h"
-#include "lepton_error.h"
 
 lepton::leaf::result<void> handle_bool(const std::string& val, bool& dest);
 

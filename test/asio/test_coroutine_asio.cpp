@@ -16,14 +16,14 @@
 #include "asio/detached.hpp"
 #include "asio/error_code.hpp"
 #include "asio/use_future.hpp"
-#include "channel.h"
-#include "channel_endpoint.h"
-#include "expected.h"
+#include "coroutine/channel.h"
+#include "coroutine/channel_endpoint.h"
+#include "coroutine/signal_channel_endpoint.h"
+#include "error/expected.h"
+#include "error/raft_error.h"
+#include "error/storage_error.h"
 #include "raft.pb.h"
-#include "raft_error.h"
-#include "signal_channel_endpoint.h"
 #include "spdlog/spdlog.h"
-#include "storage_error.h"
 #include "tl/expected.hpp"
 using asio::awaitable;
 using asio::co_spawn;
@@ -229,7 +229,7 @@ awaitable<lepton::expected<void>> async_select(lepton::coro::channel<raftpb::mes
     case 1:  // 节点停止
       co_return tl::unexpected{lepton::raft_error::STOPPED};
     default:
-      co_return tl::unexpected{lepton::raft_error::UNKNOWN_ERROR};
+      co_return tl::unexpected{lepton::coro_error::UNKNOWN_ERROR};
   }
 }
 
@@ -253,7 +253,7 @@ TEST(asio_coroutine_test_suit, async_select_done_chan) {
           std::cout << "发送成功\n";
         } else if (ec.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
           std::cout << "上下文取消\n";
-        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+        } else if (ec.error() == lepton::make_error_code(lepton::coro_error::UNKNOWN_ERROR)) {
           std::cout << "未知错误\n";
         }
         co_return;
@@ -299,7 +299,7 @@ TEST(asio_coroutine_test_suit, async_select_done) {
           std::cout << "发送成功\n";
         } else if (ec.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
           std::cout << "上下文取消\n";
-        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+        } else if (ec.error() == lepton::make_error_code(lepton::coro_error::UNKNOWN_ERROR)) {
           std::cout << "未知错误\n";
         }
         co_return;
@@ -344,7 +344,7 @@ TEST(asio_coroutine_test_suit, async_select_any_expected_async_send) {
           std::cout << "发送成功, idx: " << ec.value() << std::endl;
         } else if (ec.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
           std::cout << "上下文取消\n";
-        } else if (ec.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+        } else if (ec.error() == lepton::make_error_code(lepton::coro_error::UNKNOWN_ERROR)) {
           std::cout << "未知错误\n";
         }
         co_return;
@@ -389,7 +389,7 @@ TEST(asio_coroutine_test_suit, async_select_done_with_raft_message_type) {
           std::cout << "发送成功 " << msg.value().DebugString() << std::endl;
         } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
           std::cout << "上下文取消\n";
-        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+        } else if (msg.error() == lepton::make_error_code(lepton::coro_error::UNKNOWN_ERROR)) {
           std::cout << "未知错误\n";
         }
         co_return;
@@ -437,7 +437,7 @@ TEST(asio_coroutine_test_suit, async_select_done_with_expected_error_type) {
           std::cout << "发送成功 " << msg->value() << std::endl;
         } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
           std::cout << "上下文取消\n";
-        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+        } else if (msg.error() == lepton::make_error_code(lepton::coro_error::UNKNOWN_ERROR)) {
           std::cout << "未知错误\n";
         }
         co_return;
@@ -484,7 +484,7 @@ TEST(asio_coroutine_test_suit, close_channel) {
           std::cout << "发送成功 " << msg->value() << std::endl;
         } else if (msg.error() == lepton::raft_error::STOPPED) {
           std::cout << "上下文取消\n";
-        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+        } else if (msg.error() == lepton::make_error_code(lepton::coro_error::UNKNOWN_ERROR)) {
           std::cout << "未知错误\n";
         }
         co_return;
@@ -506,7 +506,7 @@ TEST(asio_coroutine_test_suit, close_channel) {
           std::cout << "发送成功 " << msg->value() << std::endl;
         } else if (msg.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
           std::cout << "上下文取消\n";
-        } else if (msg.error() == lepton::make_error_code(lepton::raft_error::UNKNOWN_ERROR)) {
+        } else if (msg.error() == lepton::make_error_code(lepton::coro_error::UNKNOWN_ERROR)) {
           std::cout << "未知错误\n";
         }
         co_return;

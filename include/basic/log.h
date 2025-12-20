@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_LOG_H_
 #define _LEPTON_LOG_H_
 #include <spdlog/spdlog.h>

@@ -1,11 +1,11 @@
-#include "memory_storage.h"
+#include "raft_core/memory_storage.h"
 
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 
-#include "log.h"
-#include "protobuf.h"
+#include "basic/log.h"
+#include "raft_core/pb/protobuf.h"
 
 namespace lepton::core {
 

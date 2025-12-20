@@ -3,12 +3,12 @@
 #include <cstdint>
 #include <vector>
 
-#include "describe.h"
+#include "basic/log.h"
+#include "error/leaf.h"
+#include "error/logic_error.h"
 #include "interaction_env.h"
-#include "leaf.h"
-#include "log.h"
-#include "logic_error.h"
 #include "raft.pb.h"
+#include "raft_core/describe.h"
 #include "spdlog/spdlog.h"
 #include "test_raft_protobuf.h"
 #include "test_utility_data.h"

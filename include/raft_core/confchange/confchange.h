@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_CONFCHANGE_H_
 #define _LEPTON_CONFCHANGE_H_
 #include <absl/types/span.h>
@@ -5,10 +6,10 @@
 
 #include <tuple>
 
-#include "lepton_error.h"
-#include "progress.h"
-#include "tracker.h"
-#include "utility_macros.h"
+#include "basic/utility_macros.h"
+#include "error/lepton_error.h"
+#include "raft_core/tracker/progress.h"
+#include "raft_core/tracker/tracker.h"
 namespace lepton::core {
 namespace confchange {
 // Changer facilitates configuration changes. It exposes methods to handle

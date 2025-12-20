@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_RAFT_LOG_UNSTABLE_H_
 #define _LEPTON_RAFT_LOG_UNSTABLE_H_
 #include <absl/types/span.h>
@@ -11,12 +12,12 @@
 #include <optional>
 #include <utility>
 
-#include "lepton_error.h"
-#include "log.h"
-#include "logger.h"
-#include "protobuf.h"
-#include "types.h"
-#include "utility_macros.h"
+#include "basic/log.h"
+#include "basic/logger.h"
+#include "basic/utility_macros.h"
+#include "error/lepton_error.h"
+#include "raft_core/pb/protobuf.h"
+#include "raft_core/pb/types.h"
 namespace lepton::core {
 // unstable.entries[i] has raft log position i+unstable.offset.
 // Note that unstable.offset may be less than the highest log

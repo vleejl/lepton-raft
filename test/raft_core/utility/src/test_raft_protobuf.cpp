@@ -11,8 +11,8 @@
 #include <vector>
 
 #include "absl/types/span.h"
-#include "conf_change.h"
 #include "raft.pb.h"
+#include "raft_core/pb/conf_change.h"
 
 raftpb::conf_change create_conf_change_v1(std::uint64_t node_id, raftpb::conf_change_type type) {
   raftpb::conf_change cc;

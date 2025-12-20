@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_PROTOBUF_ERROR_H_
 #define _LEPTON_PROTOBUF_ERROR_H_
 
@@ -5,7 +6,7 @@
 #include <string>
 #include <system_error>
 
-#include "base_error_category.h"
+#include "error/base_error_category.h"
 namespace lepton {
 
 enum class protobuf_error {

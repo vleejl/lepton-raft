@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_READ_ONLY_H_
 #define _LEPTON_READ_ONLY_H_
 #include <absl/types/span.h>
@@ -11,9 +12,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "config.h"
-#include "log.h"
-#include "utility_macros.h"
+#include "basic/log.h"
+#include "basic/utility_macros.h"
+#include "raft_core/config.h"
 namespace lepton::core {
 
 // ReadState provides state for read only query.

@@ -1,4 +1,4 @@
-#include "decoder.h"
+#include "storage/wal/decoder.h"
 
 #include <array>
 #include <cstddef>
@@ -7,22 +7,21 @@
 
 #include "absl/crc/crc32c.h"
 #include "asio/buffer.hpp"
-#include "defer.h"
-#include "disk_constants.h"
-#include "expected.h"
-#include "file_buf_reader.h"
-#include "fixed_byte_buffer.h"
-#include "io.h"
-#include "io_error.h"
-#include "leaf_expected.h"
-#include "logger.h"
-#include "logic_error.h"
-#include "protobuf_error.h"
+#include "basic/defer.h"
+#include "basic/logger.h"
+#include "error/expected.h"
+#include "error/io_error.h"
+#include "error/leaf_expected.h"
+#include "error/protobuf_error.h"
 #include "proxy.h"
-#include "reader.h"
+#include "storage/ioutil/disk_constants.h"
+#include "storage/ioutil/file_buf_reader.h"
+#include "storage/ioutil/fixed_byte_buffer.h"
+#include "storage/ioutil/io.h"
+#include "storage/ioutil/reader.h"
+#include "storage/pb/wal_protobuf.h"
 #include "tl/expected.hpp"
 #include "v4/proxy.h"
-#include "wal_protobuf.h"
 namespace lepton::storage::wal {
 
 /*
@@ -48,7 +47,7 @@ static asio::awaitable<expected<std::uint64_t>> read_uint64(pro::proxy_view<iout
     co_return tl::unexpected(read_result.error());
   }
   if (read_result.value() != sizeof(n)) {
-    co_return tl::unexpected(make_error_code(io_error::UNEXPECTED_EOF));
+    co_return unexpected(io_error::UNEXPECTED_EOF);
   }
   for (std::uint64_t i = 0; i < sizeof(n); ++i) {
     n |= static_cast<std::uint64_t>(buf[i]) << (8 * i);

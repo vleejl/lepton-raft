@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_DECODER_H_
 #define _LEPTON_DECODER_H_
 #include <wal.pb.h>
@@ -7,10 +8,10 @@
 #include <vector>
 
 #include "absl/crc/crc32c.h"
-#include "fixed_byte_buffer.h"
-#include "logger.h"
-#include "reader.h"
-#include "utility_macros.h"
+#include "basic/logger.h"
+#include "basic/utility_macros.h"
+#include "storage/ioutil/fixed_byte_buffer.h"
+#include "storage/ioutil/reader.h"
 #include "v4/proxy.h"
 namespace lepton::storage::wal {
 

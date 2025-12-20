@@ -1,12 +1,9 @@
-#include "env_file_endpoint.h"
-
-#include <utility>
+#include "storage/fileutil/env_file_endpoint.h"
 
 #include "asio/error_code.hpp"
-#include "encoder.h"
-#include "leaf.h"
+#include "error/leaf.h"
 #include "leaf.hpp"
-#include "preallocate.h"
+#include "storage/fileutil/preallocate.h"
 namespace lepton::storage::fileutil {
 
 leaf::result<std::size_t> env_file_endpoint::size() const {
@@ -17,9 +14,18 @@ leaf::result<std::size_t> env_file_endpoint::size() const {
   return file_size;
 }
 
+leaf::result<void> env_file_endpoint::seek_start(std::int64_t offset) {
+  asio::error_code ec;
+  auto _ = raw_file().seek(offset, asio::file_base::seek_set, ec);
+  if (ec) {
+    return new_error(ec, fmt::format("Failed to seek to end of WAL file: {}", ec.message()));
+  }
+  return {};
+}
+
 leaf::result<std::uint64_t> env_file_endpoint::seek_curr() {
   asio::error_code ec;
-  auto offset = file_.seek(0, asio::file_base::seek_cur, ec);
+  auto offset = raw_file().seek(0, asio::file_base::seek_cur, ec);
   if (ec) {
     return new_error(ec, fmt::format("Failed to seek to end of WAL file: {}", ec.message()));
   }
@@ -28,15 +34,15 @@ leaf::result<std::uint64_t> env_file_endpoint::seek_curr() {
 
 leaf::result<std::uint64_t> env_file_endpoint::seek_end() {
   asio::error_code ec;
-  auto offset = file_.seek(0, asio::file_base::seek_end, ec);
+  auto offset = raw_file().seek(0, asio::file_base::seek_end, ec);
   if (ec) {
     return new_error(ec, fmt::format("Failed to seek to end of WAL file: {}", ec.message()));
   }
   return offset;
 }
 
-leaf::result<void> env_file_endpoint::pre_allocate(uint64_t length) {
-  if (auto ec = fileutil::preallocate(file_.native_handle(), length); ec) {
+leaf::result<void> env_file_endpoint::pre_allocate(uint64_t length, bool extend_file) {
+  if (auto ec = fileutil::preallocate(raw_file().native_handle(), static_cast<std::int64_t>(length), extend_file); ec) {
     return new_error(ec);
   }
   return {};
@@ -44,7 +50,7 @@ leaf::result<void> env_file_endpoint::pre_allocate(uint64_t length) {
 
 leaf::result<std::size_t> env_file_endpoint::read(asio::mutable_buffer buffer) {
   std::error_code ec;
-  auto read_size = file_.read_some(asio::buffer(buffer.data(), buffer.size()), ec);
+  auto read_size = raw_file().read_some(asio::buffer(buffer.data(), buffer.size()), ec);
   if (ec) {
     return new_error(ec, fmt::format("Failed to read from WAL file: {}", ec.message()));
   }
@@ -53,7 +59,7 @@ leaf::result<std::size_t> env_file_endpoint::read(asio::mutable_buffer buffer) {
 
 asio::awaitable<expected<std::size_t>> env_file_endpoint::async_read(asio::mutable_buffer buffer) {
   std::error_code ec;
-  auto read_size = co_await file_.async_read_some(buffer, asio::redirect_error(asio::use_awaitable, ec));
+  auto read_size = co_await raw_file().async_read_some(buffer, asio::redirect_error(asio::use_awaitable, ec));
   if (ec) {
     co_return tl::unexpected(ec);
   }
@@ -62,7 +68,7 @@ asio::awaitable<expected<std::size_t>> env_file_endpoint::async_read(asio::mutab
 
 leaf::result<std::size_t> env_file_endpoint::write(ioutil::byte_span data) {
   std::error_code ec;
-  auto write_size = file_.write_some(asio::buffer(data.data(), data.size()), ec);
+  auto write_size = raw_file().write_some(asio::buffer(data.data(), data.size()), ec);
   if (ec) {
     return new_error(ec, fmt::format("Failed to write to WAL file: {}", ec.message()));
   }
@@ -71,8 +77,8 @@ leaf::result<std::size_t> env_file_endpoint::write(ioutil::byte_span data) {
 
 asio::awaitable<expected<std::size_t>> env_file_endpoint::async_write(ioutil::byte_span data) {
   std::error_code ec;
-  auto write_size = co_await file_.async_write_some(asio::buffer(data.data(), data.size()),
-                                                    asio::redirect_error(asio::use_awaitable, ec));
+  auto write_size = co_await raw_file().async_write_some(asio::buffer(data.data(), data.size()),
+                                                         asio::redirect_error(asio::use_awaitable, ec));
   if (ec) {
     co_return tl::unexpected(ec);
   }
@@ -89,7 +95,7 @@ asio::awaitable<expected<std::size_t>> env_file_endpoint::async_write_vectored_a
   }
   if (buffers.empty()) co_return std::size_t{0};
 
-  std::size_t bytes_transferred = co_await file_.async_write_some(buffers, asio::use_awaitable);
+  std::size_t bytes_transferred = co_await raw_file().async_write_some(buffers, asio::use_awaitable);
   co_return bytes_transferred;
 }
 

@@ -1,8 +1,9 @@
+#pragma once
 #ifndef _LEPTON_DESCRIBE_H_
 #define _LEPTON_DESCRIBE_H_
-#include "raft.h"
-#include "raw_node.h"
-#include "state.h"
+#include "raft_core/raft.h"
+#include "raft_core/raw_node.h"
+#include "raft_core/tracker/state.h"
 
 namespace lepton::core {
 

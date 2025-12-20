@@ -1,9 +1,10 @@
+#pragma once
 #ifndef _LEPTON_ENTRY_VIEW_H_
 #define _LEPTON_ENTRY_VIEW_H_
 
 #include <vector>
 
-#include "types.h"
+#include "raft_core/pb/types.h"
 namespace lepton::core {
 
 namespace pb {

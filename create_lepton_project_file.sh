@@ -18,6 +18,7 @@ UPPER_FILE_NAME=$(echo "$FILE_NAME_NO_EXT" | tr 'a-z' 'A-Z')
 if [ "$EXT" == "h" ]; then
   # 创建头文件内容
   cat <<EOL > "$1"
+#pragma once
 #ifndef _LEPTON_${UPPER_FILE_NAME}_H_
 #define _LEPTON_${UPPER_FILE_NAME}_H_
 

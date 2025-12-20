@@ -8,14 +8,14 @@
 #include <optional>
 #include <string>
 
-#include "lepton_error.h"
+#include "basic/utility_macros.h"
+#include "error/lepton_error.h"
 #include "raft.pb.h"
+#include "raft_core/pb/types.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "test_file.h"
-#include "types.h"
-#include "utility_macros.h"
 
 class rocksdb_test_suit : public testing::Test {
  protected:

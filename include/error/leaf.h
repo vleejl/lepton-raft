@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_LEAF_H_
 #define _LEPTON_LEAF_H_
 

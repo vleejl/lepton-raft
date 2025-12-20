@@ -1,19 +1,20 @@
-#include "encoder.h"
+#include "storage/wal/encoder.h"
 
 #include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 
-#include "byte_span.h"
-#include "disk_constants.h"
-#include "fixed_byte_buffer.h"
-#include "logger.h"
-#include "pagewriter.h"
-#include "protobuf_error.h"
+#include "basic/logger.h"
+#include "error/lepton_error.h"
+#include "error/protobuf_error.h"
+#include "storage/ioutil/byte_span.h"
+#include "storage/ioutil/disk_constants.h"
+#include "storage/ioutil/fixed_byte_buffer.h"
+#include "storage/ioutil/pagewriter.h"
+#include "storage/ioutil/writer.h"
 #include "tl/expected.hpp"
 #include "v4/proxy.h"
-#include "writer.h"
 namespace lepton::storage::wal {
 
 // walPageBytes is the alignment for flushing records to the backing Writer.
@@ -122,7 +123,7 @@ asio::awaitable<expected<void>> encoder::write_record_frame(const walpb::record&
   auto is_success = r.SerializeToArray(static_cast<void*>(write_buf.data()), static_cast<int>(write_buf.size()));
   if (!is_success) {
     LOG_ERROR(logger_, "Failed to serialize record to array, size: {}", bytes_size_long);
-    co_return tl::unexpected(make_error_code(protobuf_error::SERIALIZE_TO_ARRAY_FAILED));
+    co_return unexpected(protobuf_error::SERIALIZE_TO_ARRAY_FAILED);
   }
   // 对于 write_buf 默认已经清零的情况，padding 部分自然是 0。
   auto data = std::span<const std::byte>(write_buf.data(), static_cast<std::size_t>(bytes_size_long + pad_bytes));

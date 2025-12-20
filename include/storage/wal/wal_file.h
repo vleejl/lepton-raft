@@ -1,7 +1,8 @@
+#pragma once
 #ifndef _LEPTON_WAL_FILE_H_
 #define _LEPTON_WAL_FILE_H_
-#include "encoder.h"
-#include "env_file_endpoint.h"
+#include "storage/fileutil/env_file_endpoint.h"
+#include "storage/wal/encoder.h"
 
 namespace lepton::storage::wal {
 

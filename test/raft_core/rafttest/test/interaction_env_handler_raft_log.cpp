@@ -1,7 +1,7 @@
 #include <cstddef>
 
-#include "describe.h"
 #include "interaction_env.h"
+#include "raft_core/describe.h"
 
 namespace interaction {
 

@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_STORAGE_H_
 #define _LEPTON_STORAGE_H_
 #include <proxy.h>
@@ -5,8 +6,8 @@
 
 #include <cstdint>
 
-#include "lepton_error.h"
-#include "types.h"
+#include "error/lepton_error.h"
+#include "raft_core/pb/types.h"
 namespace lepton::core {
 
 // InitialState returns the saved HardState and ConfState information.

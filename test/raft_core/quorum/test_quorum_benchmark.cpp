@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <set>
 
-#include "majority.h"
-#include "quorum.h"
+#include "raft_core/quorum/majority.h"
+#include "raft_core/quorum/quorum.h"
 using namespace lepton;
 using namespace lepton::core;
 

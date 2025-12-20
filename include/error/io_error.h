@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_IO_ERROR_H_
 #define _LEPTON_IO_ERROR_H_
 
@@ -5,7 +6,7 @@
 #include <string>
 #include <system_error>
 
-#include "base_error_category.h"
+#include "error/base_error_category.h"
 namespace lepton {
 
 enum class io_error {
@@ -24,6 +25,8 @@ enum class io_error {
 
   // ErrShortBuffer means that a read required a longer buffer than was provided.
   SHORT_BUFFER,
+
+  PARH_NOT_EXIT,
 };
 
 // io_error_category
@@ -39,6 +42,8 @@ class io_error_category : public base_error_category {
         return "Unexpected EOF error";
       case io_error::SHORT_BUFFER:
         return "Short buffer error";
+      case io_error::PARH_NOT_EXIT:
+        return "Path not exist";
       default:
         assert(false);
         return "Unrecognized io error";

@@ -1,11 +1,12 @@
+#pragma once
 #ifndef _LEPTON_INFLIGHTS_H_
 #define _LEPTON_INFLIGHTS_H_
 #include <cassert>
 #include <cstdint>
 #include <deque>
 
-#include "log.h"
-#include "utility_macros.h"
+#include "basic/log.h"
+#include "basic/utility_macros.h"
 namespace lepton::core {
 namespace tracker {
 // Inflights limits the number of MsgApp (represented by the largest index

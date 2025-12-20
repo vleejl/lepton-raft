@@ -1,3 +1,4 @@
+#pragma once
 #ifndef _LEPTON_DISK_CONSTANTS_H_
 #define _LEPTON_DISK_CONSTANTS_H_
 #include <cstddef>

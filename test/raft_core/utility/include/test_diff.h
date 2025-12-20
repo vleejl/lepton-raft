@@ -1,7 +1,8 @@
+#pragma once
 #ifndef _LEPTON_TEST_DIFF_H_
 #define _LEPTON_TEST_DIFF_H_
 
-#include "raft_log.h"
+#include "raft_core/raft_log.h"
 
 std::string diffu(const std::string& a, const std::string& b);
 std::string ltoa(lepton::core::raft_log& raft_log_handle);

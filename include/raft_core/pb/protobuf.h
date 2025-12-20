@@ -1,11 +1,12 @@
+#pragma once
 #ifndef _LEPTON_PB_H_
 #define _LEPTON_PB_H_
 #include <raft.pb.h>
 
-#include "entry_view.h"
-#include "enum_name.h"
-#include "log.h"
-#include "types.h"
+#include "basic/enum_name.h"
+#include "basic/log.h"
+#include "raft_core/pb/entry_view.h"
+#include "raft_core/pb/types.h"
 namespace lepton::core {
 
 bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs);
