@@ -7,8 +7,6 @@
 #include <string>
 
 #include "error/lepton_error.h"
-#include "storage/fileutil/env_file_endpoint.h"
-#include "storage/wal/wal_file.h"
 namespace lepton::storage::wal {
 
 // SegmentSizeBytes is the preallocated size of each wal segment file.

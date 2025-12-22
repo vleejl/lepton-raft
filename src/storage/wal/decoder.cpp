@@ -141,7 +141,7 @@ asio::awaitable<expected<void>> decoder::decode_record_impl(walpb::record& rec) 
     co_return tl::unexpected(file_size_result.error());
   }
   const auto file_size = file_size_result.value();
-  auto max_entry_limit = file_size - last_valid_off_ - pad_bytes;
+  auto max_entry_limit = file_size - static_cast<std::size_t>(last_valid_off_) - pad_bytes;
   if (rec_bytes > max_entry_limit) {
     LOG_ERROR(logger_,
               "[wal] max entry size limit exceeded when reading {}, recBytes: {}, fileSize({}) - offset({}) - "
@@ -202,7 +202,7 @@ bool decoder::is_torn_entry(ioutil::fixed_byte_buffer& record_buf) const {
   std::vector<std::span<std::byte>> chunks;
   // split data on sector boundaries
   std::size_t curr_off = 0;
-  auto file_off = last_valid_off_ + FRAME_SIZE_BYTES;
+  auto file_off = static_cast<std::size_t>(last_valid_off_) + FRAME_SIZE_BYTES;
   while (curr_off < record_buf.size()) {
     auto sector_remain = ioutil::MIN_SECTOR_SIZE - (file_off % ioutil::MIN_SECTOR_SIZE);
     if (sector_remain > record_buf.size() - curr_off) {

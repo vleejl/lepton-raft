@@ -28,6 +28,12 @@ class decoder {
   // (potentially corrupted) record content.
   asio::awaitable<expected<void>> decode_record(walpb::record& r);
 
+  void update_crc(std::uint32_t prev_crc) { crc_ = absl::crc32c_t(prev_crc); }
+
+  auto last_crc() const { return static_cast<std::uint32_t>(crc_); }
+
+  auto last_valid_off() const { return last_valid_off_; }
+
  private:
   asio::awaitable<expected<void>> decode_record_impl(walpb::record& r);
 
@@ -43,7 +49,7 @@ class decoder {
   std::vector<pro::proxy<ioutil::reader>> readers_;
 
   // lastValidOff file offset following the last valid decoded record
-  std::uint64_t last_valid_off_ = 0;
+  std::int64_t last_valid_off_ = 0;
 
   // continueOnCrcError - causes the decoder to continue working even in case of crc mismatch.
   // This is a desired mode for tools performing inspection of the corrupted WAL logs.

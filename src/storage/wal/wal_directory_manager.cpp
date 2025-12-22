@@ -5,6 +5,7 @@
 #include "basic/defer.h"
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/read_dir.h"
+#include "storage/wal/wal_file.h"
 namespace lepton::storage::wal {
 
 leaf::result<void> wal_directory_manager::is_dir_writeable(const std::string& dir_name) {

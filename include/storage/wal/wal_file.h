@@ -6,12 +6,6 @@
 
 namespace lepton::storage::wal {
 
-// WAL is a logical representation of the stable storage.
-// WAL is either in read mode or append mode but not both.
-// A newly created WAL is in append mode, and ready for appending records.
-// A just opened WAL is in read mode, and ready for reading records.
-// The WAL will be ready for appending after reading out all the previous records.
-
 inline std::string wal_file_name(std::uint64_t seq, std::uint64_t index) {
   return fmt::format("{:016x}-{:016x}.wal", seq, index);
 }
