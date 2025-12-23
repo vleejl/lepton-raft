@@ -14,12 +14,12 @@ leaf::result<void> wal_directory_manager::is_dir_writeable(const std::string& di
 
   rocksdb::EnvOptions env_opts;
   std::unique_ptr<rocksdb::WritableFile> touch_file_handle;
-  auto s = env_->NewWritableFile(touch_file_path, &touch_file_handle, env_opts);
-  if (!s.ok()) {
+
+  if (auto s = env_->NewWritableFile(touch_file_path, &touch_file_handle, env_opts); !s.ok()) {
     return new_error(s, fmt::format("Directory {} is not writable: {}", dir_name, s.ToString()));
   }
-  s = env_->DeleteFile(touch_file_path);
-  if (!s.ok()) {
+
+  if (auto s = env_->DeleteFile(touch_file_path); !s.ok()) {
     return new_error(s, fmt::format("Failed to delete test file {}: {}", touch_file_path.string(), s.ToString()));
   }
   return {};
