@@ -18,7 +18,7 @@ leaf::result<fileutil::env_file_endpoint> create_new_wal_file(asio::any_io_execu
                                                               const std::string& filename, bool force_new);
 
 leaf::result<encoder> new_file_encoder(fileutil::env_file_endpoint& file, std::uint32_t prev_crc,
-                                       std::shared_ptr<lepton::logger_interface>&& logger);
+                                       std::shared_ptr<lepton::logger_interface> logger);
 }  // namespace lepton::storage::wal
 
 #endif  // _LEPTON_WAL_FILE_H_

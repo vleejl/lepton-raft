@@ -1,11 +1,19 @@
 #include "storage/wal/wal_directory_manager.h"
 
 #include <filesystem>
+#include <memory>
 
 #include "basic/defer.h"
+#include "basic/logger.h"
+#include "error/io_error.h"
+#include "error/leaf_expected.h"
+#include "error/lepton_error.h"
+#include "leaf.hpp"
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/read_dir.h"
+#include "storage/wal/wal.h"
 #include "storage/wal/wal_file.h"
+#include "wal.pb.h"
 namespace lepton::storage::wal {
 
 leaf::result<void> wal_directory_manager::is_dir_writeable(const std::string& dir_name) {
@@ -43,9 +51,12 @@ leaf::result<void> wal_directory_manager::create_dir_all(const std::string& dir_
   return {};
 }
 
-leaf::result<void> wal_directory_manager::create_wal(const std::string& dirpath) {
+asio::awaitable<expected<wal>> wal_directory_manager::create_wal(const std::string& dirpath,
+                                                                 const std::string& metadata,
+                                                                 std::shared_ptr<lepton::logger_interface> logger) {
   if (file_exist(dirpath)) {
-    return new_error(std::make_error_code(std::errc::file_exists), fmt::format("dirpath {} already exists", dirpath));
+    LOG_ERROR(logger, "dirpath {} already exists", dirpath);
+    co_return unexpected(io_error::PARH_HAS_EXIT);
   }
 
   // keep temporary wal directory so WAL initialization appears atomic
@@ -53,16 +64,38 @@ leaf::result<void> wal_directory_manager::create_wal(const std::string& dirpath)
   const auto temp_dir_path_str = temp_dir_path.string();
   if (file_exist(temp_dir_path_str)) {
     if (auto s = env_->DeleteDir(temp_dir_path_str); !s.ok()) {
-      return new_error(s, fmt::format("Failed to delete existing temp dir {}: {}", temp_dir_path_str, s.ToString()));
+      LOG_ERROR(logger, "Failed to delete existing temp dir {}: {}", temp_dir_path_str, s.ToString());
+      co_return unexpected(s);
     }
   }
+
   DEFER({ fileutil::remove_all(temp_dir_path_str); });
 
-  LEPTON_LEAF_CHECK(create_dir_all(temp_dir_path_str));
+  auto wal_handle_result = leaf_to_expected([&]() -> leaf::result<std::unique_ptr<wal>> {
+    LEPTON_LEAF_CHECK(create_dir_all(temp_dir_path_str));
 
-  auto wal_file_path = temp_dir_path / wal_file_name(0, 0);
-  BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor_, env_, wal_file_path.string(), false));
-  LEPTON_LEAF_CHECK(wal_file_handle.pre_allocate(SEGMENT_SIZE_BYTES, true));
+    auto wal_file_path = temp_dir_path / wal_file_name(0, 0);
+    BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor_, env_, wal_file_path.string(), false));
+    LEPTON_LEAF_CHECK(wal_file_handle.pre_allocate(SEGMENT_SIZE_BYTES, true));
+    BOOST_LEAF_AUTO(encoder, new_file_encoder(wal_file_handle, 0, logger));
+    auto wal_handle = std::make_unique<wal>(std::move(encoder), dirpath, metadata, logger);
+    wal_handle->append_lock_file(std::move(wal_file_handle));
+  });
+  if (!wal_handle_result) {
+    co_return wal_handle_result.error();
+  }
+  auto wal_handle = std::move(wal_handle_result.value());
+  if (auto result = co_await wal_handle->save_crc(0); !result) {
+    co_return result.error();
+  }
+
+  walpb::record record;
+  record.set_type(::walpb::record_type::METADATA_TYPE);
+  record.set_data(metadata);
+  if (auto result = co_await wal_handle->encode(record); !result) {
+    co_return result.error();
+  }
+
   // TODO
 }
 

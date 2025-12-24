@@ -6,7 +6,9 @@
 
 #include <string>
 
+#include "basic/logger.h"
 #include "error/lepton_error.h"
+#include "wal.h"
 namespace lepton::storage::wal {
 
 // SegmentSizeBytes is the preallocated size of each wal segment file.
@@ -30,7 +32,8 @@ class wal_directory_manager {
   // Create creates a WAL ready for appending records. The given metadata is
   // recorded at the head of each WAL file, and can be retrieved with ReadAll
   // after the file is Open.
-  leaf::result<void> create_wal(const std::string& dirpath);
+  asio::awaitable<expected<wal>> create_wal(const std::string& dirpath, const std::string& metadata,
+                                            std::shared_ptr<lepton::logger_interface> logger);
 
  private:
   rocksdb::Env* env_;

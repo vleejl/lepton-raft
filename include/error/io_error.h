@@ -27,6 +27,8 @@ enum class io_error {
   SHORT_BUFFER,
 
   PARH_NOT_EXIT,
+
+  PARH_HAS_EXIT,
 };
 
 // io_error_category
@@ -44,6 +46,8 @@ class io_error_category : public base_error_category {
         return "Short buffer error";
       case io_error::PARH_NOT_EXIT:
         return "Path not exist";
+      case io_error::PARH_HAS_EXIT:
+        return "Path has exist";
       default:
         assert(false);
         return "Unrecognized io error";

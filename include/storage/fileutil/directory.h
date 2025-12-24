@@ -1,6 +1,5 @@
 #pragma once
 
-#include "error/lepton_error.h"
 #ifndef _LEPTON_DIRECTORY_H_
 #define _LEPTON_DIRECTORY_H_
 #include <rocksdb/env.h>
@@ -9,6 +8,7 @@
 #include <memory>
 
 #include "error/leaf.h"
+#include "error/lepton_error.h"
 
 namespace lepton::storage::fileutil {
 class directory {

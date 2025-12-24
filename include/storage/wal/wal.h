@@ -30,8 +30,20 @@ namespace lepton::storage::wal {
 class wal {
   NOT_COPYABLE(wal)
  public:
-  wal(const std::string &dir_path, const std::string &metadata, std::shared_ptr<lepton::logger_interface> &&logger)
-      : dir_(dir_path), metadata_(metadata), unsafe_no_sync_(false), entry_index_(0), logger_(std::move(logger)) {}
+  wal(encoder &&encoder, const std::string &dir_path, const std::string &metadata,
+      std::shared_ptr<lepton::logger_interface> logger)
+      : dir_(dir_path),
+        metadata_(metadata),
+        unsafe_no_sync_(false),
+        entry_index_(0),
+        encoder_(std::move(encoder)),
+        logger_(std::move(logger)) {}
+
+  void append_lock_file(fileutil::env_file_endpoint &&file_handle) { lock_files_.emplace_back(std::move(file_handle)); }
+
+  asio::awaitable<expected<void>> save_crc(std::uint32_t prev_crc);
+
+  asio::awaitable<expected<void>> encode(walpb::record &r) { co_return co_await encoder_.encode(r); }
 
  private:
   // the living directory of the underlay files

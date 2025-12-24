@@ -24,7 +24,7 @@ leaf::result<fileutil::env_file_endpoint> create_new_wal_file(asio::any_io_execu
 }
 
 leaf::result<encoder> new_file_encoder(fileutil::env_file_endpoint& file, std::uint32_t prev_crc,
-                                       std::shared_ptr<lepton::logger_interface>&& logger) {
+                                       std::shared_ptr<lepton::logger_interface> logger) {
   BOOST_LEAF_AUTO(offset, file.seek_curr());
   pro::proxy_view<ioutil::writer> writer = &file;
   return encoder(writer, prev_crc, static_cast<std::uint32_t>(offset), std::move(logger));
