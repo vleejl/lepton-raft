@@ -114,6 +114,11 @@ asio::awaitable<expected<void>> encoder::encode(walpb::record& r) {
   co_return ok();
 }
 
+asio::awaitable<expected<void>> encoder::flush() {
+  std::lock_guard<std::mutex> guard(mutex_);
+  co_return co_await page_writer_.async_flush();
+}
+
 asio::awaitable<expected<void>> encoder::write_record_frame(const walpb::record& r, const std::uint64_t bytes_size_long,
                                                             const uint64_t len_field, const std::size_t pad_bytes,
                                                             ioutil::fixed_byte_buffer& write_buf) {

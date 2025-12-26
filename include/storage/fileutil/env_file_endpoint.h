@@ -64,6 +64,8 @@ class env_file_endpoint {
 
   asio::awaitable<expected<std::size_t>> async_write_vectored_asio(std::span<const std::span<const std::byte>> spans);
 
+  expected<void> fdatasync();
+
  private:
   asio::stream_file& raw_file() {
     assert(file_);
@@ -76,6 +78,8 @@ class env_file_endpoint {
   rocksdb::Env* env_;
   rocksdb::FileLock* lock_ = nullptr;
 };
+
+using env_file_handle = env_file_endpoint*;
 
 }  // namespace lepton::storage::fileutil
 

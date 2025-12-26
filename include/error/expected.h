@@ -23,4 +23,10 @@ inline expected<void> ok() { return expected<void>{}; }
     }                                                        \
   } while (0)
 
+#define CO_CHECK_AWAIT(expr)                       \
+  do {                                             \
+    auto _r = co_await (expr);                     \
+    if (!_r) co_return tl::unexpected(_r.error()); \
+  } while (0)
+
 #endif  // _LEPTON_EXPECTED_H_

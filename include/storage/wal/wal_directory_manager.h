@@ -32,8 +32,8 @@ class wal_directory_manager {
   // Create creates a WAL ready for appending records. The given metadata is
   // recorded at the head of each WAL file, and can be retrieved with ReadAll
   // after the file is Open.
-  asio::awaitable<expected<wal>> create_wal(const std::string& dirpath, const std::string& metadata,
-                                            std::shared_ptr<lepton::logger_interface> logger);
+  asio::awaitable<expected<wal_handle>> create_wal(const std::string& dirpath, const std::string& metadata,
+                                                   std::shared_ptr<lepton::logger_interface> logger);
 
  private:
   rocksdb::Env* env_;

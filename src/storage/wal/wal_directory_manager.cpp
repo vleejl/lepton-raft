@@ -5,12 +5,14 @@
 
 #include "basic/defer.h"
 #include "basic/logger.h"
+#include "error/expected.h"
 #include "error/io_error.h"
 #include "error/leaf_expected.h"
 #include "error/lepton_error.h"
 #include "leaf.hpp"
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/read_dir.h"
+#include "storage/pb/types.h"
 #include "storage/wal/wal.h"
 #include "storage/wal/wal_file.h"
 #include "wal.pb.h"
@@ -51,9 +53,8 @@ leaf::result<void> wal_directory_manager::create_dir_all(const std::string& dir_
   return {};
 }
 
-asio::awaitable<expected<wal>> wal_directory_manager::create_wal(const std::string& dirpath,
-                                                                 const std::string& metadata,
-                                                                 std::shared_ptr<lepton::logger_interface> logger) {
+asio::awaitable<expected<wal_handle>> wal_directory_manager::create_wal(
+    const std::string& dirpath, const std::string& metadata, std::shared_ptr<lepton::logger_interface> logger) {
   if (file_exist(dirpath)) {
     LOG_ERROR(logger, "dirpath {} already exists", dirpath);
     co_return unexpected(io_error::PARH_HAS_EXIT);
@@ -80,21 +81,19 @@ asio::awaitable<expected<wal>> wal_directory_manager::create_wal(const std::stri
     BOOST_LEAF_AUTO(encoder, new_file_encoder(wal_file_handle, 0, logger));
     auto wal_handle = std::make_unique<wal>(std::move(encoder), dirpath, metadata, logger);
     wal_handle->append_lock_file(std::move(wal_file_handle));
+    return wal_handle;
   });
   if (!wal_handle_result) {
-    co_return wal_handle_result.error();
+    co_return tl::unexpected(wal_handle_result.error());
   }
   auto wal_handle = std::move(wal_handle_result.value());
-  if (auto result = co_await wal_handle->save_crc(0); !result) {
-    co_return result.error();
-  }
+  CO_CHECK_AWAIT(wal_handle->save_crc(0));
 
   walpb::record record;
   record.set_type(::walpb::record_type::METADATA_TYPE);
   record.set_data(metadata);
-  if (auto result = co_await wal_handle->encode(record); !result) {
-    co_return result.error();
-  }
+  CO_CHECK_AWAIT(wal_handle->encode(record));
+  CO_CHECK_AWAIT(wal_handle->save_snapshot(pb::snapshot{}));
 
   // TODO
 }

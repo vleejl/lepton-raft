@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <memory>
 
 #include "basic/utility_macros.h"
@@ -30,7 +31,7 @@ namespace lepton::storage::wal {
 class wal {
   NOT_COPYABLE(wal)
  public:
-  wal(encoder &&encoder, const std::string &dir_path, const std::string &metadata,
+  wal(std::unique_ptr<encoder> &&encoder, const std::string &dir_path, const std::string &metadata,
       std::shared_ptr<lepton::logger_interface> logger)
       : dir_(dir_path),
         metadata_(metadata),
@@ -43,7 +44,19 @@ class wal {
 
   asio::awaitable<expected<void>> save_crc(std::uint32_t prev_crc);
 
-  asio::awaitable<expected<void>> encode(walpb::record &r) { co_return co_await encoder_.encode(r); }
+  asio::awaitable<expected<void>> encode(walpb::record &r) {
+    assert(encoder_);
+    co_return co_await encoder_->encode(r);
+  }
+
+  asio::awaitable<expected<void>> save_snapshot(const pb::snapshot &snapshot);
+
+  asio::awaitable<expected<void>> sync();
+
+  leaf::result<void> rename_wal(const std::string &tmp_dir_path);
+
+ private:
+  fileutil::env_file_handle tail() { return lock_files_.empty() ? nullptr : &lock_files_.back(); }
 
  private:
   // the living directory of the underlay files
@@ -69,13 +82,15 @@ class wal {
   // index of the last entry saved to the wal
   std::uint64_t entry_index_;
   // encoder to encode records
-  encoder encoder_;
+  std::unique_ptr<encoder> encoder_;
   // the locked files the WAL holds (the name is increasing)
   std::vector<fileutil::env_file_endpoint> lock_files_;
   file_pipeline_handle file_pipeline_;
 
   std::shared_ptr<lepton::logger_interface> logger_;
 };
+
+using wal_handle = std::unique_ptr<wal>;
 }  // namespace lepton::storage::wal
 
 #endif  // _LEPTON_WAL_H_

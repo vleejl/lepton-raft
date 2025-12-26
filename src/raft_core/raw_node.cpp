@@ -1,12 +1,15 @@
 #include "raft_core/raw_node.h"
 
 #include <cstddef>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "basic/log.h"
 #include "basic/logger.h"
 #include "error/leaf.h"
 #include "error/lepton_error.h"
+#include "error/logic_error.h"
 #include "error/raft_error.h"
 #include "raft.pb.h"
 #include "raft_core/describe.h"
@@ -440,7 +443,9 @@ leaf::result<void> raw_node::bootstrap(std::vector<peer> &&peers) {
     entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
     entry->set_term(1);
     entry->set_index(i + 1);
-    entry->set_data(cc.SerializeAsString());
+    if (!cc.SerializePartialToString(entry->mutable_data())) {
+      return new_error(logic_error::SERIALIZE_FAILED);
+    }
   }
   const std::uint64_t ents_size = static_cast<std::uint64_t>(ents.size());
   raft_.raft_log_handle_.append(std::move(ents));

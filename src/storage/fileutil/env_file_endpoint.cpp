@@ -2,8 +2,10 @@
 
 #include "asio/error_code.hpp"
 #include "error/leaf.h"
+#include "error/lepton_error.h"
 #include "leaf.hpp"
 #include "storage/fileutil/preallocate.h"
+#include "tl/expected.hpp"
 namespace lepton::storage::fileutil {
 
 leaf::result<std::size_t> env_file_endpoint::size() const {
@@ -97,6 +99,12 @@ asio::awaitable<expected<std::size_t>> env_file_endpoint::async_write_vectored_a
 
   std::size_t bytes_transferred = co_await raw_file().async_write_some(buffers, asio::use_awaitable);
   co_return bytes_transferred;
+}
+
+expected<void> env_file_endpoint::fdatasync() {
+  std::error_code ec;
+  ec = raw_file().sync_data(ec);
+  return tl::unexpected(ec);
 }
 
 }  // namespace lepton::storage::fileutil

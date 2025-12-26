@@ -15,7 +15,7 @@ enum class logic_error {
   INVALID_PARAM,
   EMPTY_ARRAY,
   LOOP_BREAK,  // 特殊错误码, errBreak is a sentinel error used to break a callback-based loop.
-  COROUTINE_EXIST,
+  SERIALIZE_FAILED,
 };
 
 // logic_error_category
