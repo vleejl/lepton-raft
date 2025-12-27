@@ -1,0 +1,47 @@
+{
+    "name": "GCC 15 Dev",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "options": [
+            "--network=host"
+        ],
+        "args": {
+            // 既然 127.0.0.1 在 WSL2 通了，这里直接写 127.0.0.1
+            "HTTP_PROXY": "${localEnv:http_proxy}",
+            "HTTPS_PROXY": "${localEnv:https_proxy}"
+        }
+    },
+    "containerEnv": {
+        "http_proxy": "${localEnv:http_proxy}",
+        "https_proxy": "${localEnv:https_proxy}",
+        "no_proxy": "localhost,127.0.0.1"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools-extension-pack",
+                "ms-vscode.cpptools",
+                "eamodio.gitlens",
+                "tboox.xmake-vscode",
+                "matepek.vscode-catch2-test-adapter",
+                "xaver.clang-format",
+                "uctakeoff.vscode-counter",
+                "GitHub.copilot-chat",
+                "ms-vscode.cmake-tools",
+                "llvm-vs-code-extensions.vscode-clangd"
+            ]
+        }
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "username": "vscode",
+            "userUid": "1000",
+            "userGid": "1000",
+            "upgradePackages": false
+        }
+    },
+    "remoteUser": "vscode",
+    "runArgs": [
+        "--network=host"
+    ]
+}

@@ -60,7 +60,7 @@ lepton::leaf::result<void> interaction_env::handle_propose_conf_change(const dat
 // ProposeConfChange proposes a configuration change on the node with the given index.
 lepton::leaf::result<void> interaction_env::propose_conf_change(std::size_t node_idx,
                                                                 const lepton::core::pb::conf_change_var &cc) {
-  if (node_idx < 0 || node_idx >= nodes.size()) {
+  if (node_idx >= nodes.size()) {
     return new_error(lepton::logic_error::INVALID_PARAM);
   }
   nodes[node_idx].raw_node.propose_conf_change(cc);

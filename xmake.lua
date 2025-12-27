@@ -5,7 +5,7 @@ set_warnings("all", "extra")
 set_policy("build.warning", true)
 
 if is_plat("linux", "macosx") then
-    add_cxflags("-fno-permissive", "-std=c++20", "-pedantic", "-Wall", "-Wextra", "-Wconversion", {force = true})
+    add_cxflags("-fno-permissive", "-pedantic", "-Wall", "-Wextra", "-Wconversion", {force = true})
     add_cxflags("-fno-omit-frame-pointer")
     if is_plat("macosx") then
         add_cxflags("-fexperimental-library")
@@ -154,6 +154,7 @@ target("lepton-raft-core-benchmark-test")
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
 
+-- 未实现完成，不建议引用相关头文件
 target("lepton-raft-storage-unit-test")
     add_includedirs("include/")
     on_load(apply_sanitizers)
@@ -194,6 +195,3 @@ target("lepton-raft-storage-unit-test")
     end    
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "poco", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
-
--- 更新本地仓库 package 版本
--- xmake repo -u 

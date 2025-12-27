@@ -1,6 +1,6 @@
 # 1. 带线程检测的debug构建
-./build.sh --clean -m debug -s asan
-./build.sh -m debug -s tsan
+./build.sh --clean -m debug -s asan -j 32
+./build.sh -m debug -s tsan -j 32
 
 # 2. 清理后执行release构建
 ./build.sh --clean --mode release
@@ -21,3 +21,6 @@ curl -fsSL https://xmake.io/shget.text | bash
 
 # 依赖安装（仅适用于debain/ubuntu）
 bash dependency_install.sh
+
+# 更新本地仓库 package 版本
+xmake repo -u 

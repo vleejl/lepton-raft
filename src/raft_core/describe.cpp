@@ -26,6 +26,7 @@ static auto rafa_state_name(state_type type) {
     case state_type::PRE_CANDIDATE:
       return "StatePreCandidate";
   }
+  return "UnknownState";
 }
 #endif
 

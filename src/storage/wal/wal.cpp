@@ -61,8 +61,6 @@ asio::awaitable<expected<void>> wal::sync() {
   co_return result;
 }
 
-leaf::result<void> wal::rename_wal(const std::string &tmp_dir_path) {
-  LEPTON_LEAF_CHECK(fileutil::remove_all(dir_));
-}
+leaf::result<void> wal::rename_wal(const std::string &tmp_dir_path) { LEPTON_LEAF_CHECK(fileutil::remove_all(dir_)); }
 
 }  // namespace lepton::storage::wal

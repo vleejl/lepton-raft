@@ -22,6 +22,7 @@ static auto etcd_rafa_state_name(lepton::core::state_type type) {
     case lepton::core::state_type::PRE_CANDIDATE:
       return "StatePreCandidate";
   }
+  return "UnknownState";
 }
 
 lepton::leaf::result<void> interaction_env::handle_raft_state() {

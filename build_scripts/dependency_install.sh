@@ -3,7 +3,7 @@
 set -ex
 
 apt-get update
-apt install build-essential
+apt install -y build-essential
 apt-get install -y gdb
 apt-get install -y vim
 apt-get install -y cmake
@@ -15,4 +15,7 @@ apt-get install -y clang clangd
 apt-get install -y clang-format
 apt-get install -y unzip
 apt-get install -y unzip
-apt-get install liburing-dev
+apt-get install -y liburing-dev
+
+# Install xmakes
+curl -fsSL https://xmake.io/shget.text | bash

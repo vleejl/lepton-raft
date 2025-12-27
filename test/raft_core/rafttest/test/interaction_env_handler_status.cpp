@@ -11,7 +11,7 @@ lepton::leaf::result<void> interaction_env::handle_status(const datadriven::test
 }
 
 lepton::leaf::result<void> interaction_env::status(std::size_t node_idx) {
-  if (node_idx < 0 || node_idx >= nodes.size()) {
+  if (node_idx >= nodes.size()) {
     return new_error(lepton::logic_error::INVALID_PARAM);
   }
   // TODO(tbg): actually print the full status.

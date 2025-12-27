@@ -12,7 +12,7 @@ lepton::leaf::result<void> interaction_env::handle_forget_leader(const datadrive
 }
 
 lepton::leaf::result<void> interaction_env::forget_leader(std::size_t node_idx) {
-  if (node_idx < 0 || node_idx >= nodes.size()) {
+  if (node_idx >= nodes.size()) {
     return new_error(lepton::logic_error::INVALID_PARAM);
   }
   nodes[node_idx].raw_node.forget_leader();

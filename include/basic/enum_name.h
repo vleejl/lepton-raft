@@ -8,20 +8,20 @@ namespace lepton {
 #ifdef LEPTON_TEST
 inline std::string convert_enum_name(std::string_view enum_name) {
   std::string result;
-  bool capitalize_next = true;  // 标记下一个字符是否需要大写
+  result.reserve(enum_name.size());  // 优化：预留空间减少内存分配次数
+  bool capitalize_next = true;
 
   for (char c : enum_name) {
     if (c == '_') {
-      // 遇到下划线，标记下一个字符需要大写
       capitalize_next = true;
     } else {
+      // 关键：先转换为 unsigned char 保证安全，再转换回 char 消除警告
+      unsigned char uc = static_cast<unsigned char>(c);
       if (capitalize_next) {
-        // 大写当前字符
-        result += std::toupper(c);
+        result += static_cast<char>(std::toupper(uc));
         capitalize_next = false;
       } else {
-        // 小写当前字符
-        result += std::tolower(c);
+        result += static_cast<char>(std::tolower(uc));
       }
     }
   }

@@ -20,7 +20,7 @@ class memory_storage {
  public:
   memory_storage();
   memory_storage(memory_storage&& ms)
-      : hard_state_(std::move(ms.hard_state_)), snapshot_(std::move(ms.snapshot_)), ents_(std::move(ms.ents_)){};
+      : hard_state_(std::move(ms.hard_state_)), snapshot_(std::move(ms.snapshot_)), ents_(std::move(ms.ents_)) {};
 #ifdef LEPTON_TEST
   explicit memory_storage(const pb::repeated_entry& ents) : ents_(ents) {}
 

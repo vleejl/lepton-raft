@@ -18,10 +18,10 @@ lepton::leaf::result<void> interaction_env::handle_send_snapshot(const datadrive
 
 // SendSnapshot sends a snapshot.
 lepton::leaf::result<void> interaction_env::send_snapshot(std::size_t from_idx, std::size_t to_idx) {
-  if (from_idx < 0 || from_idx >= nodes.size()) {
+  if (from_idx >= nodes.size()) {
     return new_error(lepton::logic_error::INVALID_PARAM);
   }
-  if (to_idx < 0 || to_idx >= nodes.size()) {
+  if (to_idx >= nodes.size()) {
     return new_error(lepton::logic_error::INVALID_PARAM);
   }
 
