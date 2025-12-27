@@ -29,6 +29,8 @@ enum class io_error {
   PARH_NOT_EXIT,
 
   PARH_HAS_EXIT,
+
+  FSYNC_FAILED,
 };
 
 // io_error_category
@@ -48,6 +50,8 @@ class io_error_category : public base_error_category {
         return "Path not exist";
       case io_error::PARH_HAS_EXIT:
         return "Path has exist";
+      case io_error::FSYNC_FAILED:
+        return "Fsync failed";
       default:
         assert(false);
         return "Unrecognized io error";

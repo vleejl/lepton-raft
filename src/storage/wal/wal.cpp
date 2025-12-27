@@ -6,10 +6,10 @@
 #include "basic/time.h"
 #include "error/leaf.h"
 #include "error/logic_error.h"
+#include "storage/fileutil/directory.h"
 #include "storage/fileutil/path.h"
 #include "storage/pb/wal_protobuf.h"
 #include "wal.pb.h"
-
 namespace lepton::storage::wal {
 
 constexpr auto WARN_SYNC_DURATION = std::chrono::seconds{1};
@@ -61,6 +61,17 @@ asio::awaitable<expected<void>> wal::sync() {
   co_return result;
 }
 
-leaf::result<void> wal::rename_wal(const std::string &tmp_dir_path) { LEPTON_LEAF_CHECK(fileutil::remove_all(dir_)); }
+leaf::result<void> wal::rename_wal(const std::string &tmp_dir_path) {
+  LEPTON_LEAF_CHECK(fileutil::remove_all(dir_));
+  LEPTON_LEAF_CHECK(fileutil::rename(tmp_dir_path, dir_));
+  BOOST_LEAF_AUTO(file_pipeline, new_file_pipeline(executor_, env_, dir_, SEGMENT_SIZE_BYTES, logger_));
+  file_pipeline_ = std::move(file_pipeline);
+  BOOST_LEAF_AUTO(dir_file, fileutil::new_directory(env_, dir_));
+  dir_file_ = std::move(dir_file);
+  return {};
+}
 
+void wal::cleanup_wal() {
+  // TODO
+}
 }  // namespace lepton::storage::wal

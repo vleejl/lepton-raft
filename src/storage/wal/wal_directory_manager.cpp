@@ -7,9 +7,11 @@
 #include "basic/logger.h"
 #include "error/expected.h"
 #include "error/io_error.h"
+#include "error/leaf.h"
 #include "error/leaf_expected.h"
 #include "error/lepton_error.h"
 #include "leaf.hpp"
+#include "storage/fileutil/directory.h"
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/read_dir.h"
 #include "storage/pb/types.h"
@@ -70,7 +72,7 @@ asio::awaitable<expected<wal_handle>> wal_directory_manager::create_wal(
     }
   }
 
-  DEFER({ fileutil::remove_all(temp_dir_path_str); });
+  DEFER({ (void)fileutil::remove_all(temp_dir_path_str); });
 
   auto wal_handle_result = leaf_to_expected([&]() -> leaf::result<std::unique_ptr<wal>> {
     LEPTON_LEAF_CHECK(create_dir_all(temp_dir_path_str));
@@ -79,7 +81,7 @@ asio::awaitable<expected<wal_handle>> wal_directory_manager::create_wal(
     BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor_, env_, wal_file_path.string(), false));
     LEPTON_LEAF_CHECK(wal_file_handle.pre_allocate(SEGMENT_SIZE_BYTES, true));
     BOOST_LEAF_AUTO(encoder, new_file_encoder(wal_file_handle, 0, logger));
-    auto wal_handle = std::make_unique<wal>(std::move(encoder), dirpath, metadata, logger);
+    auto wal_handle = std::make_unique<wal>(executor_, env_, std::move(encoder), dirpath, metadata, logger);
     wal_handle->append_lock_file(std::move(wal_file_handle));
     return wal_handle;
   });
@@ -94,8 +96,31 @@ asio::awaitable<expected<wal_handle>> wal_directory_manager::create_wal(
   record.set_data(metadata);
   CO_CHECK_AWAIT(wal_handle->encode(record));
   CO_CHECK_AWAIT(wal_handle->save_snapshot(pb::snapshot{}));
+  if (auto result =
+          leaf_to_expected_void([&]() -> leaf::result<void> { return wal_handle->rename_wal(temp_dir_path_str); });
+      !result.has_value()) {
+    LOG_WARN(logger, "Failed to rename wal from {} to {}: {}", temp_dir_path_str, dirpath, result.error().message());
+    co_return tl::unexpected{result.error()};
+  }
 
-  // TODO
+  std::filesystem::path dir_path(wal_handle->dir());
+  auto parent_path = dir_path.parent_path();
+  if (auto result = leaf_to_expected_void([&]() -> leaf::result<void> {
+        // directory was renamed; sync parent dir to persist rename
+        BOOST_LEAF_AUTO(parent_dir, fileutil::new_directory(env_, parent_path.string()));
+        if (!parent_dir.fsync()) {
+          (void)parent_dir.close();
+          return new_error(io_error::FSYNC_FAILED, fmt::format("Failed to fsync parent dir {}", parent_path.string()));
+        }
+        LEPTON_LEAF_CHECK(parent_dir.close());
+        return wal_handle->rename_wal(temp_dir_path_str);
+      });
+      !result.has_value()) {
+    LOG_WARN(logger, "Failed to fsync parent directory {}", parent_path.string());
+    wal_handle->cleanup_wal();
+    co_return tl::unexpected{result.error()};
+  }
+  co_return wal_handle;
 }
 
 }  // namespace lepton::storage::wal

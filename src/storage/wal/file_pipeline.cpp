@@ -97,7 +97,7 @@ asio::awaitable<void> file_pipeline::run() {
 
 leaf::result<file_pipeline_handle> new_file_pipeline(asio::any_io_executor executor, rocksdb::Env* env,
                                                      const std::string& wal_file_dir, std::size_t file_size,
-                                                     std::shared_ptr<lepton::logger_interface>&& logger) {
+                                                     std::shared_ptr<lepton::logger_interface> logger) {
   if (!std::filesystem::exists(wal_file_dir)) {
     return new_error(io_error::PARH_NOT_EXIT);
   }

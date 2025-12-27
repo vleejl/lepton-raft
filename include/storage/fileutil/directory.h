@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #ifndef _LEPTON_DIRECTORY_H_
 #define _LEPTON_DIRECTORY_H_
 #include <rocksdb/env.h>
@@ -35,19 +36,11 @@ class directory {
     return new_error(s);
   }
 
-  static leaf::result<directory> new_directory(rocksdb::Env* env) {
-    assert(env != nullptr);
-    std::unique_ptr<rocksdb::Directory> dir;
-    auto s = env->NewDirectory("", &dir);
-    if (s.ok()) {
-      return directory{std::move(dir)};
-    }
-    return new_error(s);
-  }
-
  private:
   std::unique_ptr<rocksdb::Directory> dir_;
 };
+
+leaf::result<directory> new_directory(rocksdb::Env* env, const std::string& path);
 }  // namespace lepton::storage::fileutil
 
 #endif  // _LEPTON_DIRECTORY_H_

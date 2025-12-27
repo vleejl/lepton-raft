@@ -71,7 +71,7 @@ using file_pipeline_handle = std::unique_ptr<file_pipeline>;
 
 leaf::result<file_pipeline_handle> new_file_pipeline(asio::any_io_executor executor, rocksdb::Env* env,
                                                      const std::string& wal_file_dir, std::size_t file_size,
-                                                     std::shared_ptr<lepton::logger_interface>&& logger);
+                                                     std::shared_ptr<lepton::logger_interface> logger);
 
 }  // namespace lepton::storage::wal
 

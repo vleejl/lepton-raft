@@ -23,6 +23,13 @@
 #include "storage/wal/encoder.h"
 #include "storage/wal/file_pipeline.h"
 namespace lepton::storage::wal {
+
+// SegmentSizeBytes is the preallocated size of each wal segment file.
+// The actual size might be larger than this. In general, the default
+// value should be used, but this is defined as an exported variable
+// so that tests can set a different segment size.
+constexpr static std::uint64_t SEGMENT_SIZE_BYTES = 64 * 1000 * 1000;  // 64MB
+
 // WAL is a logical representation of the stable storage.
 // WAL is either in read mode or append mode but not both.
 // A newly created WAL is in append mode, and ready for appending records.
@@ -31,9 +38,11 @@ namespace lepton::storage::wal {
 class wal {
   NOT_COPYABLE(wal)
  public:
-  wal(std::unique_ptr<encoder> &&encoder, const std::string &dir_path, const std::string &metadata,
-      std::shared_ptr<lepton::logger_interface> logger)
-      : dir_(dir_path),
+  wal(asio::any_io_executor executor, rocksdb::Env *env, std::unique_ptr<encoder> &&encoder,
+      const std::string &dir_path, const std::string &metadata, std::shared_ptr<lepton::logger_interface> logger)
+      : executor_(executor),
+        env_(env),
+        dir_(dir_path),
         metadata_(metadata),
         unsafe_no_sync_(false),
         entry_index_(0),
@@ -55,10 +64,18 @@ class wal {
 
   leaf::result<void> rename_wal(const std::string &tmp_dir_path);
 
+  const std::string &dir() const { return dir_; }
+
+  void cleanup_wal();
+
  private:
   fileutil::env_file_handle tail() { return lock_files_.empty() ? nullptr : &lock_files_.back(); }
 
  private:
+  asio::any_io_executor executor_;
+
+  rocksdb::Env *env_;
+
   // the living directory of the underlay files
   std::string dir_;
 

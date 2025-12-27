@@ -11,12 +11,6 @@
 #include "wal.h"
 namespace lepton::storage::wal {
 
-// SegmentSizeBytes is the preallocated size of each wal segment file.
-// The actual size might be larger than this. In general, the default
-// value should be used, but this is defined as an exported variable
-// so that tests can set a different segment size.
-constexpr static std::uint64_t SEGMENT_SIZE_BYTES = 64 * 1000 * 1000;  // 64MB
-
 class wal_directory_manager {
  public:
   bool file_exist(const std::string& file_name) { return env_->FileExists(file_name).ok(); }

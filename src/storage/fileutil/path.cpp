@@ -28,4 +28,28 @@ leaf::result<void> remove_all(const std::string& path) {
   return {};
 }
 
+leaf::result<void> rename(const std::string& old_path, const std::string& new_path) {
+  if (old_path == new_path) {
+    return {};
+  }
+  if (!fs::exists(old_path)) {
+    return new_error(std::make_error_code(std::errc::no_such_file_or_directory),
+                     fmt::format("Source path {} does not exist", old_path));
+  }
+  if (fs::exists(new_path)) {
+    return new_error(std::make_error_code(std::errc::file_exists),
+                     fmt::format("Destination path {} already exists", new_path));
+  }
+
+  std::error_code ec;
+
+  fs::rename(old_path, new_path, ec);
+
+  if (ec) {
+    return new_error(ec, fmt::format("Failed to rename from {} to {}: {}", old_path, new_path, ec.message()));
+  }
+
+  return {};
+}
+
 }  // namespace lepton::storage::fileutil
