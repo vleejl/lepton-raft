@@ -49,7 +49,7 @@ static bool need_storage_append_msg(raft &r, const ready &rd) {
   // Return true if log entries, hard state, or a snapshot need to be written
   // to stable storage. Also return true if any messages are contingent on all
   // prior MsgStorageAppend being processed.
-  SPDLOG_TRACE("needStorageAppendMsg rd:\n{}", describe_ready(rd, nullptr));
+  LOG_TRACE("needStorageAppendMsg rd:\n{}", describe_ready(rd, nullptr));
   if (rd.entries.size() > 0) {
     return true;
   }
@@ -229,11 +229,11 @@ static raftpb::message new_storage_append_msg(raft &r, const ready &rd) {
   // handling to use a fast-path in r.raftLog.term() before the newly appended
   // entries are removed from the unstable log.
   m.mutable_responses()->CopyFrom(r.msgs_after_append());
-  SPDLOG_TRACE("has msg after append {}", m.DebugString());
+  LOG_TRACE("has msg after append {}", m.DebugString());
   if (need_storage_append_resp_msg(r, rd)) {
     m.mutable_responses()->Add(new_storage_append_resp_msg(r, rd));
   }
-  SPDLOG_TRACE(m.DebugString());
+  LOG_TRACE(m.DebugString());
   return m;
 }
 
@@ -266,7 +266,7 @@ static raftpb::message new_storage_apply_msg(const raft &r, const ready &rd) {
   m.set_term(0);  // committed entries don't apply under a specific term
   m.mutable_entries()->CopyFrom(rd.committed_entries);
   m.mutable_responses()->Add(new_storage_apply_resp_msg(r, rd.committed_entries));
-  SPDLOG_TRACE(m.DebugString());
+  LOG_TRACE(m.DebugString());
   return m;
 }
 
@@ -321,12 +321,12 @@ lepton::core::ready raw_node::ready_without_accept() {
       }
     }
   }
-  SPDLOG_TRACE("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd, nullptr));
+  LOG_TRACE("[ready_without_accept]generate ready, content:\n{}", describe_ready(rd, nullptr));
   return rd;
 }
 
 void raw_node::accept_ready(const lepton::core::ready &rd) {
-  SPDLOG_TRACE("accept ready, content:\n{}", describe_ready(rd, nullptr));
+  LOG_TRACE("accept ready, content:\n{}", describe_ready(rd, nullptr));
   if (rd.soft_state) {
     prev_soft_state_ = *rd.soft_state;
   }
@@ -365,33 +365,32 @@ void raw_node::accept_ready(const lepton::core::ready &rd) {
 bool raw_node::has_ready() const {
   // TODO(nvanbenschoten): order these cases in terms of cost and frequency.
   if (auto soft_state = raft_.soft_state(); soft_state != prev_soft_state_) {
-    SPDLOG_TRACE("soft state has changed, soft_state: {}, prev_soft_state_: {}", describe_soft_state(soft_state),
-                 describe_soft_state(prev_soft_state_));
+    LOG_TRACE("soft state has changed, soft_state: {}, prev_soft_state_: {}", describe_soft_state(soft_state),
+              describe_soft_state(prev_soft_state_));
     return true;
   }
   if (auto hard_state = raft_.hard_state(); !pb::is_empty_hard_state(hard_state) && hard_state != prev_hard_state_) {
-    SPDLOG_TRACE("hard state has changed, hafrd_state:{}, prev_hard_state_:{}", hard_state.DebugString(),
-                 prev_hard_state_.DebugString());
+    LOG_TRACE("hard state has changed, hafrd_state:{}, prev_hard_state_:{}", hard_state.DebugString(),
+              prev_hard_state_.DebugString());
     return true;
   }
   if (raft_.raft_log_handle_.has_next_unstable_snapshot()) {
-    SPDLOG_TRACE("has next unstable snapshot");
+    LOG_TRACE("has next unstable snapshot");
     return true;
   }
   if (!raft_.msgs_.empty() || !raft_.msgs_after_append().empty()) {
-    SPDLOG_TRACE("msg not empty, msgs size:{}, msgs_after_append size:{}", raft_.msgs_.size(),
-                 raft_.msgs_after_append().size());
+    LOG_TRACE("msg not empty, msgs size:{}, msgs_after_append size:{}", raft_.msgs_.size(),
+              raft_.msgs_after_append().size());
     return true;
   }
   if (raft_.raft_log_handle().has_next_unstable_ents() ||
       raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries())) {
-    SPDLOG_TRACE("has next unstable ents:{}, has next committed ents:{}",
-                 raft_.raft_log_handle().has_next_unstable_ents(),
-                 raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries()));
+    LOG_TRACE("has next unstable ents:{}, has next committed ents:{}", raft_.raft_log_handle().has_next_unstable_ents(),
+              raft_.raft_log_handle().has_next_committed_ents(this->apply_unstable_entries()));
     return true;
   }
   if (!raft_.read_states_.empty()) {
-    SPDLOG_TRACE("read stattes not empty");
+    LOG_TRACE("read stattes not empty");
     return true;
   }
   return false;

@@ -8,6 +8,11 @@ namespace lepton {
 
 class spdlog_logger : public logger_interface {
  public:
+  bool should_log(log_level level) const override {
+    // 映射到 spdlog 的级别进行判断
+    return spdlog::default_logger()->should_log(static_cast<spdlog::level::level_enum>(level));
+  }
+
   void trace_impl(std::string_view msg, std::source_location loc) override {
     spdlog::trace("[{}:{}] {}", loc.file_name(), loc.line(), msg);
   }

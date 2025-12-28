@@ -69,19 +69,19 @@ struct node_adapter {
   asio::awaitable<void> stop() {
     if (stop_source_.stop_requested()) {
       // Node has already been stopped - no need to do anything
-      SPDLOG_INFO("{} node has already been stopped, just return", id_);
+      LOG_INFO("{} node has already been stopped, just return", id_);
       co_return;
     }
     iface_->disconnect();
     iface_->close();
-    SPDLOG_INFO("{} ready to send stop signal", id_);
+    LOG_INFO("{} ready to send stop signal", id_);
     co_await stop_chan_.async_send(asio::error_code{});
-    SPDLOG_INFO("{} Block until the stop has been acknowledged by run()", id_);
+    LOG_INFO("{} Block until the stop has been acknowledged by run()", id_);
     // Block until the stop has been acknowledged by run()
     co_await done_chan_.async_receive();
     done_chan_.close();
     co_await wait_run_exit_chan_.async_receive();
-    SPDLOG_INFO("{} receive stop siganl and stop has been acknowledged by run()", id_);
+    LOG_INFO("{} receive stop siganl and stop has been acknowledged by run()", id_);
     stop_chan_.close();
   }
 
@@ -95,7 +95,7 @@ struct node_adapter {
     auto id = node->id_;
     auto executor = node->executor_;
     auto storage = std::move(node->storage_);
-    SPDLOG_INFO("node {} is stopped and ready to restart", id);
+    LOG_INFO("node {} is stopped and ready to restart", id);
     lepton::core::config c;
     c.id = id;
     c.election_tick = 10;
@@ -197,7 +197,7 @@ struct node_adapter {
                        raftpb::message msg, int wait_ms) -> asio::awaitable<void> {
       asio::steady_timer timer(executor, asio::chrono::milliseconds(wait_ms));
       co_await timer.async_wait(asio::use_awaitable);
-      SPDLOG_TRACE("node {} sending msg: {}", id, msg.DebugString());
+      LOG_TRACE("node {} sending msg: {}", id, msg.DebugString());
       if (auto iface = iface_handle.lock()) {
         iface->send(msg);
       }
@@ -215,14 +215,14 @@ struct node_adapter {
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_pause(); });
     waiter->add([&]() -> asio::awaitable<void> { co_await listen_stop(); });
     while (is_running()) {
-      SPDLOG_TRACE("node {} waiting for events", id_);
+      LOG_TRACE("node {} waiting for events", id_);
       auto ev_result = co_await event_chan_.async_receive();
       if (!ev_result) {
-        SPDLOG_TRACE("node {} event channel closed, exiting", id_);
+        LOG_TRACE("node {} event channel closed, exiting", id_);
         break;
       }
       auto ev = std::move(ev_result.value());
-      SPDLOG_TRACE("node {} received event: {}", id_, magic_enum::enum_name(ev.type));
+      LOG_TRACE("node {} received event: {}", id_, magic_enum::enum_name(ev.type));
       switch (ev.type) {
         case event_type::tick:
           node_handle_->tick();
@@ -230,7 +230,7 @@ struct node_adapter {
         case event_type::ready: {
           auto rd_handle = std::get<lepton::core::ready_handle>(ev.payload);
           auto &rd = *rd_handle.get();
-          SPDLOG_TRACE(lepton::core::describe_ready(rd, nullptr));
+          LOG_TRACE(lepton::core::describe_ready(rd, nullptr));
           if (!lepton::core::pb::is_empty_hard_state(rd.hard_state)) {
             std::lock_guard<std::mutex> lock(mu);
             state = rd.hard_state;
@@ -259,7 +259,7 @@ struct node_adapter {
       }
     }
     co_await waiter->wait_all();
-    SPDLOG_INFO("node {} all listeners exited", id);
+    LOG_INFO("node {} all listeners exited", id);
     co_await wait_run_exit_chan_.async_send(asio::error_code{});
     co_return;
   }
@@ -275,7 +275,7 @@ struct node_adapter {
       }
       co_await event_chan_.async_send(event{.type = event_type::tick, .payload = {}});
     }
-    SPDLOG_INFO("node {} tick listener exited", id_);
+    LOG_INFO("node {} tick listener exited", id_);
     co_return;
   }
 
@@ -283,14 +283,14 @@ struct node_adapter {
     while (is_running()) {
       auto rd_handle_result = co_await node_handle_->wait_ready(executor_);
       if (!rd_handle_result) {
-        SPDLOG_ERROR("node {} wait_ready failed: {}", id_, rd_handle_result.error().message());
+        LOG_ERROR("node {} wait_ready failed: {}", id_, rd_handle_result.error().message());
         break;
       }
       assert(rd_handle_result);
       auto rd_handle = rd_handle_result.value();
       co_await event_chan_.async_send(event{.type = event_type::ready, .payload = {rd_handle}});
     }
-    SPDLOG_INFO("node {} ready listener exited", id_);
+    LOG_INFO("node {} ready listener exited", id_);
     co_return;
   }
 
@@ -300,7 +300,7 @@ struct node_adapter {
       assert(recv_chan_handle != nullptr);
       auto msg = co_await recv_chan_handle->async_receive();
       if (!msg) {
-        SPDLOG_INFO("node {} iface recv channel closed, exiting", id_);
+        LOG_INFO("node {} iface recv channel closed, exiting", id_);
         break;
       }
       if (paused_.load(std::memory_order_relaxed)) {
@@ -309,7 +309,7 @@ struct node_adapter {
         co_await event_chan_.async_send(event{event_type::recv, std::move(msg.value())});
       }
     }
-    SPDLOG_INFO("node {} recv listener exited", id_);
+    LOG_INFO("node {} recv listener exited", id_);
     co_return;
   }
 
@@ -322,7 +322,7 @@ struct node_adapter {
     assert(done_chan_.is_open());
     co_await done_chan_.async_send(asio::error_code{});
     co_await asio::post(asio::bind_executor(executor_, asio::use_awaitable));
-    SPDLOG_INFO("node {} all chaneels has closed, and has send stop_chan response", id_);
+    LOG_INFO("node {} all chaneels has closed, and has send stop_chan response", id_);
     co_return;
   }
 
@@ -330,12 +330,12 @@ struct node_adapter {
     while (is_running()) {
       auto result = co_await pause_chan_.async_receive();
       if (!result) {
-        SPDLOG_INFO("node {} pause channel closed, exiting", id_);
+        LOG_INFO("node {} pause channel closed, exiting", id_);
         break;
       }
       co_await event_chan_.async_send(event{event_type::pause, result.value()});
     }
-    SPDLOG_INFO("node {} pause listener exited", id_);
+    LOG_INFO("node {} pause listener exited", id_);
     co_return;
   }
 

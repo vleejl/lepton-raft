@@ -9,10 +9,10 @@
 #include <asio/experimental/awaitable_operators.hpp>
 #include <asio/experimental/channel.hpp>
 
+#include "basic/logger.h"
 #include "coroutine/coro_types.h"
 #include "error/expected.h"
 #include "error/lepton_error.h"
-#include "error/raft_error.h"
 
 namespace lepton::coro {
 
@@ -25,7 +25,7 @@ asio::awaitable<expected<void>> async_select_done(async_func &&main_op, signal_c
   switch (order[0]) {
     case 0:
       if (ec1) {
-        SPDLOG_ERROR("main_op failed with error: {}", ec1.message());
+        LOG_ERROR("main_op failed with error: {}", ec1.message());
         co_return tl::unexpected(ec1);
       }
       co_return ok();
@@ -49,7 +49,7 @@ asio::awaitable<expected<T>> async_select_done_with_value(AsyncFunc &&main_op, s
   switch (order[0]) {
     case 0: {
       if (ec1) {
-        SPDLOG_ERROR("main_op failed: {}", ec1.message());
+        LOG_ERROR("main_op failed: {}", ec1.message());
         co_return tl::unexpected(ec1);
       }
       co_return tl::expected<T, std::error_code>(std::move(result1));
@@ -79,7 +79,7 @@ asio::awaitable<expected<std::size_t>> async_select_any_expected(Ops &&...ops) {
   std::size_t completed = order[0];
 
   if (error_codes[completed]) {
-    SPDLOG_ERROR("op {} failed: {}", completed, error_codes[completed].message());
+    LOG_ERROR("op {} failed: {}", completed, error_codes[completed].message());
     co_return tl::unexpected{error_codes[completed]};
   }
   co_return expected<std::size_t>{completed};

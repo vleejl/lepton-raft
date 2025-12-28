@@ -18,15 +18,18 @@ inline expected<void> ok() { return expected<void>{}; }
       co_return tl::unexpected(lepton::coro_error::STOPPED); \
     }                                                        \
     if (ec) {                                                \
-      SPDLOG_ERROR("{}", (ec).message());                    \
+      LOG_ERROR("{}", (ec).message());                       \
       co_return tl::unexpected(ec);                          \
     }                                                        \
   } while (0)
 
-#define CO_CHECK_AWAIT(expr)                       \
-  do {                                             \
-    auto _r = co_await (expr);                     \
-    if (!_r) co_return tl::unexpected(_r.error()); \
+#define CO_CHECK_AWAIT(expr)                 \
+  do {                                       \
+    auto _r = co_await (expr);               \
+    if (!_r) {                               \
+      LOG_ERROR("{}", _r.error().message()); \
+      co_return tl::unexpected(_r.error());  \
+    }                                        \
   } while (0)
 
 #endif  // _LEPTON_EXPECTED_H_

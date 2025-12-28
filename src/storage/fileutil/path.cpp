@@ -63,4 +63,20 @@ leaf::result<void> rename(const std::string& old_path, const std::string& new_pa
   return {};
 }
 
+std::string base_name(const std::string& path_str) {
+  if (path_str.empty()) return ".";
+
+  fs::path p(path_str);
+
+  // 处理末尾带斜杠的情况，例如 "a/b/"，Go 的 Base 返回 "b"
+  // fs::path 如果末尾是斜杠，filename() 可能返回空
+  if (p.has_filename()) {
+    return p.filename().string();
+  } else if (p.has_parent_path()) {
+    return p.parent_path().filename().string();
+  }
+
+  return p.string();
+}
+
 }  // namespace lepton::storage::fileutil

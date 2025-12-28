@@ -84,7 +84,7 @@ int interaction_env::deliver_msgs(int raftpb_message_type, const std::vector<rec
           [&]() -> lepton::leaf::result<void> {
             raftpb::message msg;
             msg.CopyFrom(m);
-            SPDLOG_TRACE("deliver_msgs {}", msg.DebugString());
+            LOG_TRACE("deliver_msgs {}", msg.DebugString());
             LEPTON_LEAF_CHECK(nodes[node_idx].raw_node.step(std::move(msg)));
             return {};
           },

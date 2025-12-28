@@ -108,10 +108,10 @@ std::uint64_t raft_log::find_conflict(pb::span_entry entries) {
   for (const auto& entry : entries) {
     if (!match_term(pb::pb_entry_id(entry))) {
       if (entry->index() <= last_index()) {
-        LOG_INFO(logger_,
-                 "found conflict at index {} [existing term: {}, conflicting term: "
-                 "{}]",
-                 entry->index(), zero_term_on_err_compacted(entry->index()), entry->term());
+        LOGGER_INFO(logger_,
+                    "found conflict at index {} [existing term: {}, conflicting term: "
+                    "{}]",
+                    entry->index(), zero_term_on_err_compacted(entry->index()), entry->term());
       }
       return entry->index();
     }
@@ -374,8 +374,8 @@ bool raft_log::maybe_commit(const pb::entry_id& at) {
 }
 
 void raft_log::restore(raftpb::snapshot&& snapshot) {
-  LOG_INFO(logger_, "log [{}] starts to restore snapshot [index: {}, term: {}]", string(), snapshot.metadata().index(),
-           snapshot.metadata().term());
+  LOGGER_INFO(logger_, "log [{}] starts to restore snapshot [index: {}, term: {}]", string(),
+              snapshot.metadata().index(), snapshot.metadata().term());
   committed_ = snapshot.metadata().index();
   unstable_.restore(std::move(snapshot));
 }

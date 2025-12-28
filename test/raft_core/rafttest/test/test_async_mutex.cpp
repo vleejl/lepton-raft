@@ -8,8 +8,7 @@
 
 #include "asio/any_io_executor.hpp"
 #include "async_mutex.h"
-#include "spdlog/spdlog.h"
-
+#include "basic/logger.h"
 using asio::steady_timer;
 
 class async_mutex_test_suit : public testing::Test {
@@ -33,7 +32,7 @@ asio::awaitable<void> event_loop(asio::any_io_executor executor, std::string nam
     timer_.expires_after(std::chrono::milliseconds(100));  // 设置定时器
     co_await timer_.async_wait(asio::use_awaitable);       // 等待定时器到期
 
-    SPDLOG_INFO("[coroutine {}] current loop times: {}", name, loop);
+    LOG_INFO("[coroutine {}] current loop times: {}", name, loop);
 
     if (loop == lock_times) {
       co_await mutex.async_lock(asio::use_awaitable);
@@ -49,9 +48,9 @@ TEST_F(async_mutex_test_suit, lock_and_unlock) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to start coroutine A event loop");
+        LOG_INFO("ready to start coroutine A event loop");
         co_await event_loop(io_context.get_executor(), "A", 10, 5, mutex);
-        SPDLOG_INFO("coroutine A event loop has exited");
+        LOG_INFO("coroutine A event loop has exited");
         co_return;
       },
       asio::detached);
@@ -59,9 +58,9 @@ TEST_F(async_mutex_test_suit, lock_and_unlock) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to start coroutine B event loop");
+        LOG_INFO("ready to start coroutine B event loop");
         co_await event_loop(io_context.get_executor(), "B", 10, 6, mutex);
-        SPDLOG_INFO("coroutine B event loop has exited");
+        LOG_INFO("coroutine B event loop has exited");
         co_return;
       },
       asio::detached);
@@ -72,9 +71,9 @@ TEST_F(async_mutex_test_suit, lock_and_unlock) {
         // 等待1秒后取消操作
         asio::steady_timer timer(io_context, std::chrono::seconds(5));
         co_await timer.async_wait(asio::use_awaitable);
-        SPDLOG_INFO("wait timeout and ready cancel channel....");
+        LOG_INFO("wait timeout and ready cancel channel....");
         mutex.unlock();
-        SPDLOG_INFO("cancel channel successful");
+        LOG_INFO("cancel channel successful");
         co_return;
       },
       asio::detached);

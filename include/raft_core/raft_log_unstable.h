@@ -189,12 +189,12 @@ class unstable {
     // 2. log index 可能已经无效
     if (term_result.has_error()) {
       // Unstable entry missing. Ignore.
-      LOG_INFO(logger_, "entry at index {} missing from unstable log; ignoring", id.index);
+      LOGGER_INFO(logger_, "entry at index {} missing from unstable log; ignoring", id.index);
       return;
     }
     if (id.index < offset_) {
       // Index matched unstable snapshot, not unstable entry. Ignore.
-      LOG_INFO(logger_, "entry at index {} matched unstable snapshot; ignoring", id.index);
+      LOGGER_INFO(logger_, "entry at index {} matched unstable snapshot; ignoring", id.index);
       return;
     }
 
@@ -204,8 +204,8 @@ class unstable {
       // This is possible if part or all of the unstable log was replaced
       // between that time that a set of entries started to be written to
       // stable storage and when they finished.
-      LOG_INFO(logger_, "entry at (index,term)=({},{}) mismatched with entry at ({},{}) in unstable log; ignoring",
-               id.index, id.term, id.index, term_result.value());
+      LOGGER_INFO(logger_, "entry at (index,term)=({},{}) mismatched with entry at ({},{}) in unstable log; ignoring",
+                  id.index, id.term, id.index, term_result.value());
       return;
     }
 
@@ -252,7 +252,7 @@ class unstable {
     if (from_index == (offset_ + static_cast<std::uint64_t>(entries_.size()))) {  // max after value
       entries_.Add(std::make_move_iterator(entry_list.begin()), std::make_move_iterator(entry_list.end()));
     } else if (from_index <= offset_) {  // min after value
-      LOG_INFO(logger_, "replace the unstable entries from index {}", from_index);
+      LOGGER_INFO(logger_, "replace the unstable entries from index {}", from_index);
       // The log is being truncated to before our current offset
       // portion, so set the offset and replace the entries
       offset_ = from_index;
@@ -261,7 +261,7 @@ class unstable {
     } else {  // after > u.offset && after < u.offset + uint64(len(u.entries))
       // truncate to after and copy to u.entries
       // then append
-      LOG_INFO(logger_, "truncate the unstable entries before index {}", from_index);
+      LOGGER_INFO(logger_, "truncate the unstable entries before index {}", from_index);
       auto start = static_cast<std::ptrdiff_t>(offset_ - offset_);
       auto end = static_cast<std::ptrdiff_t>(from_index - offset_);
       // 截取 offset 到 after 之间的 entry

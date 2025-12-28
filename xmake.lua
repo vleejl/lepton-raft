@@ -108,6 +108,8 @@ target("lepton-raft-core-unit-test")
     add_rules("protobuf.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
     add_packages("protoc", "protobuf-cpp")
+    -- lepton basic source file
+    add_files("src/basic/*.cpp")
     -- lepton-raft source file
     add_files("src/raft_core/confchange/*.cpp")
     add_files("src/raft_core/pb/*.cpp")
@@ -144,6 +146,8 @@ target("lepton-raft-core-benchmark-test")
     add_rules("protobuf.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
     add_packages("protoc", "protobuf-cpp")
+    -- lepton basic source file
+    add_files("src/basic/*.cpp")    
     -- lepton-raft source file
     add_files("src/raft_core/confchange/*.cpp")
     add_files("src/raft_core/pb/*.cpp")
@@ -178,6 +182,8 @@ target("lepton-raft-storage-unit-test")
     add_rules("protobuf.cpp")
     add_files("proto/**.proto", {proto_rootdir = "proto"})
     add_packages("protoc", "protobuf-cpp")
+    -- lepton basic source file
+    add_files("src/basic/*.cpp")    
     -- lepton-raft source file
     add_files("src/raft_core/confchange/*.cpp")
     add_files("src/raft_core/pb/*.cpp")

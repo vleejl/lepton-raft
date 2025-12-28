@@ -39,7 +39,7 @@ class preallocate_linux_test_suit : public ::testing::Test {
 };
 
 // 对应 Go 的 TestPreallocateExtend
-TEST_F(preallocate_linux_test_suit, PreallocateExtend) {
+TEST_F(preallocate_linux_test_suit, preallocate_extend) {
   off_t size = 64 * 1000;
 
   std::error_code ec = prealloc_extend(fd_, size);
@@ -53,7 +53,7 @@ TEST_F(preallocate_linux_test_suit, PreallocateExtend) {
 }
 
 // 对应 Go 的 TestPreallocateExtendTrunc
-TEST_F(preallocate_linux_test_suit, PreallocateExtendTrunc) {
+TEST_F(preallocate_linux_test_suit, preallocate_extend_trunc) {
   off_t size = 64 * 1000;
 
   // 直接测试回退函数
@@ -68,7 +68,7 @@ TEST_F(preallocate_linux_test_suit, PreallocateExtendTrunc) {
 }
 
 // 对应 Go 的 TestPreallocateFixed
-TEST_F(preallocate_linux_test_suit, PreallocateFixed) {
+TEST_F(preallocate_linux_test_suit, preallocate_fixed) {
   off_t size = 64 * 1000;
 
   // 使用 FALLOC_FL_KEEP_SIZE，逻辑大小不应改变
@@ -86,7 +86,7 @@ TEST_F(preallocate_linux_test_suit, PreallocateFixed) {
 }
 
 // 验证偏移量（Offset）在操作后是否被正确恢复 (针对 prealloc_extend_trunc)
-TEST_F(preallocate_linux_test_suit, PreserveOffsetAfterTruncate) {
+TEST_F(preallocate_linux_test_suit, preserve_offset_after_truncate) {
   off_t initial_offset = 10;
   size_t write_size = 5;
   write(fd_, "hello", write_size);  // 写入 5 字节，此时 offset 为 5

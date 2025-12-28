@@ -103,12 +103,18 @@ asio::awaitable<expected<std::size_t>> env_file_endpoint::async_write_vectored_a
 expected<void> env_file_endpoint::fdatasync() {
   std::error_code ec;
   ec = raw_file().sync_data(ec);
+  if (!ec) {
+    return {};
+  }
   return tl::unexpected(ec);
 }
 
 expected<void> env_file_endpoint::close() {
   asio::error_code ec;
   ec = raw_file().close(ec);
+  if (!ec) {
+    return {};
+  }
   return tl::unexpected(ec);
 }
 }  // namespace lepton::storage::fileutil

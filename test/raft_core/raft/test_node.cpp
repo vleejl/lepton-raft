@@ -122,7 +122,7 @@ asio::awaitable<void> expect_wait_timeout_async_receive_ready(asio::any_io_execu
     }
     case 1: {
       has_wait_timeout = true;
-      SPDLOG_INFO("timed out waiting for ready");
+      LOG_INFO("timed out waiting for ready");
       break;
     }
   }
@@ -199,14 +199,14 @@ TEST_F(node_test_suit, test_node_step_unblock) {
                               asio::co_spawn(
                                   io,
                                   [&]() -> asio::awaitable<void> {
-                                    SPDLOG_INFO("event loop has started");
+                                    LOG_INFO("event loop has started");
                                     co_return;
                                   },
                                   asio::detached);
 
                               // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
                               asio::post(io, [&]() {
-                                SPDLOG_INFO("close done channel");
+                                LOG_INFO("close done channel");
                                 n.prop_chan_.close();
                               });
                             },
@@ -234,11 +234,11 @@ TEST_F(node_test_suit, test_node_step_unblock) {
           raftpb::message msg;
           msg.set_type(raftpb::message_type::MSG_PROP);
           auto step_result = co_await n.step(std::move(msg));
-          SPDLOG_INFO("step result has received");
+          LOG_INFO("step result has received");
           EXPECT_FALSE(step_result);
           EXPECT_EQ(tt.expected_error, step_result.error());
           co_await err_chan.async_send(asio::error_code{}, step_result, asio::use_awaitable);
-          SPDLOG_INFO("finish async send error code info");
+          LOG_INFO("finish async send error code info");
           co_return;
         },
         asio::detached);
@@ -281,9 +281,9 @@ TEST_F(node_test_suit, test_node_propose) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to node run.......");
+        LOG_INFO("ready to node run.......");
         n.start_run();
-        SPDLOG_INFO("node run finshed.......");
+        LOG_INFO("node run finshed.......");
         co_return;
       },
       asio::detached);
@@ -297,24 +297,24 @@ TEST_F(node_test_suit, test_node_propose) {
 
         // 等待成为leader
         while (true) {
-          SPDLOG_INFO("waiting become leader loop ......................");
+          LOG_INFO("waiting become leader loop ......................");
           auto rd_handle_result = co_await n.wait_ready(io_context.get_executor());
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
 
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
+          LOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
           if (rd.entries.size() > 0) {
-            SPDLOG_INFO("Appending entries to storage");
+            LOG_INFO("Appending entries to storage");
             EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
           }
 
           // 检查是否成为leader
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
-            SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
+            LOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
                                                raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::core::describe_message(msg, nullptr));
+              LOG_INFO(lepton::core::describe_message(msg, nullptr));
               if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
                 return {};  // injected by (*raft).advance
               }
@@ -324,22 +324,22 @@ TEST_F(node_test_suit, test_node_propose) {
             co_await n.advance();
             break;
           } else {
-            SPDLOG_INFO("Node {} is not leader, continue wait...", n.raw_node_.raft_.id());
+            LOG_INFO("Node {} is not leader, continue wait...", n.raw_node_.raft_.id());
             co_await n.advance();
           }
         }
 
         // 提出提案
         co_await n.propose(io_context.get_executor(), "somedata");
-        SPDLOG_INFO("propose some data successful");
+        LOG_INFO("propose some data successful");
 
         // 短暂延迟确保消息处理
         asio::steady_timer timer(io_context, std::chrono::milliseconds(50));
         co_await timer.async_wait(asio::use_awaitable);
-        SPDLOG_INFO("wait timeout and ready to stop node");
+        LOG_INFO("wait timeout and ready to stop node");
         // 停止节点
         co_await n.stop();
-        SPDLOG_INFO("stop node successful.......");
+        LOG_INFO("stop node successful.......");
         co_return;
       },
       asio::detached);
@@ -480,9 +480,9 @@ TEST_F(node_test_suit, test_node_propose_config) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to node run.......");
+        LOG_INFO("ready to node run.......");
         n.start_run();
-        SPDLOG_INFO("node run finshed.......");
+        LOG_INFO("node run finshed.......");
         co_return;
       },
       asio::detached);
@@ -498,22 +498,22 @@ TEST_F(node_test_suit, test_node_propose_config) {
 
         // 等待成为leader
         while (true) {
-          SPDLOG_INFO("main loop ......................");
+          LOG_INFO("main loop ......................");
           auto rd_handle_result = co_await n.wait_ready(io_context.get_executor());
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
           if (rd.entries.size() > 0) {
-            SPDLOG_INFO("Appending entries to storage");
+            LOG_INFO("Appending entries to storage");
             EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
           }
 
           // 检查是否成为leader
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
-            SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
+            LOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
                                                raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::core::describe_message(msg, nullptr));
+              LOG_INFO(lepton::core::describe_message(msg, nullptr));
               if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
                 return {};  // injected by (*raft).advance
               }
@@ -539,7 +539,7 @@ TEST_F(node_test_suit, test_node_propose_config) {
 
         // 停止节点
         co_await n.stop();
-        SPDLOG_INFO("stop node successful.......");
+        LOG_INFO("stop node successful.......");
         co_return;
       },
       asio::detached);
@@ -578,11 +578,11 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
 
         auto rd_result = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
         auto& rd = *rd_result;
-        SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                    mm_storage.last_index().value(), rd.entries.size());
+        LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                 mm_storage.last_index().value(), rd.entries.size());
         EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-        SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                    mm_storage.last_index().value());
+        LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                 mm_storage.last_index().value());
         co_await node_handle->advance();
 
         auto running_loop = true;
@@ -593,26 +593,26 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
                                     node_handle->wait_ready(io_context.get_executor()));
             switch (result.index()) {
               case 0: {
-                SPDLOG_INFO("receive cancel siganl and ready to stop running loop");
+                LOG_INFO("receive cancel siganl and ready to stop running loop");
                 running_loop = false;
                 break;
               }
               case 1: {
-                SPDLOG_INFO("node is ticking");
+                LOG_INFO("node is ticking");
                 node_handle->tick();
                 timer.expires_after(std::chrono::milliseconds(100));
                 break;
               }
               case 2: {
-                SPDLOG_INFO("receive new ready");
+                LOG_INFO("receive new ready");
                 auto msg_result = std::get<2>(result);
                 auto& rd = *msg_result.value();
-                SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
-                SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                            mm_storage.last_index().value(), rd.entries.size());
+                LOG_INFO(lepton::core::describe_ready(rd, nullptr));
+                LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                         mm_storage.last_index().value(), rd.entries.size());
                 EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-                SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                            mm_storage.last_index().value());
+                LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                         mm_storage.last_index().value());
                 auto applied = false;
                 for (auto& entry : rd.committed_entries) {
                   auto entry_type = entry.type();
@@ -639,7 +639,7 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
           }
           co_await goroutine_stopped_chan.async_send(asio::error_code{});
         };
-        SPDLOG_INFO("[main logic]ready to start sub loop");
+        LOG_INFO("[main logic]ready to start sub loop");
         asio::co_spawn(
             io_context,
             [&]() -> asio::awaitable<void> {
@@ -647,22 +647,22 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
               co_return;
             },
             asio::detached);
-        SPDLOG_INFO("[main logic]start sub loop successful");
+        LOG_INFO("[main logic]start sub loop successful");
 
         raftpb::conf_change cc1;
         cc1.set_type(::raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
         cc1.set_node_id(1);
         auto ccdata1 = cc1.SerializeAsString();
-        SPDLOG_INFO("[main logic]first times ready to propose conf change");
+        LOG_INFO("[main logic]first times ready to propose conf change");
         co_await node_handle->propose_conf_change(cc1);
-        SPDLOG_INFO("[main logic]first times propose conf change success");
+        LOG_INFO("[main logic]first times propose conf change success");
         co_await apply_conf_chan.async_receive();
-        SPDLOG_INFO("[main logic]first times apply conf change success");
+        LOG_INFO("[main logic]first times apply conf change success");
 
         // try add the same node again
         co_await node_handle->propose_conf_change(cc1);
         co_await apply_conf_chan.async_receive();
-        SPDLOG_INFO("[main logic]first times try add the same node again...");
+        LOG_INFO("[main logic]first times try add the same node again...");
 
         // the new node join should be ok
         raftpb::conf_change cc2;
@@ -671,13 +671,13 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
         auto ccdata2 = cc2.SerializeAsString();
         co_await node_handle->propose_conf_change(cc2);
         co_await apply_conf_chan.async_receive();
-        SPDLOG_INFO("[main logic]second times propose conf change success...");
+        LOG_INFO("[main logic]second times propose conf change success...");
 
         co_await cancel_chan.async_send(asio::error_code{});
-        SPDLOG_INFO("[main logic]cancel_chan send cancel signal success...");
+        LOG_INFO("[main logic]cancel_chan send cancel signal success...");
         co_await goroutine_stopped_chan.async_receive();
         co_await node_handle->stop();
-        SPDLOG_INFO("[main logic]sub loop has finished");
+        LOG_INFO("[main logic]sub loop has finished");
 
         EXPECT_EQ(4, all_committed_entries.size());
         EXPECT_EQ(ccdata1, all_committed_entries[1].data());
@@ -783,22 +783,22 @@ TEST_F(node_test_suit, test_node_propose_wait_dropped) {
 
         // 等待成为leader
         while (true) {
-          SPDLOG_INFO("main loop ......................");
+          LOG_INFO("main loop ......................");
           auto rd_handle_result = co_await n.wait_ready(io_context.get_executor());
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
           if (rd.entries.size() > 0) {
-            SPDLOG_INFO("Appending entries to storage");
+            LOG_INFO("Appending entries to storage");
             EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
           }
 
           // 检查是否成为leader
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
-            SPDLOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
+            LOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
                                                raftpb::message&& msg) -> lepton::leaf::result<void> {
-              SPDLOG_INFO(lepton::core::describe_message(msg, nullptr));
+              LOG_INFO(lepton::core::describe_message(msg, nullptr));
               if ((msg.type() == raftpb::message_type::MSG_PROP) &&
                   (msg.DebugString().find("test_dropping")) != std::string::npos) {
                 return new_error(lepton::raft_error::PROPOSAL_DROPPED);
@@ -824,7 +824,7 @@ TEST_F(node_test_suit, test_node_propose_wait_dropped) {
 
         // 停止节点
         co_await n.stop();
-        SPDLOG_INFO("stop node successful.......");
+        LOG_INFO("stop node successful.......");
         co_return;
       },
       asio::detached);
@@ -858,7 +858,7 @@ TEST_F(node_test_suit, test_node_tick) {
         const auto elapsed = n.raw_node_.raft_.election_elapsed_;
         asio::steady_timer timer(io_context, std::chrono::milliseconds(100));
         while (elapsed + 1 != n.raw_node_.raft_.election_elapsed_) {
-          SPDLOG_INFO("current elapsed:{}, election_elapsed_:{}", elapsed, n.raw_node_.raft_.election_elapsed_);
+          LOG_INFO("current elapsed:{}, election_elapsed_:{}", elapsed, n.raw_node_.raft_.election_elapsed_);
           co_await timer.async_wait(asio::use_awaitable);
           timer.expires_after(std::chrono::milliseconds(100));
         }
@@ -885,9 +885,9 @@ TEST_F(node_test_suit, test_node_simple_stop) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to listen stop node.......");
+        LOG_INFO("ready to listen stop node.......");
         co_await n.listen_stop();
-        SPDLOG_INFO("node has stopped.......");
+        LOG_INFO("node has stopped.......");
         co_return;
       },
       asio::detached);
@@ -895,9 +895,9 @@ TEST_F(node_test_suit, test_node_simple_stop) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to stop node.......");
+        LOG_INFO("ready to stop node.......");
         co_await n.stop();
-        SPDLOG_INFO("stop node successfully.......");
+        LOG_INFO("stop node successfully.......");
         co_return;
       },
       asio::use_future);
@@ -924,10 +924,10 @@ TEST_F(node_test_suit, test_node_stop) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to node run.......");
+        LOG_INFO("ready to node run.......");
         co_await n.run();
         co_await done_chann.async_send(asio::error_code{});
-        SPDLOG_INFO("node run finshed.......");
+        LOG_INFO("node run finshed.......");
         co_return;
       },
       asio::detached);
@@ -938,9 +938,9 @@ TEST_F(node_test_suit, test_node_stop) {
         auto running_status_result = co_await n.status();
         EXPECT_TRUE(running_status_result);
         auto& running_status = *running_status_result;
-        SPDLOG_INFO("ready to stop node.......");
+        LOG_INFO("ready to stop node.......");
         co_await n.stop();
-        SPDLOG_INFO("stop node successfully.......");
+        LOG_INFO("stop node successfully.......");
 
         asio::steady_timer timeout_timer(io_context.get_executor(), std::chrono::seconds(1));
         auto [order, msg_ec, timer_ec] = co_await asio::experimental::make_parallel_group(
@@ -1052,49 +1052,49 @@ TEST_F(node_test_suit, test_node_start) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value(), rd.entries.size());
+          LOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
+          LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(compare_ready(wants[0], rd));
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value());
+          LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value());
           co_await n->advance();
-          // SPDLOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
+          // LOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
           //             r.raft_log_handle().committed(), r.term());
           // EXPECT_EQ(lepton::core::state_type::FOLLOWER, r.state_type_);
           // EXPECT_EQ(1, r.raft_log_handle().committed());
           // EXPECT_EQ(1, r.term());
         }
 
-        SPDLOG_INFO("finish step 1.............");
+        LOG_INFO("finish step 1.............");
 
         {
           auto result = co_await n->campaign();
           EXPECT_TRUE(result);
-          SPDLOG_INFO("node send campaign msg successful");
+          LOG_INFO("node send campaign msg successful");
           // EXPECT_EQ(lepton::core::state_type::CANDIDATE, r.state_type_);
           // EXPECT_EQ(1, r.raft_log_handle().committed());
           // EXPECT_EQ(2, r.term());
-          // SPDLOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
+          // LOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
           //             r.raft_log_handle().committed(), r.term());
         }
 
         // Persist vote.
         {  // sfot state change: follower -> candidate
-          SPDLOG_INFO("try to async_receive from ready handle");
+          LOG_INFO("try to async_receive from ready handle");
           auto rd_handle_result = co_await n->wait_ready(io_context.get_executor());
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value(), rd.entries.size());
+          LOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
+          LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value());
+          LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value());
           co_await n->advance();
-          // SPDLOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
+          // LOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
           //             r.raft_log_handle().committed(), r.term());
           // EXPECT_EQ(lepton::core::state_type::CANDIDATE, r.state_type_);
           // EXPECT_EQ(1, r.raft_log_handle().committed());
@@ -1102,64 +1102,64 @@ TEST_F(node_test_suit, test_node_start) {
         }
         {  // sfot state change: candidate -> leader
           // Append empty entry.
-          SPDLOG_INFO("try to async_receive from ready handle again");
+          LOG_INFO("try to async_receive from ready handle again");
           auto rd_handle_result = co_await n->wait_ready(io_context.get_executor());
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value(), rd.entries.size());
+          LOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
+          LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value());
+          LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value());
           co_await n->advance();
-          // SPDLOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
+          // LOG_INFO("[raft status]state:{}, committed: {}, term:{}", magic_enum::enum_name(r.state_type_),
           //             r.raft_log_handle().committed(), r.term());
           // EXPECT_EQ(lepton::core::state_type::LEADER, r.state_type_);
           // EXPECT_EQ(1, r.raft_log_handle().committed());
           // EXPECT_EQ(2, r.term());
         }
 
-        SPDLOG_INFO("finish step 2.............");
+        LOG_INFO("finish step 2.............");
 
         co_await n->propose("foo");
 
         {
-          SPDLOG_INFO("try to async_receive from ready handle");
+          LOG_INFO("try to async_receive from ready handle");
           auto rd_handle_result = co_await n->wait_ready(io_context.get_executor());
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value(), rd.entries.size());
+          LOG_INFO("receive raft raedy and ready to apply, {}", describe_ready(rd, nullptr));
+          LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(compare_ready(wants[1], rd)) << describe_ready(wants[1], nullptr) << "\n"
                                                    << describe_ready(rd, nullptr);
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value());
+          LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value());
           co_await n->advance();
         }
 
-        SPDLOG_INFO("finish step 3.............");
+        LOG_INFO("finish step 3.............");
 
         {
           auto rd_handle_result = co_await n->wait_ready(io_context.get_executor());
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("receive raft raedy and ready to apply, content {}", describe_ready(rd, nullptr));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value(), rd.entries.size());
+          LOG_INFO("receive raft raedy and ready to apply, content {}", describe_ready(rd, nullptr));
+          LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(compare_ready(wants[2], rd));
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value());
+          LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value());
           co_await n->advance();
         }
 
-        SPDLOG_INFO("finish step 4.............");
+        LOG_INFO("finish step 4.............");
 
         co_await expect_wait_timeout_async_receive_ready(io_context.get_executor(), n);
         co_await n->stop();
@@ -1293,11 +1293,11 @@ TEST_F(node_test_suit, test_node_advance) {
           // Persist vote.
           auto rd_result = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
           auto& rd = *rd_result;
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value(), rd.entries.size());
+          LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value());
+          LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value());
           co_await node_handle->advance();
         }
 
@@ -1305,25 +1305,25 @@ TEST_F(node_test_suit, test_node_advance) {
           // Append empty entry.
           auto rd_result = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
           auto& rd = *rd_result;
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value(), rd.entries.size());
+          LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value());
+          LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value());
           co_await node_handle->advance();
         }
 
         {
-          SPDLOG_INFO("try to propose foo");
+          LOG_INFO("try to propose foo");
           co_await node_handle->propose("foo");
-          SPDLOG_INFO("propose foo successful and wait for ready");
+          LOG_INFO("propose foo successful and wait for ready");
           auto rd_result = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
           auto& rd = *rd_result;
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value(), rd.entries.size());
+          LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value(), rd.entries.size());
           EXPECT_TRUE(mm_storage.append(std::move(rd.entries)));
-          SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                      mm_storage.last_index().value());
+          LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                   mm_storage.last_index().value());
           co_await node_handle->advance();
         }
 
@@ -1408,12 +1408,12 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
                                     node_handle->wait_ready(io_context.get_executor()));
             switch (result.index()) {
               case 0: {
-                SPDLOG_INFO("receive cancel siganl and ready to stop running loop");
+                LOG_INFO("receive cancel siganl and ready to stop running loop");
                 running_loop = false;
                 break;
               }
               case 1: {
-                SPDLOG_INFO("node is ticking");
+                LOG_INFO("node is ticking");
                 node_handle->tick();
                 timer.expires_after(std::chrono::milliseconds(100));
                 break;
@@ -1421,7 +1421,7 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
               case 2: {
                 auto msg_result = std::get<2>(result);
                 auto& rd = *msg_result.value();
-                SPDLOG_INFO("receive new ready:\n{}", lepton::core::describe_ready(rd, nullptr));
+                LOG_INFO("receive new ready:\n{}", lepton::core::describe_ready(rd, nullptr));
 
                 EXPECT_TRUE(mm_storage.append(lepton::core::pb::repeated_entry{rd.entries}));
 
@@ -1446,7 +1446,7 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
           }
           co_await goroutine_stopped_chan.async_send(asio::error_code{});
         };
-        SPDLOG_INFO("[main logic]ready to start sub loop");
+        LOG_INFO("[main logic]ready to start sub loop");
         asio::co_spawn(
             io_context,
             [&]() -> asio::awaitable<void> {
@@ -1454,22 +1454,22 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
               co_return;
             },
             asio::detached);
-        SPDLOG_INFO("[main logic]start sub loop successful");
+        LOG_INFO("[main logic]start sub loop successful");
 
         raftpb::conf_change cc1;
         cc1.set_type(::raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE);
         cc1.set_node_id(2);
-        SPDLOG_INFO("[main logic]first times ready to propose conf change");
+        LOG_INFO("[main logic]first times ready to propose conf change");
         co_await node_handle->propose_conf_change(cc1);
-        SPDLOG_INFO("[main logic]first times propose conf change success");
+        LOG_INFO("[main logic]first times propose conf change success");
         co_await apply_conf_chan.async_receive();
-        SPDLOG_INFO("[main logic]first times apply conf change success");
+        LOG_INFO("[main logic]first times apply conf change success");
 
         co_await cancel_chan.async_send(asio::error_code{});
-        SPDLOG_INFO("[main logic]cancel_chan send cancel signal success...");
+        LOG_INFO("[main logic]cancel_chan send cancel signal success...");
         co_await goroutine_stopped_chan.async_receive();
         co_await node_handle->stop();
-        SPDLOG_INFO("[main logic]sub loop has finished");
+        LOG_INFO("[main logic]sub loop has finished");
         co_return;
       },
       asio::detached);
@@ -1542,11 +1542,11 @@ TEST_F(node_test_suit, test_commit_pagination) {
 
         // Persist vote.
         auto rd = co_await ready_with_timeout(io_context.get_executor(), *node_handle);
-        SPDLOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
-                    mm_storage.last_index().value(), (*rd.get()).entries.size());
+        LOG_INFO("mm_storage first index:{}, last index:{}, entry size:{}", mm_storage.first_index().value(),
+                 mm_storage.last_index().value(), (*rd.get()).entries.size());
         EXPECT_TRUE(mm_storage.append(std::move((*rd.get()).entries)));
-        SPDLOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
-                    mm_storage.last_index().value());
+        LOG_INFO("mm_storage first index:{}, last index:{}", mm_storage.first_index().value(),
+                 mm_storage.last_index().value());
         co_await node_handle->advance();
 
         // Append empty entry.
@@ -1618,21 +1618,21 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
+          LOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
           EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
             auto resp_msg = lepton::core::describe_message(resp, nullptr);
-            SPDLOG_INFO("[step 1] ready step message:\n{}", resp_msg);
+            LOG_INFO("[step 1] ready step message:\n{}", resp_msg);
             auto step_result = co_await node_handle->step(std::move(resp));
-            SPDLOG_INFO("[step 1] step message successfult:\n{}", resp_msg);
+            LOG_INFO("[step 1] step message successfult:\n{}", resp_msg);
             EXPECT_TRUE(step_result);
           }
         }
 
-        SPDLOG_INFO("[step 1] finish step......");
+        LOG_INFO("[step 1] finish step......");
 
         {
           // Append empty entry.
@@ -1640,21 +1640,21 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
+          LOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
           EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
             auto resp_msg = lepton::core::describe_message(resp, nullptr);
-            SPDLOG_INFO("[step 2] ready step message:\n{}", resp_msg);
+            LOG_INFO("[step 2] ready step message:\n{}", resp_msg);
             auto step_result = co_await node_handle->step(std::move(resp));
-            SPDLOG_INFO("[step 2] step message successfult:\n{}", resp_msg);
+            LOG_INFO("[step 2] step message successfult:\n{}", resp_msg);
             EXPECT_TRUE(step_result);
           }
         }
 
-        SPDLOG_INFO("[step 2] finish step......");
+        LOG_INFO("[step 2] finish step......");
 
         {
           // Apply empty entry.
@@ -1662,9 +1662,9 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           EXPECT_TRUE(rd_handle_result);
           auto rd_handle = rd_handle_result.value();
           auto& rd = *rd_handle.get();
-          SPDLOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
+          LOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
           for (auto& m : rd.messages) {
-            SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::core::describe_message(m, nullptr));
+            LOG_INFO("[Apply empty entry] message content:\n{}", lepton::core::describe_message(m, nullptr));
           }
           EXPECT_EQ(2, rd.messages.size());
           for (auto& m : rd.messages) {
@@ -1685,7 +1685,7 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           }
         }
 
-        SPDLOG_INFO("[step 3] finish step......");
+        LOG_INFO("[step 3] finish step......");
 
         // Propose first entry.
         std::string blob(1024, 'a');

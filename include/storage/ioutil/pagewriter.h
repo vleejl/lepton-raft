@@ -24,7 +24,7 @@ class page_writer {
   page_writer(page_writer&&) = default;
   // PageBytes is the number of bytes
   // to write per page. pageOffset is the starting offset of io.Writer.
-  page_writer(pro::proxy_view<writer> w, size_t page_offset, size_t page_bytes)
+  page_writer(pro::proxy_view<writer> w, size_t page_bytes, size_t page_offset)
       : w_(w),
         page_offset_(page_offset),
         page_bytes_(page_bytes),

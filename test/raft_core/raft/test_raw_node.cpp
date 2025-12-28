@@ -134,7 +134,7 @@ TEST_F(raw_node_test_suit, test_raw_node_step) {
         [&](const lepton_error& e) -> leaf::result<void> {
           has_called_error = true;
           err_code = e.err_code;
-          SPDLOG_ERROR("RawNode step error: {}", e.message);
+          LOG_ERROR("RawNode step error: {}", e.message);
           return new_error(e);
         });
     if (lepton::core::pb::is_local_msg(msg_type)) {
@@ -325,7 +325,7 @@ TEST_F(raw_node_test_suit, test_raw_node_propose_and_conf_change) {
         return;
       }
       context = "manual";
-      SPDLOG_INFO("leaving joint state manually");
+      LOG_INFO("leaving joint state manually");
       raftpb::conf_change_v2 cc_v2;
       cc_v2.set_context(context);
       ASSERT_TRUE(raw_node.propose_conf_change(std::move(cc_v2)));
@@ -422,22 +422,22 @@ TEST_F(raw_node_test_suit, test_raw_node_joint_auto_leave) {
   // Make it leader again. It should leave joint automatically after moving apply index.
   raw_node.campaign();
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
+  LOG_INFO(lepton::core::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
+  LOG_INFO(lepton::core::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
+  LOG_INFO(lepton::core::describe_ready(rd, nullptr));
   mm_storage.append(std::move(rd.entries));
   raw_node.advance();
 
   rd = raw_node.ready();
-  SPDLOG_INFO(lepton::core::describe_ready(rd, nullptr));
+  LOG_INFO(lepton::core::describe_ready(rd, nullptr));
   // Check that the right ConfChange comes out.
   ASSERT_EQ(1, rd.entries.size());
   ASSERT_EQ(raftpb::ENTRY_CONF_CHANGE_V2, rd.entries[0].type());
@@ -1002,7 +1002,7 @@ TEST_F(raw_node_test_suit, test_commit_pagination_with_async_storage_writes) {
     EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
     EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
     for (auto& resp : *m.mutable_responses()) {
-      SPDLOG_INFO("ready step message:\n{}", lepton::core::describe_message(resp, nullptr));
+      LOG_INFO("ready step message:\n{}", lepton::core::describe_message(resp, nullptr));
       auto step_result = raw_node.step(std::move(resp));
       EXPECT_TRUE(step_result);
     }
@@ -1028,9 +1028,9 @@ TEST_F(raw_node_test_suit, test_commit_pagination_with_async_storage_writes) {
     ASSERT_TRUE(raw_node.has_ready());
     auto rd = raw_node.ready_without_accept();
     raw_node.accept_ready(rd);
-    SPDLOG_INFO("[Apply empty entry] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
+    LOG_INFO("[Apply empty entry] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
     for (auto& m : rd.messages) {
-      SPDLOG_INFO("[Apply empty entry] message content:\n{}", lepton::core::describe_message(m, nullptr));
+      LOG_INFO("[Apply empty entry] message content:\n{}", lepton::core::describe_message(m, nullptr));
     }
     EXPECT_EQ(2, rd.messages.size());
     for (auto& m : rd.messages) {

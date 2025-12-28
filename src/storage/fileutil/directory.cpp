@@ -4,6 +4,7 @@
 
 #include <filesystem>
 
+#include "basic/spdlog_logger.h"
 #include "error/lepton_error.h"
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/read_dir.h"
@@ -61,6 +62,7 @@ leaf::result<void> is_dir_writeable(rocksdb::Env* env, const std::string& dir_na
 leaf::result<void> ensure_directory_writable(rocksdb::Env* env, const std::string& dir_name) {
   auto s = env->CreateDirIfMissing(dir_name);
   if (!s.ok()) {
+    LOG_ERROR("Failed to create directory {}: {}", dir_name, s.ToString());
     return new_error(s, fmt::format("Failed to create directory:{}, error:{}", dir_name, s.ToString()));
   }
   return is_dir_writeable(env, dir_name);

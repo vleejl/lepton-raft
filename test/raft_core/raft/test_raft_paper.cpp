@@ -452,7 +452,7 @@ static void test_nonleaders_election_timeout_nonconflict(lepton::core::state_typ
       conflicts++;
     }
   }
-  SPDLOG_INFO("conflicts: {}", static_cast<double>(conflicts) / 1000);
+  LOG_INFO("conflicts: {}", static_cast<double>(conflicts) / 1000);
   ASSERT_LE(static_cast<double>(conflicts) / 1000, 0.3);
 }
 

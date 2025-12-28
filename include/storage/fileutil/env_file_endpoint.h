@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #ifndef _LEPTON_ENV_FILE_ENDPOINT_H_
 #define _LEPTON_ENV_FILE_ENDPOINT_H_
 
@@ -24,6 +25,9 @@ class env_file_endpoint {
 
  public:
   env_file_endpoint() = default;
+
+  env_file_endpoint(const std::string& filename, asio::stream_file&& file)
+      : file_name_(filename), file_(std::move(file)), env_(nullptr), lock_(nullptr) {}
 
   env_file_endpoint(const std::string& filename, asio::stream_file&& file, rocksdb::Env* env, rocksdb::FileLock* lock)
       : file_name_(filename), file_(std::move(file)), env_(env), lock_(lock) {}
@@ -81,7 +85,7 @@ class env_file_endpoint {
   rocksdb::FileLock* lock_ = nullptr;
 };
 
-using env_file_handle = env_file_endpoint*;
+using env_file_handle = std::unique_ptr<env_file_endpoint>;
 
 }  // namespace lepton::storage::fileutil
 

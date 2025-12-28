@@ -4701,7 +4701,7 @@ TEST_F(raft_test_suit, test_node_with_smaller_term_can_complete_election) {
     check_raft_node_after_send_msg(tests);
   }
 
-  SPDLOG_INFO("going to bring back peer 3 and kill peer 2");
+  LOG_INFO("going to bring back peer 3 and kill peer 2");
   // recover the network then immediately isolate b which is currently
   // the leader, this is to emulate the crash of b.
   nt.recover();

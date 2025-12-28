@@ -51,7 +51,7 @@ lepton::leaf::result<void> interaction_env::process_ready(std::size_t node_idx) 
     LEPTON_LEAF_CHECK(process_apply(n, rd.committed_entries));
   }
   for (auto &msg : rd.messages) {
-    SPDLOG_TRACE("process_ready msg {}", msg.DebugString());
+    LOG_TRACE("process_ready msg {}", msg.DebugString());
     if (lepton::core::pb::is_local_msg_target(msg.to())) {
       if (!n.config.async_storage_writes) {
         LEPTON_CRITICAL("unexpected local msg target");

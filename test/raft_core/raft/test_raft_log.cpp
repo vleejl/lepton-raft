@@ -1209,7 +1209,7 @@ TEST_F(raft_log_test_suit, scan) {
       [&]() -> leaf::result<void> {
         LEPTON_LEAF_CHECK(raft_log->scan(offset + 1, offset + 11, entry_size * 2,
                                          [&](const lepton::core::pb::entry_view &entries) -> leaf::result<void> {
-                                           SPDLOG_INFO("entries size: {}", entries.size());
+                                           LOG_INFO("entries size: {}", entries.size());
                                            if (entries.size() != 2) {
                                              assert(entries.size() == 2);
                                            }

@@ -127,14 +127,14 @@ asio::awaitable<expected<void>> encoder::write_record_frame(const walpb::record&
   write_buf.clear();
   auto is_success = r.SerializeToArray(static_cast<void*>(write_buf.data()), static_cast<int>(write_buf.size()));
   if (!is_success) {
-    LOG_ERROR(logger_, "Failed to serialize record to array, size: {}", bytes_size_long);
+    LOGGER_ERROR(logger_, "Failed to serialize record to array, size: {}", bytes_size_long);
     co_return unexpected(protobuf_error::SERIALIZE_TO_ARRAY_FAILED);
   }
   // 对于 write_buf 默认已经清零的情况，padding 部分自然是 0。
   auto data = std::span<const std::byte>(write_buf.data(), static_cast<std::size_t>(bytes_size_long + pad_bytes));
   auto result = co_await write(page_writer_.writer_view(), data, len_field);
   if (!result) {
-    LOG_ERROR(logger_, "Failed to write data, error: {}", result.error().message());
+    LOGGER_ERROR(logger_, "Failed to write data, error: {}", result.error().message());
     co_return tl::unexpected(result.error());
   }
   co_return ok();

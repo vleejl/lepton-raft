@@ -17,7 +17,7 @@ namespace lepton::storage::wal {
 asio::awaitable<void> file_pipeline::close() {
   if (stop_source_.stop_requested()) {
     // has already been stopped - no need to do anything
-    LOG_INFO(logger_, "file_pipeline already been stopped, just return");
+    LOGGER_INFO(logger_, "file_pipeline already been stopped, just return");
     co_return;
   }
   // Not already stopped, so trigger it
@@ -33,11 +33,11 @@ asio::awaitable<void> file_pipeline::close() {
   if (started_.load(std::memory_order_relaxed)) {
     co_await wait_run_exit_chan_.async_receive();
   }
-  LOG_INFO(logger_, "file_pipeline stopped successfully");
+  LOGGER_INFO(logger_, "file_pipeline stopped successfully");
   co_return;
 }
 
-asio::awaitable<expected<fileutil::env_file_endpoint>> file_pipeline::open() {
+asio::awaitable<expected<fileutil::env_file_handle>> file_pipeline::open() {
   if (!is_running()) {
     co_return unexpected(coro_error::COROUTINE_EXIST);
   }
@@ -49,11 +49,11 @@ asio::awaitable<expected<fileutil::env_file_endpoint>> file_pipeline::open() {
   co_return std::move(*wal_file_handle_result);
 }
 
-leaf::result<fileutil::env_file_endpoint> file_pipeline::alloc() {
+leaf::result<fileutil::env_file_handle> file_pipeline::alloc() {
   // count % 2 so this file isn't the same as the one last published
   auto wal_file_path = wal_file_dir_ / fmt::format("{}.tmp", count_ % 2);
   BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor_, env_, wal_file_path.string(), false));
-  LEPTON_LEAF_CHECK(wal_file_handle.pre_allocate(file_size_, true));
+  LEPTON_LEAF_CHECK(wal_file_handle->pre_allocate(file_size_, true));
   count_++;
   return wal_file_handle;
 }
@@ -64,7 +64,7 @@ asio::awaitable<void> file_pipeline::listen_stop() {
   file_chan_.close();
   assert(done_chan_.is_open());
   co_await done_chan_.async_send(asio::error_code{});
-  SPDLOG_INFO("file pipeline all chaneels has closed, and has send stop_chan response");
+  LOG_INFO("file pipeline all chaneels has closed, and has send stop_chan response");
   co_return;
 }
 
@@ -74,22 +74,22 @@ asio::awaitable<void> file_pipeline::run() {
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_stop(); });
 
   while (is_running()) {
-    LOG_TRACE(logger_, "waiting to alloc new file handle");
-    auto wal_file_handle_result = leaf_to_expected([&]() -> leaf::result<fileutil::env_file_endpoint> {
+    LOGGER_TRACE(logger_, "waiting to alloc new file handle");
+    auto wal_file_handle_result = leaf_to_expected([&]() -> leaf::result<fileutil::env_file_handle> {
       BOOST_LEAF_AUTO(wal_file_handle, alloc());
       return wal_file_handle;
     });
     if (!wal_file_handle_result.has_value()) {
-      LOG_ERROR(logger_, "Failed to allocate wal file, error: {}", wal_file_handle_result.error().message());
+      LOGGER_ERROR(logger_, "Failed to allocate wal file, error: {}", wal_file_handle_result.error().message());
       co_await file_chan_.async_send(tl::unexpected{wal_file_handle_result.error()});
       break;
     }
-    LOG_TRACE(logger_, "alloc new file handle suuccess: {}, and ready to send new file handle",
-             wal_file_handle_result.value().name());
+    LOGGER_TRACE(logger_, "alloc new file handle suuccess: {}, and ready to send new file handle",
+                 wal_file_handle_result.value()->name());
     // 通过 file_chan_ 发布 wal 文件句柄，如果没有订阅者则会阻塞在这里；这样不会影响其他协程的运行
     auto ec = co_await file_chan_.async_send(std::move(wal_file_handle_result));
     if (!ec.has_value()) {
-      LOG_ERROR(logger_, "Failed to send wal file handle, error: {}", ec.error().message());
+      LOGGER_ERROR(logger_, "Failed to send wal file handle, error: {}", ec.error().message());
       break;
     }
   }

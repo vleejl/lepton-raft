@@ -214,7 +214,7 @@ std::vector<raftpb::message> network::filter(const lepton::core::pb::repeated_me
         continue;
       }
     }
-    // SPDLOG_INFO(msg.DebugString());
+    // LOG_INFO(msg.DebugString());
     mm.push_back(raftpb::message{msg});
   }
   return mm;

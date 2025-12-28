@@ -27,7 +27,7 @@ std::tuple<lepton::core::pb::repeated_message, lepton::core::pb::repeated_messag
   for (const auto &m : msgs) {
     if ((m.to() == to) && !(drop && is_local_msg(m)) &&
         (raftpb_message_type < 0 || static_cast<int>(m.type()) == raftpb_message_type)) {
-      // SPDLOG_INFO("split_msgs {}", m.DebugString());
+      // LOG_INFO("split_msgs {}", m.DebugString());
       to_msgs.Add()->CopyFrom(m);
     } else {
       rmdr.Add()->CopyFrom(m);

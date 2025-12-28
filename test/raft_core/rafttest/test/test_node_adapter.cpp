@@ -75,7 +75,7 @@ static asio::awaitable<int> wait_leader(std::vector<std::unique_ptr<rafttest::no
     if (loop_times > 9451) {
       assert(false);
     }
-    // SPDLOG_INFO("loop_times:{}, waiting for leader to be elected", loop_times);
+    // LOG_INFO("loop_times:{}, waiting for leader to be elected", loop_times);
     std::set<std::uint64_t> l;
     for (std::size_t i = 0; i < nodes.size(); ++i) {
       auto status = co_await nodes[i]->status();
@@ -83,7 +83,7 @@ static asio::awaitable<int> wait_leader(std::vector<std::unique_ptr<rafttest::no
       if (lead != 0) {
         l.insert(lead);
         if (nodes[i]->id_ == lead) {
-          // SPDLOG_INFO("leader elected: {}, loop_times: {}", nodes[i]->id_, loop_times);
+          // LOG_INFO("leader elected: {}, loop_times: {}", nodes[i]->id_, loop_times);
           index = static_cast<int>(i);
         }
       }
@@ -100,7 +100,7 @@ static asio::awaitable<void> print_node_status(std::string hint, std::unique_ptr
   EXPECT_TRUE(status);
   auto term = status->basic_status.hard_state.term();
   auto commit = status->basic_status.hard_state.commit();
-  SPDLOG_INFO("[{}]node {}, term {}, commit index {}", hint, node->id_, term, commit);
+  LOG_INFO("[{}]node {}, term {}, commit index {}", hint, node->id_, term, commit);
   co_return;
 }
 
@@ -163,7 +163,7 @@ TEST_F(node_adapter_test_suit, test_network_delay) {
 
         for (auto &node : nodes) {
           co_await node->stop();
-          SPDLOG_INFO("node {} stopped", node->id_);
+          LOG_INFO("node {} stopped", node->id_);
         }
         co_return;
       },
@@ -209,7 +209,7 @@ TEST_F(node_adapter_test_suit, test_restart_simplify) {
 
         for (auto &node : nodes) {
           co_await node->stop();
-          SPDLOG_INFO("node {} stopped", node->id_);
+          LOG_INFO("node {} stopped", node->id_);
         }
         co_return;
       },
@@ -264,10 +264,10 @@ TEST_F(node_adapter_test_suit, test_restart) {
 
         auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 120);
         EXPECT_TRUE(result);
-        SPDLOG_INFO("[final status]node:{}, node:{} restarted", nodes[k1]->id_, nodes[k2]->id_);
+        LOG_INFO("[final status]node:{}, node:{} restarted", nodes[k1]->id_, nodes[k2]->id_);
         for (auto &node : nodes) {
           co_await node->stop();
-          SPDLOG_INFO("node {} stopped", node->id_);
+          LOG_INFO("node {} stopped", node->id_);
         }
         co_return;
       },
@@ -328,7 +328,7 @@ TEST_F(node_adapter_test_suit, test_simple_pause) {
 
         for (auto &node : nodes) {
           co_await node->stop();
-          SPDLOG_INFO("node {} stopped", node->id_);
+          LOG_INFO("node {} stopped", node->id_);
         }
         co_return;
       },
@@ -390,11 +390,11 @@ TEST_F(node_adapter_test_suit, test_pause) {
         auto result = co_await wait_commit_converge(io_context.get_executor(), nodes, 120);
         EXPECT_TRUE(result);
 
-        SPDLOG_INFO("[final status]leader:{}, node:{}, node:{} pause and resume", nodes[l]->id_, nodes[k1]->id_,
-                    nodes[k2]->id_);
+        LOG_INFO("[final status]leader:{}, node:{}, node:{} pause and resume", nodes[l]->id_, nodes[k1]->id_,
+                 nodes[k2]->id_);
         for (auto &node : nodes) {
           co_await node->stop();
-          SPDLOG_INFO("node {} stopped", node->id_);
+          LOG_INFO("node {} stopped", node->id_);
         }
         co_return;
       },

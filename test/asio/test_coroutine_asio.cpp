@@ -95,9 +95,9 @@ TEST(asio_coroutine_test_suit, asio_io_context) {
   bool has_finish_async = false;
   auto mock_run = [&]() -> asio::awaitable<lepton::expected<void>> {
     asio::error_code ec;
-    SPDLOG_INFO("ready send async send result info");
+    LOG_INFO("ready send async send result info");
     co_await proc_chan.async_send(asio::error_code{}, 10, asio::redirect_error(asio::use_awaitable, ec));
-    SPDLOG_INFO("finish async send result info {}", ec.value());
+    LOG_INFO("finish async send result info {}", ec.value());
     has_finish_async = true;
     CO_CHECK_EXPECTED(ec);
     co_return lepton::ok();
@@ -113,19 +113,19 @@ TEST(asio_coroutine_test_suit, asio_io_context) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("event loop has started");
+        LOG_INFO("event loop has started");
         co_return;
       },
       asio::detached);
 
   // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
   asio::post(io, [&]() {
-    SPDLOG_INFO("posting io.stop()");
+    LOG_INFO("posting io.stop()");
     io.stop();
   });
 
   // 运行事件循环，协程会在这里执行
-  SPDLOG_INFO("ready to start io_context");
+  LOG_INFO("ready to start io_context");
   io.run();
   ASSERT_FALSE(has_finish_async);
 }
@@ -137,9 +137,9 @@ TEST(asio_coroutine_test_suit, asio_io_context1) {
   // 用于模拟异步逻辑
   auto mock_run = [&proc_chan]() -> awaitable<lepton::expected<void>> {
     asio::error_code ec;
-    SPDLOG_INFO("ready send async send result info");
+    LOG_INFO("ready send async send result info");
     co_await proc_chan.async_send(asio::error_code{}, 10, redirect_error(use_awaitable, ec));
-    SPDLOG_INFO("finish async send result info {}", ec.value());
+    LOG_INFO("finish async send result info {}", ec.value());
     co_return ec ? tl::unexpected(ec) : lepton::ok();
   };
 
@@ -157,7 +157,7 @@ TEST(asio_coroutine_test_suit, asio_io_context1) {
       io,
       [&]() -> awaitable<void> {
         int val = co_await proc_chan.async_receive(use_awaitable);
-        SPDLOG_INFO("recv {}", val);
+        LOG_INFO("recv {}", val);
         // 等所有操作完成后手动停止事件循环
         io.stop();
         co_return;
@@ -168,12 +168,12 @@ TEST(asio_coroutine_test_suit, asio_io_context1) {
   co_spawn(
       io,
       [&]() -> awaitable<void> {
-        SPDLOG_INFO("event loop has started");
+        LOG_INFO("event loop has started");
         co_return;
       },
       detached);
 
-  SPDLOG_INFO("ready to start io_context");
+  LOG_INFO("ready to start io_context");
   io.run();  // run 到 stop 被调用才会返回
 }
 
@@ -187,24 +187,24 @@ TEST(asio_coroutine_test_suit, asio_io_context2) {
   co_spawn(
       io,
       [&]() -> awaitable<void> {
-        SPDLOG_INFO("Starting async_send");
+        LOG_INFO("Starting async_send");
         // 用 redirect_error 捕获错误码
         auto result = chan.try_send(asio::error_code{}, 42);
-        SPDLOG_INFO("finished try send async_send finished, result = {}", result);
+        LOG_INFO("finished try send async_send finished, result = {}", result);
         co_return;
       },
       detached);
 
   // 立即停止io_context，触发取消
   asio::post(io, [&]() {
-    SPDLOG_INFO("Calling io.stop()");
+    LOG_INFO("Calling io.stop()");
     io.stop();
   });
 
-  SPDLOG_INFO("Starting io.run()");
+  LOG_INFO("Starting io.run()");
   io.run();
 
-  SPDLOG_INFO("io.run() returned");
+  LOG_INFO("io.run() returned");
 }
 
 // 等效操作函数
@@ -263,14 +263,14 @@ TEST(asio_coroutine_test_suit, async_select_done_chan) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("event loop has started");
+        LOG_INFO("event loop has started");
         co_return;
       },
       asio::detached);
 
   // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
   asio::post(io, [&]() {
-    SPDLOG_INFO("posting done");
+    LOG_INFO("posting done");
     done_chan.try_send(asio::error_code{});  // 触发取消
   });
 
@@ -309,14 +309,14 @@ TEST(asio_coroutine_test_suit, async_select_done) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("event loop has started");
+        LOG_INFO("event loop has started");
         co_return;
       },
       asio::detached);
 
   // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
   asio::post(io, [&]() {
-    SPDLOG_INFO("posting done");
+    LOG_INFO("posting done");
     done_chan.try_send(asio::error_code{});  // 触发取消
   });
 
@@ -354,14 +354,14 @@ TEST(asio_coroutine_test_suit, async_select_any_expected_async_send) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("event loop has started");
+        LOG_INFO("event loop has started");
         co_return;
       },
       asio::detached);
 
   // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
   asio::post(io, [&]() {
-    SPDLOG_INFO("posting done");
+    LOG_INFO("posting done");
     done_chan.try_send(asio::error_code{});  // 触发取消
   });
 
@@ -399,18 +399,18 @@ TEST(asio_coroutine_test_suit, async_select_done_with_raft_message_type) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("event loop has started");
+        LOG_INFO("event loop has started");
         co_return;
       },
       asio::detached);
 
   // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
   asio::post(io, [&]() {
-    SPDLOG_INFO("ready to send msg heartbeat");
+    LOG_INFO("ready to send msg heartbeat");
     raftpb::message msg;
     msg.set_type(raftpb::message_type::MSG_HEARTBEAT);
     recvc.try_send(asio::error_code{}, std::move(msg));
-    SPDLOG_INFO("has ready send msg heartbeat");
+    LOG_INFO("has ready send msg heartbeat");
   });
 
   io.run();
@@ -447,16 +447,16 @@ TEST(asio_coroutine_test_suit, async_select_done_with_expected_error_type) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("event loop has started");
+        LOG_INFO("event loop has started");
         co_return;
       },
       asio::detached);
 
   // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
   asio::post(io, [&]() {
-    SPDLOG_INFO("ready to send mock error info");
+    LOG_INFO("ready to send mock error info");
     recvc.try_send(asio::error_code{}, lepton::storage_error::COMPACTED);
-    SPDLOG_INFO("has ready send mock error info");
+    LOG_INFO("has ready send mock error info");
   });
 
   io.run();
@@ -516,7 +516,7 @@ TEST(asio_coroutine_test_suit, close_channel) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("event loop has started");
+        LOG_INFO("event loop has started");
         co_return;
       },
       asio::detached);
@@ -524,9 +524,9 @@ TEST(asio_coroutine_test_suit, close_channel) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to send mock error info");
+        LOG_INFO("ready to send mock error info");
         done_chan.close();
-        SPDLOG_INFO("has ready send mock error info");
+        LOG_INFO("has ready send mock error info");
         co_return;
       },
       asio::use_future);
@@ -578,10 +578,10 @@ TEST(asio_coroutine_test_suit, cancellation_signal) {
         // 等待1秒后取消操作
         asio::steady_timer timer(io, std::chrono::seconds(1));
         co_await timer.async_wait(asio::use_awaitable);
-        SPDLOG_INFO("wait timeout and ready cancel channel....");
+        LOG_INFO("wait timeout and ready cancel channel....");
         ch1.close();
         ch2.close();
-        SPDLOG_INFO("cancel channel successful");
+        LOG_INFO("cancel channel successful");
         co_return;
       },
       asio::detached);
@@ -603,16 +603,16 @@ TEST(asio_coroutine_test_suit, parallel_send_msg) {
         auto group = asio::experimental::make_parallel_group([&](auto token) { return recvc1.async_receive(token); },
                                                              [&](auto token) { return recvc2.async_receive(token); });
         for (auto times = 0; times < 2; ++times) {
-          SPDLOG_INFO("running test main loop times: {}", times);
+          LOG_INFO("running test main loop times: {}", times);
           auto [order, ec1, result1, ec2, result2] =
               co_await group.async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
 
           switch (order[0]) {
             case 0:
-              SPDLOG_INFO("receive msg from channel 1, {}", result1);
+              LOG_INFO("receive msg from channel 1, {}", result1);
               break;
             case 1:
-              SPDLOG_INFO("receive msg from channel 2, {}", result2);
+              LOG_INFO("receive msg from channel 2, {}", result2);
               break;
           }
         }
@@ -623,9 +623,9 @@ TEST(asio_coroutine_test_suit, parallel_send_msg) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to send msg by channel 1");
+        LOG_INFO("ready to send msg by channel 1");
         co_await recvc1.async_send(asio::error_code{}, "测试 channel 1");
-        SPDLOG_INFO("send msg by channel 1 successful");
+        LOG_INFO("send msg by channel 1 successful");
         co_return;
       },
       asio::detached);
@@ -633,9 +633,9 @@ TEST(asio_coroutine_test_suit, parallel_send_msg) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to send msg by channel 2");
+        LOG_INFO("ready to send msg by channel 2");
         co_await recvc2.async_send(asio::error_code{}, "测试 channel 2");
-        SPDLOG_INFO("send msg by channel 2 successful");
+        LOG_INFO("send msg by channel 2 successful");
         co_return;
       },
       asio::detached);
@@ -646,10 +646,10 @@ TEST(asio_coroutine_test_suit, parallel_send_msg) {
         // 等待1秒后取消操作
         asio::steady_timer timer(io, std::chrono::seconds(1));
         co_await timer.async_wait(asio::use_awaitable);
-        SPDLOG_INFO("wait timeout and ready cancel channel....");
+        LOG_INFO("wait timeout and ready cancel channel....");
         recvc1.close();
         recvc2.close();
-        SPDLOG_INFO("cancel channel successful");
+        LOG_INFO("cancel channel successful");
         co_return;
       },
       asio::detached);
@@ -661,7 +661,7 @@ asio::awaitable<void> parallel_process(lepton::coro::channel<std::string>& recvc
                                        lepton::coro::signal_channel& token_chan) {
   while (recvc.is_open() && token_chan.is_open()) {
     auto msg = co_await recvc.async_receive();
-    SPDLOG_INFO("receive msg from channel, {}", msg);
+    LOG_INFO("receive msg from channel, {}", msg);
     co_await token_chan.async_send(asio::error_code{});
   }
 }
@@ -688,9 +688,9 @@ TEST(asio_coroutine_test_suit, lepton_parallel_send_msg) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to send msg by channel 1");
+        LOG_INFO("ready to send msg by channel 1");
         co_await recvc1.async_send(asio::error_code{}, "测试 channel 1");
-        SPDLOG_INFO("send msg by channel 1 successful");
+        LOG_INFO("send msg by channel 1 successful");
         co_return;
       },
       asio::detached);
@@ -698,9 +698,9 @@ TEST(asio_coroutine_test_suit, lepton_parallel_send_msg) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to send msg by channel 2");
+        LOG_INFO("ready to send msg by channel 2");
         co_await recvc2.async_send(asio::error_code{}, "测试 channel 2");
-        SPDLOG_INFO("send msg by channel 2 successful");
+        LOG_INFO("send msg by channel 2 successful");
         co_return;
       },
       asio::detached);
@@ -711,12 +711,12 @@ TEST(asio_coroutine_test_suit, lepton_parallel_send_msg) {
         // 等待1秒后取消操作
         asio::steady_timer timer(io, std::chrono::seconds(1));
         co_await timer.async_wait(asio::use_awaitable);
-        SPDLOG_INFO("wait timeout and ready cancel channel....");
+        LOG_INFO("wait timeout and ready cancel channel....");
         recvc1.close();
         recvc2.close();
         done_chan.close();
         token_chan.close();
-        SPDLOG_INFO("cancel channel successful");
+        LOG_INFO("cancel channel successful");
         co_return;
       },
       asio::detached);
@@ -740,7 +740,7 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to send msg");
+        LOG_INFO("ready to send msg");
         auto [order, ec1, ec2] = co_await asio::experimental::make_parallel_group(main_op_with_cancel, [&](auto token) {
                                    return token_chan.async_receive(token);
                                  }).async_wait(asio::experimental::wait_for_one(), asio::use_awaitable);
@@ -748,10 +748,10 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal) {
         if (order[0] == 1) {  // done_chan 先完成
           sig.emit(asio::cancellation_type::all);
           // ready_chan_.reset();
-          SPDLOG_ERROR("Failed to send ready, error: {}", ec2.message());
+          LOG_ERROR("Failed to send ready, error: {}", ec2.message());
           co_return;
         }
-        SPDLOG_INFO("async send msg by ready chan successful");
+        LOG_INFO("async send msg by ready chan successful");
         co_return;
       },
       asio::detached);
@@ -759,9 +759,9 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to send token siganl");
+        LOG_INFO("ready to send token siganl");
         co_await token_chan.async_send(asio::error_code{});
-        SPDLOG_INFO("async send token siganl by token_chan successful");
+        LOG_INFO("async send token siganl by token_chan successful");
         co_return;
       },
       asio::detached);
@@ -769,7 +769,7 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal) {
   asio::co_spawn(
       io,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to receive msg");
+        LOG_INFO("ready to receive msg");
         asio::steady_timer timeout_timer(io.get_executor(), std::chrono::seconds(1));
         auto [order, msg_ec, msg_result, timer_ec] =
             co_await asio::experimental::make_parallel_group(
@@ -781,14 +781,14 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal) {
           case 0: {
             // EXPECT_TRUE(msg_ec.)
             if (msg_ec) {
-              SPDLOG_ERROR("receive msg error:{}", msg_ec.message());
+              LOG_ERROR("receive msg error:{}", msg_ec.message());
             } else {
-              SPDLOG_INFO("receive msg successful, content {}", msg_result);
+              LOG_INFO("receive msg successful, content {}", msg_result);
             }
             break;
           }
           case 1: {
-            SPDLOG_INFO("timed out waiting for ready");
+            LOG_INFO("timed out waiting for ready");
             break;
           }
         }
@@ -824,7 +824,7 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal1) {
   asio::co_spawn(
       io,
       [&]() -> awaitable<void> {
-        SPDLOG_INFO("ready to send msg");
+        LOG_INFO("ready to send msg");
 
         // ④ 两个 awaitable 都用 as_tuple(use_awaitable)
         // auto send_op = ready_chan_.async_send(asio::error_code{}, "msg", as_tuple(use_awaitable));
@@ -838,15 +838,15 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal1) {
         if (result.index() == 0) {  // send 赢了
           auto [ec] = std::get<0>(result);
           if (ec) {
-            SPDLOG_ERROR("send failed: {}", ec.message());
+            LOG_ERROR("send failed: {}", ec.message());
           } else {
-            SPDLOG_INFO("async send msg by ready chan successful");
+            LOG_INFO("async send msg by ready chan successful");
           }
         } else {  // done 赢了 -> send 被自动终止取消
           auto [ec] = std::get<1>(result);
           (void)ec;
           co_await cancel_ready_chan.async_send(asio::error_code{});
-          SPDLOG_ERROR("Failed to send ready, stopped by done");
+          LOG_ERROR("Failed to send ready, stopped by done");
         }
         co_return;
       },
@@ -855,10 +855,10 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal1) {
   asio::co_spawn(
       io,
       [&]() -> awaitable<void> {
-        SPDLOG_INFO("ready to send token siganl");
+        LOG_INFO("ready to send token siganl");
         token_chan.close();
         co_await token_chan.async_send(asio::error_code{});
-        SPDLOG_INFO("async send token siganl by token_chan successful");
+        LOG_INFO("async send token siganl by token_chan successful");
         co_return;
       },
       asio::detached);
@@ -866,7 +866,7 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal1) {
   asio::co_spawn(
       io,
       [&]() -> awaitable<void> {
-        SPDLOG_INFO("ready to receive msg");
+        LOG_INFO("ready to receive msg");
         asio::steady_timer timeout_timer(io.get_executor(), std::chrono::seconds(1));
 
         // auto recv_op = ready_chan_.async_receive(as_tuple(use_awaitable));
@@ -878,18 +878,18 @@ TEST(asio_coroutine_test_suit, async_send_msg_with_done_signal1) {
         if (r.index() == 0) {
           auto [timer_ec] = std::get<2>(r);
           (void)timer_ec;
-          SPDLOG_INFO("cancel ready chan");
+          LOG_INFO("cancel ready chan");
         } else if (r.index() == 1) {
           auto [msg_ec, msg] = std::get<1>(r);
           if (msg_ec) {
-            SPDLOG_ERROR("receive msg error: {}", msg_ec.message());
+            LOG_ERROR("receive msg error: {}", msg_ec.message());
           } else {
-            SPDLOG_INFO("receive msg successful, content {}", msg);
+            LOG_INFO("receive msg successful, content {}", msg);
           }
         } else {
           auto [timer_ec] = std::get<2>(r);
           (void)timer_ec;
-          SPDLOG_INFO("timed out waiting for ready");
+          LOG_INFO("timed out waiting for ready");
         }
         co_return;
       },
@@ -911,7 +911,7 @@ TEST(asio_coroutine_test_suit, concurrency_receive_msg) {
   asio::co_spawn(
       io,
       [&]() -> awaitable<void> {
-        SPDLOG_INFO("ready to send msg");
+        LOG_INFO("ready to send msg");
 
         while (called_times < 2) {
           called_times++;
@@ -923,16 +923,16 @@ TEST(asio_coroutine_test_suit, concurrency_receive_msg) {
           if (result.index() == 0) {  // ready 赢了
             auto [ec, msg] = std::get<0>(result);
             if (ec) {
-              SPDLOG_ERROR("send failed: {}", ec.message());
+              LOG_ERROR("send failed: {}", ec.message());
             } else {
-              SPDLOG_INFO("async receive msg by ready chan successful, {}", msg);
+              LOG_INFO("async receive msg by ready chan successful, {}", msg);
             }
           } else if (result.index() == 1) {  // token_chan 赢了 -> ready 被自动终止取消
             auto [ec] = std::get<1>(result);
             (void)ec;
-            SPDLOG_ERROR("Failed to receive ready, stopped by token_chan");
+            LOG_ERROR("Failed to receive ready, stopped by token_chan");
           } else {
-            SPDLOG_WARN("timeout....");
+            LOG_WARN("timeout....");
             co_return;
           }
         }
@@ -944,10 +944,10 @@ TEST(asio_coroutine_test_suit, concurrency_receive_msg) {
   asio::co_spawn(
       io,
       [&]() -> awaitable<void> {
-        SPDLOG_INFO("ready to send token siganl");
+        LOG_INFO("ready to send token siganl");
         token_chan.try_send(asio::error_code{});
         ready_chan_.try_send(asio::error_code{}, "测试消息");
-        SPDLOG_INFO("async send token siganl by token_chan successful");
+        LOG_INFO("async send token siganl by token_chan successful");
         co_return;
       },
       asio::detached);

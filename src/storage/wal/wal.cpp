@@ -15,6 +15,7 @@
 #include "error/leaf_expected.h"
 #include "error/lepton_error.h"
 #include "error/logic_error.h"
+#include "fmt/format.h"
 #include "leaf.hpp"
 #include "storage/fileutil/directory.h"
 #include "storage/fileutil/path.h"
@@ -36,6 +37,7 @@ asio::awaitable<expected<void>> wal::save_crc(std::uint32_t prev_crc) {
 
 asio::awaitable<expected<void>> wal::save_snapshot(const pb::snapshot& snapshot) {
   if (auto ret = pb::validate_snapshot_for_write(snapshot); !ret) {
+    LOGGER_ERROR(logger_, "validate failed, error:{}", ret.error().message());
     co_return ret;
   }
 
@@ -43,7 +45,7 @@ asio::awaitable<expected<void>> wal::save_snapshot(const pb::snapshot& snapshot)
   walpb::record record;
   record.set_type(::walpb::record_type::SNAPSHOT_TYPE);
   if (!snapshot.SerializeToString(record.mutable_data())) {
-    LOG_CRITICAL(logger_, "SerializeToString snapshot failed");
+    LOGGER_CRITICAL(logger_, "SerializeToString snapshot failed");
     co_return unexpected(logic_error::SERIALIZE_FAILED);
   }
 
@@ -69,7 +71,8 @@ asio::awaitable<expected<void>> wal::sync() {
   auto start = std::chrono::steady_clock::now();
   auto result = tail()->fdatasync();
   if (auto took = time_since(start); took > WARN_SYNC_DURATION) {
-    LOG_WARN(logger_, "slow fdatasyc, took: {}, expect: {}", to_seconds(took), to_seconds(WARN_SYNC_DURATION));
+    LOGGER_WARN(logger_, "slow fdatasyc, took: {} seconds, expect: {} seconds", to_seconds(took),
+                to_seconds(WARN_SYNC_DURATION));
   }
   co_return result;
 }
@@ -89,7 +92,7 @@ void wal::cleanup_wal() {
       executor_,
       [&]() -> asio::awaitable<void> {
         if (auto result = co_await close(); !result) {
-          LOG_CRITICAL(logger_, "Failed to close wal during cleanup: {}", result.error().message());
+          LOGGER_CRITICAL(logger_, "Failed to close wal during cleanup: {}", result.error().message());
         }
         co_return;
       },
@@ -99,8 +102,8 @@ void wal::cleanup_wal() {
   auto broken_dir_name =
       std::format("{}.broken.{:%Y%m%d.%H%M%S}.{:06}", dir_, now, now.time_since_epoch().count() % 1'000'000);
   if (auto result = leaf_to_expected([&]() { return fileutil::rename(dir_, broken_dir_name); }); !result) {
-    LOG_CRITICAL(logger_, "Failed to rename broken wal dir {} to {}: {}", dir_, broken_dir_name,
-                 result.error().message());
+    LOGGER_CRITICAL(logger_, "Failed to rename broken wal dir {} to {}: {}", dir_, broken_dir_name,
+                    result.error().message());
   }
   return;
 }
@@ -116,8 +119,11 @@ asio::awaitable<expected<void>> wal::close() {
     CO_CHECK_AWAIT(sync());
   }
   for (auto& file_handle : lock_files_) {
-    if (auto result = file_handle.close(); !result) {
-      LOG_WARN(logger_, "Failed to close wal file handle: {}", result.error().message());
+    if (file_handle == nullptr) {
+      continue;
+    }
+    if (auto result = file_handle->close(); !result) {
+      LOGGER_WARN(logger_, "Failed to close wal file handle: {}", result.error().message());
     }
   }
   co_return leaf_to_expected([&]() -> leaf::result<void> { return dir_file_.close(); });
@@ -127,34 +133,34 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io
                                                  const std::string& dirpath, const std::string& metadata,
                                                  std::shared_ptr<lepton::logger_interface> logger) {
   if (fileutil::path_exist(dirpath)) {
-    LOG_ERROR(logger, "dirpath {} already exists", dirpath);
+    LOGGER_ERROR(logger, "dirpath {} already exists", dirpath);
     co_return unexpected(io_error::PARH_HAS_EXIT);
   }
 
   // keep temporary wal directory so WAL initialization appears atomic
-  auto temp_dir_path = std::filesystem::path{dirpath} / ".tmp";
-  const auto temp_dir_path_str = temp_dir_path.string();
-  if (fileutil::path_exist(temp_dir_path_str)) {
-    if (auto s = env->DeleteDir(temp_dir_path_str); !s.ok()) {
-      LOG_ERROR(logger, "Failed to delete existing temp dir {}: {}", temp_dir_path_str, s.ToString());
-      co_return unexpected(s);
+  const auto temp_dir_path = fmt::format("{}.tmp", dirpath);
+  if (fileutil::path_exist(temp_dir_path)) {
+    if (auto s = leaf_to_expected([&]() { return fileutil::remove_all(temp_dir_path); }); !s.has_value()) {
+      LOGGER_ERROR(logger, "Failed to delete existing temp dir {}: {}", temp_dir_path, s.error().message());
+      co_return tl::unexpected(s.error());
     }
   }
 
-  DEFER({ (void)fileutil::remove_all(temp_dir_path_str); });
+  DEFER({ (void)fileutil::remove_all(temp_dir_path); });
 
   auto wal_handle_result = leaf_to_expected([&]() -> leaf::result<std::unique_ptr<wal>> {
-    LEPTON_LEAF_CHECK(fileutil::create_dir_all(env, temp_dir_path_str));
-
-    auto wal_file_path = temp_dir_path / wal_file_name(0, 0);
+    LEPTON_LEAF_CHECK(fileutil::create_dir_all(env, temp_dir_path));
+    auto wal_file_path = std::filesystem::path(temp_dir_path) / wal_file_name(0, 0);
     BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor, env, wal_file_path.string(), false));
-    LEPTON_LEAF_CHECK(wal_file_handle.pre_allocate(SEGMENT_SIZE_BYTES, true));
-    BOOST_LEAF_AUTO(encoder, new_file_encoder(wal_file_handle, 0, logger));
+    BOOST_LEAF_AUTO(_, wal_file_handle->seek_end());
+    LEPTON_LEAF_CHECK(wal_file_handle->pre_allocate(SEGMENT_SIZE_BYTES, true));
+    BOOST_LEAF_AUTO(encoder, new_file_encoder(*wal_file_handle, 0, logger));
     auto wal_handle = std::make_unique<wal>(executor, env, std::move(encoder), dirpath, metadata, logger);
     wal_handle->append_lock_file(std::move(wal_file_handle));
     return wal_handle;
   });
   if (!wal_handle_result) {
+    LOGGER_ERROR(logger, "Failed to create wal in temp dir {}: {}", temp_dir_path, wal_handle_result.error().message());
     co_return tl::unexpected(wal_handle_result.error());
   }
   auto wal_handle = std::move(wal_handle_result.value());
@@ -165,9 +171,10 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io
   record.set_data(metadata);
   CO_CHECK_AWAIT(wal_handle->encode(record));
   CO_CHECK_AWAIT(wal_handle->save_snapshot(pb::snapshot{}));
-  if (auto result = leaf_to_expected([&]() -> leaf::result<void> { return wal_handle->rename_wal(temp_dir_path_str); });
+
+  if (auto result = leaf_to_expected([&]() -> leaf::result<void> { return wal_handle->rename_wal(temp_dir_path); });
       !result.has_value()) {
-    LOG_WARN(logger, "Failed to rename wal from {} to {}: {}", temp_dir_path_str, dirpath, result.error().message());
+    LOGGER_WARN(logger, "Failed to rename wal from {} to {}: {}", temp_dir_path, dirpath, result.error().message());
     co_return tl::unexpected{result.error()};
   }
 
@@ -181,10 +188,10 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io
           return new_error(io_error::FSYNC_FAILED, fmt::format("Failed to fsync parent dir {}", parent_path.string()));
         }
         LEPTON_LEAF_CHECK(parent_dir.close());
-        return wal_handle->rename_wal(temp_dir_path_str);
+        return {};
       });
       !result.has_value()) {
-    LOG_WARN(logger, "Failed to fsync parent directory {}", parent_path.string());
+    LOGGER_WARN(logger, "Failed to fsync parent directory {}", parent_path.string());
     wal_handle->cleanup_wal();
     co_return tl::unexpected{result.error()};
   }

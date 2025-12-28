@@ -13,6 +13,7 @@
 
 #include "absl/types/span.h"
 #include "basic/defer.h"
+#include "basic/logger.h"
 #include "data_driven.h"
 #include "error/leaf.h"
 #include "error/lepton_error.h"
@@ -115,10 +116,10 @@ TEST(confchange_data_driven_test_suit, test_data_driven_impl) {
   std::filesystem::path project_dir = LEPTON_PROJECT_DIR;
   project_dir = project_dir.make_preferred();
 
-  SPDLOG_INFO("current_file: {}", current_file.string());
-  SPDLOG_INFO("current_dir: {}", current_dir.string());
-  SPDLOG_INFO("LEPTON_PROJECT_DIR: {}", LEPTON_PROJECT_DIR);
-  SPDLOG_INFO("project_dir: {}", project_dir.string());
+  LOG_INFO("current_file: {}", current_file.string());
+  LOG_INFO("current_dir: {}", current_dir.string());
+  LOG_INFO("LEPTON_PROJECT_DIR: {}", LEPTON_PROJECT_DIR);
+  LOG_INFO("project_dir: {}", project_dir.string());
 
   std::filesystem::path full_path = project_dir / current_dir / "testdata";
   // 再显式转换为字符串

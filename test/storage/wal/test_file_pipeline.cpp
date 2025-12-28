@@ -36,12 +36,12 @@ TEST_F(file_pipeline_test_suit, open_close) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to open file.......");
+        LOG_INFO("ready to open file.......");
         auto file_result = co_await handle->open();
         EXPECT_TRUE(file_result.has_value());
-        SPDLOG_INFO("success open file.......");
+        LOG_INFO("success open file.......");
         co_await handle->close();
-        SPDLOG_INFO("file pipeline finished.......");
+        LOG_INFO("file pipeline finished.......");
         co_return;
       },
       asio::detached);
@@ -60,10 +60,10 @@ TEST_F(file_pipeline_test_suit, test_file_pipeline_fail_preallocate) {
   asio::co_spawn(
       io_context,
       [&]() -> asio::awaitable<void> {
-        SPDLOG_INFO("ready to open file.......");
+        LOG_INFO("ready to open file.......");
         auto file_result = co_await handle->open();
         EXPECT_FALSE(file_result.has_value());
-        SPDLOG_INFO("open file finshed.......");
+        LOG_INFO("open file finshed.......");
         co_await handle->close();
         co_return;
       },

@@ -48,7 +48,7 @@ class wal {
         encoder_(std::move(encoder)),
         logger_(std::move(logger)) {}
 
-  void append_lock_file(fileutil::env_file_endpoint &&file_handle) { lock_files_.emplace_back(std::move(file_handle)); }
+  void append_lock_file(fileutil::env_file_handle &&file_handle) { lock_files_.emplace_back(std::move(file_handle)); }
 
   asio::awaitable<expected<void>> save_crc(std::uint32_t prev_crc);
 
@@ -70,7 +70,7 @@ class wal {
   // Close closes the current WAL file and directory.
   asio::awaitable<expected<void>> close();
 
-  fileutil::env_file_handle tail() { return lock_files_.empty() ? nullptr : &lock_files_.back(); }
+  fileutil::env_file_endpoint *tail() { return lock_files_.empty() ? nullptr : lock_files_.back().get(); }
 
  private:
   asio::any_io_executor executor_;
@@ -102,7 +102,7 @@ class wal {
   // encoder to encode records
   std::unique_ptr<encoder> encoder_;
   // the locked files the WAL holds (the name is increasing)
-  std::vector<fileutil::env_file_endpoint> lock_files_;
+  std::vector<fileutil::env_file_handle> lock_files_;
   file_pipeline_handle file_pipeline_;
 
   std::shared_ptr<lepton::logger_interface> logger_;

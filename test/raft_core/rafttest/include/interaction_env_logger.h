@@ -18,6 +18,8 @@ class redirect_logger final : public lepton::logger_interface {
  public:
   enum level { trace = 0, debug, info, warn, error, fatal, none };
 
+  bool should_log(lepton::log_level l) const override { return static_cast<level>(l) >= lvl_; }
+
   inline static std::array<std::string, 7> lvl_names = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "NONE"};
 
   redirect_logger(level lvl, std::ostringstream* buffer) : lvl_(lvl), buffer_(buffer) {}

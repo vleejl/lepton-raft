@@ -241,7 +241,7 @@ bool compare_optional_conf_state(const std::optional<raftpb::conf_state> &lhs,
   if (lhs.has_value()) {
     if (rhs.has_value()) {
       if (lhs->DebugString() != rhs->DebugString()) {
-        SPDLOG_ERROR("lhs:{}, rhs:{}", lhs->DebugString().c_str(), rhs->DebugString().c_str());
+        LOG_ERROR("lhs:{}, rhs:{}", lhs->DebugString().c_str(), rhs->DebugString().c_str());
         return false;
       }
       return true;
@@ -292,14 +292,14 @@ bool compare_repeated_entry(const lepton::core::pb::span_entry &lhs, const lepto
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
     for (const auto &entry : rhs) {
-      SPDLOG_INFO(entry->DebugString());
+      LOG_INFO(entry->DebugString());
     }
     return false;
   }
   for (std::size_t i = 0; i < lhs_size; ++i) {
     if (*lhs[i] != *rhs[i]) {
-      SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i]->DebugString());
-      SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i]->DebugString());
+      LOG_INFO("lhs index: {}, msg: {}", i, lhs[i]->DebugString());
+      LOG_INFO("rhs index: {}, msg: {}", i, rhs[i]->DebugString());
       return false;
     }
   }
@@ -315,14 +315,14 @@ bool compare_repeated_entry(const lepton::core::pb::repeated_entry &lhs, const l
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
     for (const auto &entry : rhs) {
-      SPDLOG_INFO(entry.DebugString());
+      LOG_INFO(entry.DebugString());
     }
     return false;
   }
   for (int i = 0; i < lhs_size; ++i) {
     if (lhs[i] != rhs[i]) {
-      SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
-      SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
+      LOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
+      LOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
       return false;
     }
   }
@@ -339,20 +339,20 @@ bool compare_repeated_message(const lepton::core::pb::repeated_message &lhs,
   const auto rhs_size = rhs.size();
   if (lhs_size != rhs_size) {
     for (int i = 0; i < lhs_size; ++i) {
-      SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
+      LOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
     }
     for (int i = 0; i < rhs_size; ++i) {
-      SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
+      LOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
     }
-    SPDLOG_INFO("lhs size: {}, rhs size: {}", lhs_size, rhs_size);
+    LOG_INFO("lhs size: {}, rhs size: {}", lhs_size, rhs_size);
     EXPECT_EQ(lhs_size, rhs_size);
     // assert(lhs_size == rhs_size);
     return false;
   }
   for (int i = 0; i < lhs_size; ++i) {
     if (lhs[i].DebugString() != rhs[i].DebugString()) {
-      SPDLOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
-      SPDLOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
+      LOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
+      LOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
       return false;
     }
   }

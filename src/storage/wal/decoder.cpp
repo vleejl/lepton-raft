@@ -143,10 +143,10 @@ asio::awaitable<expected<void>> decoder::decode_record_impl(walpb::record& rec) 
   const auto file_size = file_size_result.value();
   auto max_entry_limit = file_size - static_cast<std::size_t>(last_valid_off_) - pad_bytes;
   if (rec_bytes > max_entry_limit) {
-    LOG_ERROR(logger_,
-              "[wal] max entry size limit exceeded when reading {}, recBytes: {}, fileSize({}) - offset({}) - "
-              "padBytes({}) = entryLimit({})",
-              buf_reader->name(), rec_bytes, file_size, last_valid_off_, pad_bytes, max_entry_limit);
+    LOGGER_ERROR(logger_,
+                 "[wal] max entry size limit exceeded when reading {}, recBytes: {}, fileSize({}) - offset({}) - "
+                 "padBytes({}) = entryLimit({})",
+                 buf_reader->name(), rec_bytes, file_size, last_valid_off_, pad_bytes, max_entry_limit);
     co_return tl::unexpected(io_error::UNEXPECTED_EOF);
   }
 
@@ -177,13 +177,13 @@ asio::awaitable<expected<void>> decoder::decode_record_impl(walpb::record& rec) 
       }
       DEFER({ last_valid_off_ += FRAME_SIZE_BYTES + rec_bytes + pad_bytes; });
       if (is_torn_entry(record_buf)) {
-        LOG_ERROR(logger_, "{}: in file '{}' at position: {}", make_error_code(io_error::UNEXPECTED_EOF).message(),
-                  buf_reader->name(), last_valid_off_);
+        LOGGER_ERROR(logger_, "{}: in file '{}' at position: {}", make_error_code(io_error::UNEXPECTED_EOF).message(),
+                     buf_reader->name(), last_valid_off_);
         co_return tl::unexpected(io_error::UNEXPECTED_EOF);
       }
-      LOG_ERROR(logger_, "{}: in file '{}' at position: {}, expected crc: {}, record crc: {}",
-                validate_crc_result.error().message(), buf_reader->name(), last_valid_off_,
-                static_cast<std::uint32_t>(crc_), rec.crc());
+      LOGGER_ERROR(logger_, "{}: in file '{}' at position: {}, expected crc: {}, record crc: {}",
+                   validate_crc_result.error().message(), buf_reader->name(), last_valid_off_,
+                   static_cast<std::uint32_t>(crc_), rec.crc());
       co_return validate_crc_result;
     }
   }

@@ -13,10 +13,10 @@
 #include <thread>
 
 #include "basic/enum_name.h"
+#include "basic/logger.h"
 #include "coroutine/channel.h"
 #include "coroutine/channel_endpoint.h"
 #include "raft.pb.h"
-#include "spdlog/spdlog.h"
 
 namespace rafttest {
 
@@ -73,7 +73,7 @@ class raft_network {
     }
 
     if (!to || disconnected) {
-      SPDLOG_INFO("node {} is disconnected, drop msg type: {}", m.to(), magic_enum::enum_name(m.type()));
+      LOG_INFO("node {} is disconnected, drop msg type: {}", m.to(), magic_enum::enum_name(m.type()));
       return;
     }
 
@@ -98,9 +98,9 @@ class raft_network {
     }
     auto debug_str = cm.DebugString();
     if (auto result = to->try_send(std::move(cm)); !result) {
-      SPDLOG_DEBUG("send msg:{} failed", debug_str);
+      LOG_DEBUG("send msg:{} failed", debug_str);
     } else {
-      SPDLOG_TRACE("send msg:{} successful", debug_str);
+      LOG_TRACE("send msg:{} successful", debug_str);
     }
   }
 
