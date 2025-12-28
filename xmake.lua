@@ -45,10 +45,17 @@ function apply_sanitizers(target)
         target:add("ldflags", "-fsanitize=address", "-fsanitize=undefined")
     end
     if has_config("tsan") then
+        if has_config("asan") then 
+            raise("ASan and TSan cannot be used together!") 
+        end    
         target:add("cxflags", "-fsanitize=thread", "-fno-omit-frame-pointer", {force = true})
         target:add("ldflags", "-fsanitize=thread")
     end
     if has_config("msan") then
+        -- 增加编译器检查，避免 GCC 报错
+        if not target:toolchain("clang") then
+            raise("MSan is only supported by Clang/LLVM. Please use --toolchain=clang")
+        end    
         target:add("cxflags", "-fsanitize=memory", "-fno-omit-frame-pointer")
         target:add("ldflags", "-fsanitize=memory")
     end

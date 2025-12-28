@@ -11,18 +11,23 @@
 
 namespace lepton {
 
-template <typename F, typename T = std::decay_t<decltype(*std::declval<F>()())>>
-tl::expected<T, std::error_code> leaf_to_expected(F&& f) {
+template <typename F>
+auto leaf_to_expected(F&& f) -> tl::expected<typename decltype(std::declval<F>()())::value_type, std::error_code>
+requires(!std::is_void_v<typename decltype(std::declval<F>()())::value_type>)
+{
+  using result_t = decltype(std::declval<F>()());
+  using value_t = typename result_t::value_type;
+
   std::error_code ec;
 
-  auto r = boost::leaf::try_handle_some([&]() -> boost::leaf::result<T> { return std::forward<F>(f)(); },
-                                        [&](const lepton_error& e) -> boost::leaf::result<T> {
+  auto r = boost::leaf::try_handle_some([&]() -> boost::leaf::result<value_t> { return std::forward<F>(f)(); },
+                                        [&](const lepton_error& e) -> boost::leaf::result<value_t> {
                                           ec = e.err_code;
-                                          return new_error(e);
+                                          return boost::leaf::new_error(e);
                                         });
 
   if (!r) {
-    assert(ec);  // 若 ec 是空的，说明漏处理了错误类型
+    assert(ec);  // 未映射的 LEAF 错误
     return tl::unexpected{ec};
   }
 
@@ -31,13 +36,15 @@ tl::expected<T, std::error_code> leaf_to_expected(F&& f) {
 
 // void 特化版本
 template <typename F>
-tl::expected<void, std::error_code> leaf_to_expected_void(F&& f) {
+auto leaf_to_expected(F&& f) -> tl::expected<void, std::error_code>
+requires(std::is_void_v<typename decltype(std::declval<F>()())::value_type>)
+{
   std::error_code ec;
 
   auto r = boost::leaf::try_handle_some([&]() -> boost::leaf::result<void> { return std::forward<F>(f)(); },
                                         [&](const lepton_error& e) -> boost::leaf::result<void> {
                                           ec = e.err_code;
-                                          return new_error(e);
+                                          return boost::leaf::new_error(e);
                                         });
 
   if (!r) {

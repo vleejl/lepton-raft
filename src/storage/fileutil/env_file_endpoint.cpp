@@ -3,7 +3,6 @@
 #include "asio/error_code.hpp"
 #include "error/leaf.h"
 #include "error/lepton_error.h"
-#include "leaf.hpp"
 #include "storage/fileutil/preallocate.h"
 #include "tl/expected.hpp"
 namespace lepton::storage::fileutil {
@@ -107,4 +106,9 @@ expected<void> env_file_endpoint::fdatasync() {
   return tl::unexpected(ec);
 }
 
+expected<void> env_file_endpoint::close() {
+  asio::error_code ec;
+  ec = raw_file().close(ec);
+  return tl::unexpected(ec);
+}
 }  // namespace lepton::storage::fileutil

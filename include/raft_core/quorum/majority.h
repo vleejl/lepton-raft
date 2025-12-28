@@ -106,8 +106,8 @@ class majority_config {
       if (!iter.ok) {
         fmt::format_to(std::back_inserter(buf), "?{}", std::string(n, ' '));
       } else {
-        fmt::format_to(std::back_inserter(buf), "{}{}{}", std::string(iter.bar, 'x'), '>',
-                       std::string(n - iter.bar, ' '));
+        fmt::format_to(std::back_inserter(buf), "{}{}{}", std::string(static_cast<std::size_t>(iter.bar), 'x'), '>',
+                       std::string(n - static_cast<std::size_t>(iter.bar), ' '));
       }
 
       // 保留原始的 fmt::format 调用，但使用更高效的 format_to

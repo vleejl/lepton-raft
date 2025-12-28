@@ -10,6 +10,17 @@
 namespace fs = std::filesystem;
 
 namespace lepton::storage::fileutil {
+
+bool path_exist(const std::string& path) {
+  std::error_code ec;
+
+  // 检查路径是否存在
+  if (!fs::exists(path, ec)) {
+    return false;
+  }
+  return true;
+}
+
 leaf::result<void> remove_all(const std::string& path) {
   std::error_code ec;
 

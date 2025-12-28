@@ -42,6 +42,8 @@
     },
     "remoteUser": "vscode",
     "runArgs": [
-        "--network=host"
+        "--network=host",
+        "--security-opt",
+        "seccomp=unconfined"
     ]
 }

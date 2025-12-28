@@ -14,7 +14,7 @@
 
 namespace lepton::storage::wal {
 
-asio::awaitable<void> file_pipeline::stop() {
+asio::awaitable<void> file_pipeline::close() {
   if (stop_source_.stop_requested()) {
     // has already been stopped - no need to do anything
     LOG_INFO(logger_, "file_pipeline already been stopped, just return");
@@ -74,6 +74,7 @@ asio::awaitable<void> file_pipeline::run() {
   waiter->add([&]() -> asio::awaitable<void> { co_await listen_stop(); });
 
   while (is_running()) {
+    LOG_TRACE(logger_, "waiting to alloc new file handle");
     auto wal_file_handle_result = leaf_to_expected([&]() -> leaf::result<fileutil::env_file_endpoint> {
       BOOST_LEAF_AUTO(wal_file_handle, alloc());
       return wal_file_handle;
@@ -83,6 +84,8 @@ asio::awaitable<void> file_pipeline::run() {
       co_await file_chan_.async_send(tl::unexpected{wal_file_handle_result.error()});
       break;
     }
+    LOG_TRACE(logger_, "alloc new file handle suuccess: {}, and ready to send new file handle",
+             wal_file_handle_result.value().name());
     // 通过 file_chan_ 发布 wal 文件句柄，如果没有订阅者则会阻塞在这里；这样不会影响其他协程的运行
     auto ec = co_await file_chan_.async_send(std::move(wal_file_handle_result));
     if (!ec.has_value()) {

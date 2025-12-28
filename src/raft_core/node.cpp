@@ -19,7 +19,6 @@
 #include "raft_core/node_interface.h"
 #include "raft_core/raw_node.h"
 #include "raft_core/ready.h"
-#include "raft_core/tracker/state.h"
 #include "spdlog/spdlog.h"
 #include "tl/expected.hpp"
 namespace lepton::core {
@@ -369,7 +368,7 @@ asio::awaitable<void> node::listen_propose(coro::signal_channel_endpoint& token_
     auto& msg = msg_result->msg;
     SPDLOG_TRACE("receive msg by prop_chan and ready to process, {}", msg.DebugString());
     msg.set_from(raw_node_.raft_.id());
-    auto step_result = leaf_to_expected_void([&]() -> leaf::result<void> {
+    auto step_result = leaf_to_expected([&]() -> leaf::result<void> {
       LEPTON_LEAF_CHECK(raw_node_.raft_.step(std::move(msg)));
       return {};
     });

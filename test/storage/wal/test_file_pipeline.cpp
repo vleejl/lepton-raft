@@ -3,7 +3,7 @@
 #include "basic/spdlog_logger.h"
 #include "storage/fileutil/path.h"
 #include "storage/wal/file_pipeline.h"
-#include "storage/wal/wal_directory_manager.h"
+#include "storage/wal/wal.h"
 
 using namespace lepton::storage::fileutil;
 using namespace lepton::storage::wal;
@@ -22,7 +22,7 @@ class file_pipeline_test_suit : public testing::Test {
 
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 
-  constexpr static auto wal_file_path = "./tmpwal";
+  constexpr static auto wal_file_path = "./file_pipeline_tmpwal";
 };
 
 TEST_F(file_pipeline_test_suit, open_close) {
@@ -39,8 +39,9 @@ TEST_F(file_pipeline_test_suit, open_close) {
         SPDLOG_INFO("ready to open file.......");
         auto file_result = co_await handle->open();
         EXPECT_TRUE(file_result.has_value());
-        SPDLOG_INFO("open file finshed.......");
-        co_await handle->stop();
+        SPDLOG_INFO("success open file.......");
+        co_await handle->close();
+        SPDLOG_INFO("file pipeline finished.......");
         co_return;
       },
       asio::detached);
@@ -63,7 +64,7 @@ TEST_F(file_pipeline_test_suit, test_file_pipeline_fail_preallocate) {
         auto file_result = co_await handle->open();
         EXPECT_FALSE(file_result.has_value());
         SPDLOG_INFO("open file finshed.......");
-        co_await handle->stop();
+        co_await handle->close();
         co_return;
       },
       asio::detached);

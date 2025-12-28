@@ -31,7 +31,7 @@ class file_pipeline {
 
   void start_run() { co_spawn(executor_, run(), asio::detached); }
 
-  asio::awaitable<void> stop();
+  asio::awaitable<void> close();
 
   // Open returns a fresh file for writing. Rename the file before calling
   // Open again or there will be file collisions.

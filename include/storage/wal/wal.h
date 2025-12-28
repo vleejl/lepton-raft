@@ -3,7 +3,6 @@
 #include <cassert>
 #include <memory>
 
-#include "basic/utility_macros.h"
 #ifndef _LEPTON_WAL_H_
 #define _LEPTON_WAL_H_
 #include <raft.pb.h>
@@ -68,7 +67,9 @@ class wal {
 
   void cleanup_wal();
 
- private:
+  // Close closes the current WAL file and directory.
+  asio::awaitable<expected<void>> close();
+
   fileutil::env_file_handle tail() { return lock_files_.empty() ? nullptr : &lock_files_.back(); }
 
  private:
@@ -108,6 +109,10 @@ class wal {
 };
 
 using wal_handle = std::unique_ptr<wal>;
+
+asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env *env, asio::any_io_executor executor,
+                                                 const std::string &dirpath, const std::string &metadata,
+                                                 std::shared_ptr<lepton::logger_interface> logger);
 }  // namespace lepton::storage::wal
 
 #endif  // _LEPTON_WAL_H_

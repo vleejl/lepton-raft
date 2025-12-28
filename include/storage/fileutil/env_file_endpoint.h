@@ -66,6 +66,8 @@ class env_file_endpoint {
 
   expected<void> fdatasync();
 
+  expected<void> close();
+
  private:
   asio::stream_file& raw_file() {
     assert(file_);

@@ -173,7 +173,7 @@ TEST(boost_leaaf_try, test_leaf_result_to_expected_void) {
   auto expected_err = lepton::make_error_code(raft_error::STOPPED);
   auto func = []() -> leaf::result<void> { return lepton::new_error(lepton::raft_error::STOPPED); };
 
-  auto result = lepton::leaf_to_expected_void([&]() -> leaf::result<void> {
+  auto result = lepton::leaf_to_expected([&]() -> leaf::result<void> {
     LEPTON_LEAF_CHECK(func());
     return {};
   });
