@@ -45,13 +45,12 @@ class read_dir_op {
   }
 };
 
-leaf::result<std::vector<std::string>> read_dir(const std::string& directory,
-                                                const std::vector<read_dir_op::option>& opts = {});
+leaf::result<std::vector<std::string>> read_dir_with_opts(const std::string& directory,
+                                                          const std::vector<read_dir_op::option>& opts = {});
 
-// 辅助函数：创建选项向量
-template <typename... Options>
-std::vector<read_dir_op::option> make_options(Options&&... options) {
-  return {std::forward<Options>(options)...};
+template <typename... Args>
+leaf::result<std::vector<std::string>> read_dir(const std::string& directory, Args&&... args) {
+  return read_dir_with_opts(directory, std::vector<read_dir_op::option>{std::forward<Args>(args)...});
 }
 
 }  // namespace lepton::storage::fileutil

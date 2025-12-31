@@ -26,6 +26,9 @@ class byte_span {
   // from std::string_view
   byte_span(std::string_view s) : view_(reinterpret_cast<const std::byte*>(s.data()), s.size()) {}
 
+  // from c-string
+  byte_span(const char* s) : view_(reinterpret_cast<const std::byte*>(s), s ? std::string_view(s).size() : 0) {}
+
   // from std::vector<std::byte>
   byte_span(const std::vector<std::byte>& v) : view_(v.data(), v.size()) {}
 

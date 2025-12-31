@@ -4,22 +4,34 @@
 #include <wal.pb.h>
 
 #include <cstdint>
-#include <mutex>
 #include <vector>
 
 #include "absl/crc/crc32c.h"
+#include "asio/any_io_executor.hpp"
 #include "basic/logger.h"
 #include "basic/utility_macros.h"
+#include "storage/ioutil/file_buf_reader.h"
 #include "storage/ioutil/fixed_byte_buffer.h"
 #include "storage/ioutil/reader.h"
 #include "v4/proxy.h"
 namespace lepton::storage::wal {
 
 class decoder {
- public:
   NOT_COPYABLE(decoder)
-  decoder(std::shared_ptr<lepton::logger_interface> logger,
-          const std::vector<pro::proxy_view<ioutil::reader>>& readers = {});
+
+ public:
+  decoder(asio::any_io_executor executor, std::shared_ptr<lepton::logger_interface> logger,
+          const std::vector<pro::proxy_view<ioutil::reader>>& readers)
+      : strand_(executor),
+        crc_(absl::crc32c_t()),
+        last_valid_off_(0),
+        continue_on_crc_error_(false),
+        logger_(std::move(logger)) {
+    readers_.reserve(readers.size());
+    for (const auto& r : readers) {
+      readers_.emplace_back(pro::make_proxy<ioutil::reader, ioutil::file_buf_reader>(r));
+    }
+  }
 
   // Decode reads the next record out of the file.
   // In the success path, fills 'rec' and returns nil.
@@ -35,7 +47,8 @@ class decoder {
   auto last_valid_off() const { return last_valid_off_; }
 
  private:
-  asio::awaitable<expected<void>> decode_record_impl(walpb::record& r);
+  asio::awaitable<expected<void>> decode_at_offset(pro::proxy_view<ioutil::reader> buf_reader, std::uint64_t offset,
+                                                   walpb::record& rec);
 
   // isTornEntry determines whether the last entry of the WAL was partially written
   // and corrupted because of a torn write.
@@ -43,7 +56,8 @@ class decoder {
   bool is_torn_entry(ioutil::fixed_byte_buffer& record_buf) const;
 
  private:
-  std::mutex mutex_;
+  asio::strand<asio::any_io_executor> strand_;
+
   absl::crc32c_t crc_;
   // 每个 segment 文件一个 reader
   std::vector<pro::proxy<ioutil::reader>> readers_;

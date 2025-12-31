@@ -9,7 +9,7 @@
 #include "basic/utility_macros.h"
 #include "coroutine/channel_endpoint.h"
 #include "error/leaf.h"
-#include "storage/fileutil/env_file_endpoint.h"
+#include "storage/fileutil/locked_file_endpoint.h"
 namespace lepton::storage::wal {
 
 class file_pipeline {
@@ -36,10 +36,10 @@ class file_pipeline {
   // Open returns a fresh file for writing. Rename the file before calling
   // Open again or there will be file collisions.
   // it will 'block' if the tmp file lock is already taken.
-  asio::awaitable<expected<fileutil::env_file_handle>> open();
+  asio::awaitable<expected<fileutil::locked_file_handle>> open();
 
  private:
-  leaf::result<fileutil::env_file_handle> alloc();
+  leaf::result<fileutil::locked_file_handle> alloc();
 
   asio::awaitable<void> run();
 
@@ -57,7 +57,7 @@ class file_pipeline {
   std::stop_source stop_source_;
   coro::signal_channel wait_run_exit_chan_;
 
-  coro::channel_endpoint<expected<fileutil::env_file_handle>> file_chan_;
+  coro::channel_endpoint<expected<fileutil::locked_file_handle>> file_chan_;
   // dir to put files
   std::filesystem::path wal_file_dir_;
   // size of files to make, in bytes

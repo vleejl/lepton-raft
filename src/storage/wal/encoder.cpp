@@ -90,16 +90,19 @@ INTERNAL_FUNC std::pair<uint64_t, std::size_t> encode_frame_size(std::size_t dat
   return {len_field, pad_bytes};
 }
 
-encoder::encoder(pro::proxy_view<ioutil::writer> w, std::uint32_t prev_crc, std::uint64_t page_offset,
-                 std::shared_ptr<lepton::logger_interface> logger)
-    : crc_(absl::crc32c_t(prev_crc)),
+encoder::encoder(asio::any_io_executor executor, pro::proxy_view<ioutil::writer> w, std::uint32_t prev_crc,
+                 std::uint64_t page_offset, std::shared_ptr<lepton::logger_interface> logger)
+    : strand_(executor),
+      crc_(absl::crc32c_t(prev_crc)),
       page_writer_(w, wal_page_bytes, page_offset),
       // 1MB buffer
       write_buf_(1024 * 1024),
       logger_(std::move(logger)) {}
 
 asio::awaitable<expected<void>> encoder::encode(walpb::record& r) {
-  std::lock_guard<std::mutex> guard(mutex_);
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
+  }
   crc_ = absl::ExtendCrc32c(crc_, r.data());
   r.set_crc(static_cast<std::uint32_t>(crc_));
   const auto bytes_size_long = r.ByteSizeLong();
@@ -115,7 +118,9 @@ asio::awaitable<expected<void>> encoder::encode(walpb::record& r) {
 }
 
 asio::awaitable<expected<void>> encoder::flush() {
-  std::lock_guard<std::mutex> guard(mutex_);
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
+  }
   co_return co_await page_writer_.async_flush();
 }
 

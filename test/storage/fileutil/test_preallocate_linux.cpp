@@ -80,9 +80,6 @@ TEST_F(preallocate_linux_test_suit, preallocate_fixed) {
 
   // 验证逻辑大小保持为 0
   EXPECT_EQ(st.st_size, 0);
-
-  // 可选：如果文件系统支持，可以验证 st_blocks 物理块是否分配，
-  // 但这取决于具体文件系统实现，通常 st_size 为 0 即可满足测试意图。
 }
 
 // 验证偏移量（Offset）在操作后是否被正确恢复 (针对 prealloc_extend_trunc)

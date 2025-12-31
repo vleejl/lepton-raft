@@ -6,6 +6,8 @@
 #include <cstdint>
 
 #include "absl/crc/crc32c.h"
+#include "asio/any_io_executor.hpp"
+#include "asio/strand.hpp"
 #include "basic/logger.h"
 #include "basic/utility_macros.h"
 #include "storage/ioutil/fixed_byte_buffer.h"
@@ -19,10 +21,11 @@ class encoder {
 
  public:
   encoder() = default;
-  encoder(pro::proxy_view<ioutil::writer> w, std::uint32_t prev_crc, std::uint64_t page_offset,
-          std::shared_ptr<lepton::logger_interface> logger);
+  encoder(asio::any_io_executor executor, pro::proxy_view<ioutil::writer> w, std::uint32_t prev_crc,
+          std::uint64_t page_offset, std::shared_ptr<lepton::logger_interface> logger);
   encoder(encoder&& lhs)
-      : crc_(lhs.crc_),
+      : strand_(std::move(lhs.strand_)),
+        crc_(lhs.crc_),
         page_writer_(std::move(lhs.page_writer_)),
         write_buf_(std::move(lhs.write_buf_)),
         logger_(std::move(lhs.logger_)) {}
@@ -41,7 +44,7 @@ class encoder {
                                                      ioutil::fixed_byte_buffer& write_buf);
 
  private:
-  std::mutex mutex_;
+  asio::strand<asio::any_io_executor> strand_;
   absl::crc32c_t crc_;
   ioutil::page_writer page_writer_;
 

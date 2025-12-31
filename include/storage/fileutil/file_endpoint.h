@@ -1,16 +1,14 @@
 #pragma once
-#include <memory>
-#ifndef _LEPTON_ENV_FILE_ENDPOINT_H_
-#define _LEPTON_ENV_FILE_ENDPOINT_H_
+#ifndef _LEPTON_FILE_ENDPOINT_H_
+#define _LEPTON_FILE_ENDPOINT_H_
 
 #include <fmt/format.h>
-#include <rocksdb/env.h>
-#include <rocksdb/status.h>
 
 #include <asio/stream_file.hpp>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -20,30 +18,15 @@
 #include "error/lepton_error.h"
 #include "storage/ioutil/byte_span.h"
 namespace lepton::storage::fileutil {
-class env_file_endpoint {
-  NOT_COPYABLE(env_file_endpoint)
+class file_endpoint {
+  NOT_COPYABLE(file_endpoint)
 
  public:
-  env_file_endpoint() = default;
+  file_endpoint() = default;
 
-  env_file_endpoint(const std::string& filename, asio::stream_file&& file)
-      : file_name_(filename), file_(std::move(file)), env_(nullptr), lock_(nullptr) {}
+  file_endpoint(const std::string& filename, asio::stream_file&& file) : file_name_(filename), file_(std::move(file)) {}
 
-  env_file_endpoint(const std::string& filename, asio::stream_file&& file, rocksdb::Env* env, rocksdb::FileLock* lock)
-      : file_name_(filename), file_(std::move(file)), env_(env), lock_(lock) {}
-
-  env_file_endpoint(env_file_endpoint&& lhs)
-      : file_name_(lhs.file_name_), file_(std::move(lhs.file_)), env_(lhs.env_), lock_(lhs.lock_) {
-    lhs.env_ = nullptr;
-    lhs.lock_ = nullptr;
-  }
-
-  ~env_file_endpoint() {
-    if (lock_ != nullptr) {
-      env_->UnlockFile(lock_);
-      lock_ = nullptr;
-    }
-  }
+  file_endpoint(file_endpoint&& lhs) : file_name_(lhs.file_name_), file_(std::move(lhs.file_)) {}
 
   const std::string& name() const { return file_name_; }
 
@@ -72,21 +55,18 @@ class env_file_endpoint {
 
   expected<void> close();
 
- private:
+ protected:
   asio::stream_file& raw_file() {
     assert(file_);
     return *file_;
   }
 
- private:
+ protected:
   std::string file_name_;
   std::optional<asio::stream_file> file_;
-  rocksdb::Env* env_;
-  rocksdb::FileLock* lock_ = nullptr;
 };
 
-using env_file_handle = std::unique_ptr<env_file_endpoint>;
-
+using file_handle = std::unique_ptr<file_endpoint>;
 }  // namespace lepton::storage::fileutil
 
-#endif  // _LEPTON_ENV_FILE_ENDPOINT_H_
+#endif  // _LEPTON_FILE_ENDPOINT_H_

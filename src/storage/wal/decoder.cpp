@@ -15,7 +15,6 @@
 #include "error/protobuf_error.h"
 #include "proxy.h"
 #include "storage/ioutil/disk_constants.h"
-#include "storage/ioutil/file_buf_reader.h"
 #include "storage/ioutil/fixed_byte_buffer.h"
 #include "storage/ioutil/io.h"
 #include "storage/ioutil/reader.h"
@@ -99,39 +98,40 @@ static std::pair<uint64_t, uint64_t> decode_frame_size(uint64_t len_field) {
   return {rec_bytes, pad_bytes};
 }
 
-decoder::decoder(std::shared_ptr<lepton::logger_interface> logger,
-                 const std::vector<pro::proxy_view<ioutil::reader>>& readers)
-    : crc_(absl::crc32c_t()), last_valid_off_(0), continue_on_crc_error_(false), logger_(std::move(logger)) {
-  readers_.reserve(readers.size());
-  for (const auto& r : readers) {
-    readers_.emplace_back(pro::make_proxy<ioutil::reader, ioutil::file_buf_reader>(r));
-  }
-}
-
 asio::awaitable<expected<void>> decoder::decode_record(walpb::record& r) {
   r.Clear();
-  std::lock_guard<std::mutex> guard(mutex_);
-  co_return co_await decode_record_impl(r);
-}
-
-asio::awaitable<expected<void>> decoder::decode_record_impl(walpb::record& rec) {
-  if (readers_.empty()) {
-    co_return tl::unexpected(io_error::IO_EOF);
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
   }
-  auto& buf_reader = readers_.front();
-  auto read_result = co_await read_uint64(buf_reader);
-  if ((!read_result && read_result.error() == asio::error::eof) || (read_result && read_result.value() == 0)) {
-    // hit end of file or preallocated space
-    readers_.erase(readers_.begin());
+  while (true) {
     if (readers_.empty()) {
       co_return tl::unexpected(io_error::IO_EOF);
     }
-    co_return co_await decode_record_impl(rec);
+
+    auto& buf_reader = readers_.front();
+    auto read_result = co_await read_uint64(buf_reader);
+
+    // 处理 EOF 或 预分配空间 (0)
+    if ((!read_result && read_result.error() == asio::error::eof) || (read_result && read_result.value() == 0)) {
+      readers_.erase(readers_.begin());
+      if (readers_.empty()) {
+        co_return tl::unexpected(io_error::IO_EOF);
+      }
+      last_valid_off_ = 0;  // 切换文件，重置偏移量计数
+      continue;
+    }
+
+    if (!read_result) {
+      co_return tl::unexpected(read_result.error());
+    }
+    // 后续解析逻辑...
+    co_return co_await decode_at_offset(buf_reader, read_result.value(), r);
   }
-  if (!read_result) {
-    co_return tl::unexpected(read_result.error());
-  }
-  auto [rec_bytes, pad_bytes] = decode_frame_size(read_result.value());
+}
+
+asio::awaitable<expected<void>> decoder::decode_at_offset(pro::proxy_view<ioutil::reader> buf_reader,
+                                                          std::uint64_t offset, walpb::record& rec) {
+  auto [rec_bytes, pad_bytes] = decode_frame_size(offset);
   // The length of current WAL entry must be less than the remaining file size.
   auto file_size_result = leaf_to_expected([&]() -> leaf::result<std::size_t> {
     BOOST_LEAF_AUTO(file_size, buf_reader->size());

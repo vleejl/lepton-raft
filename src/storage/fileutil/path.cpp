@@ -21,6 +21,19 @@ bool path_exist(const std::string& path) {
   return true;
 }
 
+leaf::result<std::size_t> file_size(const std::string& path) {
+  if (!path_exist(path)) {
+    return new_error(std::make_error_code(std::errc::no_such_file_or_directory),
+                     fmt::format("Path {} does not exist", path));
+  }
+  std::error_code ec;
+  auto size = fs::file_size(path, ec);
+  if (ec) {
+    return new_error(ec, fmt::format("Failed to get file size of {}: {}", path, ec.message()));
+  }
+  return size;
+}
+
 leaf::result<void> remove_all(const std::string& path) {
   std::error_code ec;
 

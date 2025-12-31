@@ -10,7 +10,6 @@
 #include "asio/buffer.hpp"
 #include "basic/utility_macros.h"
 #include "error/expected.h"
-#include "error/leaf_expected.h"
 #include "storage/ioutil/fixed_byte_buffer.h"
 #include "storage/ioutil/reader.h"
 #include "tl/expected.hpp"

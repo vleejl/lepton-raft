@@ -1,9 +1,10 @@
 #include "storage/wal/wal.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <format>
 #include <memory>
-#include <mutex>
+#include <string>
 
 #include "asio/use_future.hpp"
 #include "basic/defer.h"
@@ -19,6 +20,7 @@
 #include "leaf.hpp"
 #include "storage/fileutil/directory.h"
 #include "storage/fileutil/path.h"
+#include "storage/fileutil/read_dir.h"
 #include "storage/pb/types.h"
 #include "storage/pb/wal_protobuf.h"
 #include "storage/wal/wal.h"
@@ -41,12 +43,20 @@ asio::awaitable<expected<void>> wal::save_snapshot(const pb::snapshot& snapshot)
     co_return ret;
   }
 
-  std::lock_guard<std::mutex> guard(mutex_);
+  auto self = shared_from_this();
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
+  }
+
   walpb::record record;
   record.set_type(::walpb::record_type::SNAPSHOT_TYPE);
-  if (!snapshot.SerializeToString(record.mutable_data())) {
-    LOGGER_CRITICAL(logger_, "SerializeToString snapshot failed");
-    co_return unexpected(logic_error::SERIALIZE_FAILED);
+  if (snapshot.ByteSizeLong() > 0) {
+    std::string data;
+    if (!snapshot.SerializeToString(&data)) {
+      LOGGER_CRITICAL(logger_, "SerializeToString snapshot failed");
+      co_return unexpected(logic_error::SERIALIZE_FAILED);
+    }
+    record.set_data(std::move(data));
   }
 
   CO_CHECK_AWAIT(encoder_->encode(record));
@@ -80,7 +90,7 @@ asio::awaitable<expected<void>> wal::sync() {
 leaf::result<void> wal::rename_wal(const std::string& tmp_dir_path) {
   LEPTON_LEAF_CHECK(fileutil::remove_all(dir_));
   LEPTON_LEAF_CHECK(fileutil::rename(tmp_dir_path, dir_));
-  BOOST_LEAF_AUTO(file_pipeline, new_file_pipeline(executor_, env_, dir_, SEGMENT_SIZE_BYTES, logger_));
+  BOOST_LEAF_AUTO(file_pipeline, new_file_pipeline(executor_, env_, dir_, segment_size_bytes_, logger_));
   file_pipeline_ = std::move(file_pipeline);
   BOOST_LEAF_AUTO(dir_file, fileutil::new_directory(env_, dir_));
   dir_file_ = std::move(dir_file);
@@ -98,9 +108,11 @@ void wal::cleanup_wal() {
       },
       asio::use_future);
 
-  const auto now = std::chrono::floor<std::chrono::microseconds>(std::chrono::system_clock::now());
-  auto broken_dir_name =
-      std::format("{}.broken.{:%Y%m%d.%H%M%S}.{:06}", dir_, now, now.time_since_epoch().count() % 1'000'000);
+  using namespace std::chrono;
+  auto now = system_clock::now();
+  auto seconds = floor<std::chrono::seconds>(now);
+  auto micros = duration_cast<microseconds>(now - seconds).count();
+  auto broken_dir_name = std::format("{}.broken.{:%Y%m%d.%H%M%S}.{:06}", dir_, seconds, micros);
   if (auto result = leaf_to_expected([&]() { return fileutil::rename(dir_, broken_dir_name); }); !result) {
     LOGGER_CRITICAL(logger_, "Failed to rename broken wal dir {} to {}: {}", dir_, broken_dir_name,
                     result.error().message());
@@ -109,7 +121,13 @@ void wal::cleanup_wal() {
 }
 
 asio::awaitable<expected<void>> wal::close() {
-  std::lock_guard<std::mutex> guard(mutex_);
+  auto self = shared_from_this();
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
+  }
+
+  if (is_closed_) co_return ok();
+  is_closed_ = true;
   if (file_pipeline_ != nullptr) {
     co_await file_pipeline_->close();
     file_pipeline_.reset();
@@ -129,10 +147,20 @@ asio::awaitable<expected<void>> wal::close() {
   co_return leaf_to_expected([&]() -> leaf::result<void> { return dir_file_.close(); });
 }
 
+bool exist_wal(const std::string& dir) {
+  auto read_dir_result = fileutil::read_dir(dir, fileutil::read_dir_op::with_ext(".wal"));
+  if (!read_dir_result) {
+    return false;
+  }
+  auto& entries = read_dir_result.value();
+  return !entries.empty();
+}
+
 asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io_executor executor,
                                                  const std::string& dirpath, const std::string& metadata,
+                                                 const std::size_t segment_size_bytes,
                                                  std::shared_ptr<lepton::logger_interface> logger) {
-  if (fileutil::path_exist(dirpath)) {
+  if (exist_wal(dirpath)) {
     LOGGER_ERROR(logger, "dirpath {} already exists", dirpath);
     co_return unexpected(io_error::PARH_HAS_EXIT);
   }
@@ -148,14 +176,15 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io
 
   DEFER({ (void)fileutil::remove_all(temp_dir_path); });
 
-  auto wal_handle_result = leaf_to_expected([&]() -> leaf::result<std::unique_ptr<wal>> {
+  auto wal_handle_result = leaf_to_expected([&]() -> leaf::result<wal_handle> {
     LEPTON_LEAF_CHECK(fileutil::create_dir_all(env, temp_dir_path));
     auto wal_file_path = std::filesystem::path(temp_dir_path) / wal_file_name(0, 0);
     BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor, env, wal_file_path.string(), false));
     BOOST_LEAF_AUTO(_, wal_file_handle->seek_end());
-    LEPTON_LEAF_CHECK(wal_file_handle->pre_allocate(SEGMENT_SIZE_BYTES, true));
-    BOOST_LEAF_AUTO(encoder, new_file_encoder(*wal_file_handle, 0, logger));
-    auto wal_handle = std::make_unique<wal>(executor, env, std::move(encoder), dirpath, metadata, logger);
+    LEPTON_LEAF_CHECK(wal_file_handle->pre_allocate(segment_size_bytes, true));
+    BOOST_LEAF_AUTO(encoder, new_file_encoder(executor, *wal_file_handle, 0, logger));
+    auto wal_handle =
+        std::make_shared<wal>(executor, env, std::move(encoder), dirpath, metadata, segment_size_bytes, logger);
     wal_handle->append_lock_file(std::move(wal_file_handle));
     return wal_handle;
   });

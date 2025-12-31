@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #ifndef _LEPTON_PATH_H_
 #define _LEPTON_PATH_H_
 #include <filesystem>
@@ -7,6 +8,8 @@
 namespace lepton::storage::fileutil {
 
 bool path_exist(const std::string& path);
+
+leaf::result<std::size_t> file_size(const std::string& path);
 
 leaf::result<void> remove_all(const std::string& path);
 
