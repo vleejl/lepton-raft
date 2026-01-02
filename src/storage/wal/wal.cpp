@@ -1,10 +1,13 @@
 #include "storage/wal/wal.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <ranges>
 #include <string>
+#include <vector>
 
 #include "asio/use_future.hpp"
 #include "basic/defer.h"
@@ -19,12 +22,16 @@
 #include "fmt/format.h"
 #include "leaf.hpp"
 #include "storage/fileutil/directory.h"
+#include "storage/fileutil/file_reader.h"
+#include "storage/fileutil/locked_file_endpoint.h"
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/read_dir.h"
+#include "storage/ioutil/reader.h"
 #include "storage/pb/types.h"
 #include "storage/pb/wal_protobuf.h"
 #include "storage/wal/wal.h"
 #include "storage/wal/wal_file.h"
+#include "v4/proxy.h"
 #include "wal.pb.h"
 namespace lepton::storage::wal {
 
@@ -156,6 +163,148 @@ bool exist_wal(const std::string& dir) {
   return !entries.empty();
 }
 
+/**
+ * 解析 WAL 文件名
+ * 格式示例: 0000000000000001-0000000000000005.wal
+ */
+auto parse_wal_name(std::string_view str) -> leaf::result<std::pair<uint64_t, uint64_t>> {
+  // 检查后缀是否为 .wal (C++20 ends_with)
+  if (!str.ends_with(".wal")) {
+    return new_error(logic_error::INVALID_FORMAT, "bad WAL name: missing .wal suffix");
+  }
+
+  // 注意：sscanf 需要 null-terminated 字符串，所以如果是 string_view 需要转换或确保格式
+  uint64_t seq = 0;
+  uint64_t index = 0;
+
+  // 预期的格式长度通常是 16 + 1 + 16 + 4 = 37 字符
+  // %16llx 解析 16 位十六进制
+  int matched = std::sscanf(str.data(), "%16" SCNx64 "-%16" SCNx64 ".wal", &seq, &index);
+
+  if (matched != 2) {
+    return new_error(logic_error::INVALID_FORMAT, "bad WAL name: invalid format");
+  }
+
+  return {seq, index};
+}
+
+/**
+ * 检查 WAL 文件序列号是否连续增加。
+ * names 必须预先根据序列号排序。
+ */
+bool is_valid_seq(std::span<const std::string> names) {
+  uint64_t last_seq = 0;
+
+  for (const auto& name : names) {
+    // 解析文件名，提取序列号 (seq)
+    auto parse_result = parse_wal_name(name);
+    if (!parse_result) {
+      LOG_CRITICAL("failed to parse WAL file name: {}", name);
+      continue;
+    }
+    auto [cur_seq, _] = parse_result.value();
+
+    // 如果不是第一个文件，检查当前序列号是否为上一个序列号 + 1
+    if (last_seq != 0 && cur_seq != last_seq + 1) {
+      return false;
+    }
+
+    last_seq = cur_seq;
+  }
+
+  return true;
+}
+
+// search_index returns the last array index of names whose raft index section is
+// equal to or smaller than the given index.
+// The given names MUST be sorted.
+leaf::result<int> search_index(const std::vector<std::string>& names, uint64_t index) {
+  // 从后往前遍历，寻找第一个满足 index >= curIndex 的位置
+  for (int i = static_cast<int>(names.size()) - 1; i >= 0; --i) {
+    const std::string& name = names[static_cast<size_t>(i)];
+    auto parse_result = parse_wal_name(name);
+    if (!parse_result) {
+      LOG_CRITICAL("failed to parse WAL file name: {}", name);
+      continue;
+    }
+    auto [_, cur_index] = parse_result.value();
+    if (index >= cur_index) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * 过滤并返回有效的 WAL 文件名列表
+ */
+std::vector<std::string> check_wal_names(const std::vector<std::string>& names) {
+  std::vector<std::string> wnames;
+
+  for (const auto& name : names) {
+    // 尝试解析 WAL 文件名
+    if (!parse_wal_name(name)) {
+      // 检查是否以 ".tmp" 结尾
+      if (!name.ends_with(".tmp")) {
+        LOG_WARN("ignored file in WAL directory: {}", name);
+      }
+      continue;
+    }
+
+    // 解析成功，加入结果集
+    wnames.push_back(name);
+  }
+
+  return wnames;
+}
+
+leaf::result<std::vector<std::string>> read_wal_names(const std::string& dir) {
+  BOOST_LEAF_AUTO(entries, fileutil::read_dir(dir));
+  auto wnames = check_wal_names(entries);
+  if (wnames.empty()) {
+    return new_error(logic_error::ERR_FILE_NOT_FOUND, fmt::format("no WAL files found in directory: {}", dir));
+  }
+  return wnames;
+}
+
+leaf::result<std::pair<std::vector<std::string>, uint64_t>> select_wal_files(const std::string& dir,
+                                                                             const pb::snapshot& snap) {
+  BOOST_LEAF_AUTO(wnames, read_wal_names(dir));
+  BOOST_LEAF_AUTO(name_index, search_index(wnames, snap.index()));
+  if (!is_valid_seq(std::span(wnames).subspan(static_cast<std::size_t>(name_index)))) {
+    return new_error(
+        logic_error::INVALID_PARAM,
+        fmt::format("wal: file sequence numbers (starting from {}) do not increase continuously", name_index));
+  }
+  return {wnames, static_cast<uint64_t>(name_index)};
+}
+
+leaf::result<std::vector<fileutil::file_reader_handle>> open_readonly_wal_files(asio::any_io_executor executor,
+                                                                                const std::string& dir,
+                                                                                std::span<const std::string> names) {
+  std::vector<fileutil::file_reader_handle> file_readers;
+  for (const auto& name : names) {
+    auto filepath = fileutil::join_paths(dir, name);
+    BOOST_LEAF_AUTO(file_handle, fileutil::create_file_reader(executor, filepath));
+    file_readers.push_back(std::move(file_handle));
+  }
+  return file_readers;
+}
+
+leaf::result<std::vector<fileutil::locked_file_handle>> open_locked_wal_file(rocksdb::Env* env,
+                                                                             asio::any_io_executor executor,
+                                                                             const std::string& dir,
+                                                                             std::span<const std::string> names) {
+  std::vector<fileutil::locked_file_handle> lock_files;
+  for (const auto& name : names) {
+    auto filepath = fileutil::join_paths(dir, name);
+    BOOST_LEAF_AUTO(file_handle,
+                    fileutil::create_locked_file_endpoint(env, executor, filepath, asio::file_base::read_write));
+    lock_files.push_back(std::move(file_handle));
+  }
+  return lock_files;
+}
+
 asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io_executor executor,
                                                  const std::string& dirpath, const std::string& metadata,
                                                  const std::size_t segment_size_bytes,
@@ -179,7 +328,7 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io
   auto wal_handle_result = leaf_to_expected([&]() -> leaf::result<wal_handle> {
     LEPTON_LEAF_CHECK(fileutil::create_dir_all(env, temp_dir_path));
     auto wal_file_path = std::filesystem::path(temp_dir_path) / wal_file_name(0, 0);
-    BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor, env, wal_file_path.string(), false));
+    BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(env, executor, wal_file_path.string(), false));
     BOOST_LEAF_AUTO(_, wal_file_handle->seek_end());
     LEPTON_LEAF_CHECK(wal_file_handle->pre_allocate(segment_size_bytes, true));
     BOOST_LEAF_AUTO(encoder, new_file_encoder(executor, *wal_file_handle, 0, logger));

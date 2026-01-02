@@ -122,6 +122,16 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env *env, asio::any_io
                                                  const std::string &dirpath, const std::string &metadata,
                                                  const std::size_t segment_size_bytes,
                                                  std::shared_ptr<lepton::logger_interface> logger);
+
+// Open opens the WAL at the given snap.
+// The snap SHOULD have been previously saved to the WAL, or the following
+// ReadAll will fail.
+// The returned WAL is ready to read and the first record will be the one after
+// the given snap. The WAL cannot be appended to before reading out all of its
+// previous records.
+asio::awaitable<expected<wal_handle>> open_wal(rocksdb::Env *env, asio::any_io_executor executor,
+                                               const std::string &dirpath,
+                                               std::shared_ptr<lepton::logger_interface> logger);
 }  // namespace lepton::storage::wal
 
 #endif  // _LEPTON_WAL_H_

@@ -16,6 +16,8 @@ enum class logic_error {
   EMPTY_ARRAY,
   LOOP_BREAK,  // 特殊错误码, errBreak is a sentinel error used to break a callback-based loop.
   SERIALIZE_FAILED,
+  INVALID_FORMAT,
+  ERR_FILE_NOT_FOUND,
 };
 
 // logic_error_category
@@ -37,6 +39,12 @@ class logic_error_category : public base_error_category {
         return "Empty array error";
       case logic_error::LOOP_BREAK:
         return "Loop break error";
+      case logic_error::SERIALIZE_FAILED:
+        return "Serialize failed error";
+      case logic_error::INVALID_FORMAT:
+        return "Invalid format error";
+      case logic_error::ERR_FILE_NOT_FOUND:
+        return "File not found error";
       default:
         assert(false);
         return "Unrecognized logic error";

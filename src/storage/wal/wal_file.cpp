@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "basic/logger.h"
+#include "error/lepton_error.h"
 #include "leaf.hpp"
 #include "storage/fileutil/locked_file_endpoint.h"
 #include "storage/wal/encoder.h"
@@ -50,14 +51,10 @@ leaf::result<fileutil::file_endpoint> create_new_wal_file(asio::any_io_executor 
   return fileutil::file_endpoint(filename, std::move(final_stream));
 }
 
-leaf::result<fileutil::locked_file_handle> create_new_wal_file(asio::any_io_executor executor, rocksdb::Env* env,
+leaf::result<fileutil::locked_file_handle> create_new_wal_file(rocksdb::Env* env, asio::any_io_executor executor,
                                                                const std::string& filename, bool force_new) {
   BOOST_LEAF_AUTO(file_handle, create_new_wal_file(executor, filename, force_new));
-  rocksdb::FileLock* lock;
-  if (auto s = env->LockFile(filename, &lock); !s.ok()) {
-    return new_error(s, fmt::format("Failed to lock WAL file {}: {}", filename, s.ToString()));
-  }
-  return std::make_unique<fileutil::locked_file_endpoint>(std::move(file_handle), env, lock);
+  return fileutil::create_locked_file_endpoint(env, std::move(file_handle), filename);
 }
 
 leaf::result<std::unique_ptr<encoder>> new_file_encoder(asio::any_io_executor executor,

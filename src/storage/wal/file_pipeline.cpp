@@ -51,7 +51,7 @@ asio::awaitable<expected<fileutil::locked_file_handle>> file_pipeline::open() {
 leaf::result<fileutil::locked_file_handle> file_pipeline::alloc() {
   // count % 2 so this file isn't the same as the one last published
   auto wal_file_path = wal_file_dir_ / fmt::format("{}.tmp", count_ % 2);
-  BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(executor_, env_, wal_file_path.string(), false));
+  BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(env_, executor_, wal_file_path.string(), false));
   LEPTON_LEAF_CHECK(wal_file_handle->pre_allocate(file_size_, true));
   count_++;
   return wal_file_handle;

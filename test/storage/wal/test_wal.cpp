@@ -279,7 +279,7 @@ TEST_F(wal_test_suit, test_create_new_wal_file) {
       auto result = create_new_wal_file(io_context.get_executor(), file_path, tc.force_new);
       ASSERT_TRUE(result);
     } else {
-      auto result = create_new_wal_file(io_context.get_executor(), env, file_path, tc.force_new);
+      auto result = create_new_wal_file(env, io_context.get_executor(), file_path, tc.force_new);
       ASSERT_TRUE(result);
     }
 
