@@ -3,8 +3,11 @@
 #include <fmt/format.h>
 
 #include <filesystem>
+#include <string>
 #include <system_error>
-
+#ifndef _WIN32
+#include <unistd.h>  // POSIX 平台必须，用于 ftruncate
+#endif
 #include "error/lepton_error.h"
 
 namespace fs = std::filesystem;
@@ -88,8 +91,25 @@ std::string base_name(const std::string& path_str) {
   } else if (p.has_parent_path()) {
     return p.parent_path().filename().string();
   }
-
   return p.string();
+}
+
+std::error_code truncate([[maybe_unused]] native_handle_t fd, [[maybe_unused]] const std::string& path,
+                         std::uint64_t length) {
+#ifndef _WIN32
+  // --- POSIX 平台 ---
+  // 直接操作 FD，即使目录被重命名也能准确截断
+  if (::ftruncate(fd, static_cast<off_t>(length)) != 0) {
+    return std::error_code(errno, std::system_category());
+  }
+  return {};
+#else
+  // --- Windows 平台 ---
+  // 使用标准库。注意：如果此时目录被重命名，此调用可能会失败
+  std::error_code ec;
+  std::filesystem::resize_file(path, length, ec);
+  return ec;
+#endif
 }
 
 }  // namespace lepton::storage::fileutil

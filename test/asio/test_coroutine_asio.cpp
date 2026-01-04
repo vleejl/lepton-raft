@@ -208,7 +208,7 @@ TEST(asio_coroutine_test_suit, asio_io_context2) {
 }
 
 // 等效操作函数
-awaitable<lepton::expected<void>> async_select(lepton::coro::channel<raftpb::message>& recvc, raftpb::message m,
+awaitable<lepton::expected<void>> async_select(lepton::coro::channel<raftpb::Message>& recvc, raftpb::Message m,
                                                lepton::coro::signal_channel& done_chan) {
   // 同时发起异步操作
   auto [order, ec1, ec2] = co_await asio::experimental::make_parallel_group(
@@ -236,7 +236,7 @@ awaitable<lepton::expected<void>> async_select(lepton::coro::channel<raftpb::mes
 TEST(asio_coroutine_test_suit, async_select_done_chan) {
   // 初始化组件
   asio::io_context io;
-  lepton::coro::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
+  lepton::coro::channel<raftpb::Message> recvc(io.get_executor());  // 带缓冲的通道
   lepton::coro::signal_channel done_chan(io.get_executor());        // 用于取消的信号通道
   asio::steady_timer ctx_done(io);
 
@@ -248,7 +248,7 @@ TEST(asio_coroutine_test_suit, async_select_done_chan) {
   co_spawn(
       io,
       [&]() -> awaitable<void> {
-        auto ec = co_await async_select(recvc, raftpb::message{}, done_chan);
+        auto ec = co_await async_select(recvc, raftpb::Message{}, done_chan);
         if (ec.has_value()) {
           std::cout << "发送成功\n";
         } else if (ec.error() == lepton::make_error_code(lepton::raft_error::STOPPED)) {
@@ -280,7 +280,7 @@ TEST(asio_coroutine_test_suit, async_select_done_chan) {
 TEST(asio_coroutine_test_suit, async_select_done) {
   // 初始化组件
   asio::io_context io;
-  lepton::coro::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
+  lepton::coro::channel<raftpb::Message> recvc(io.get_executor());  // 带缓冲的通道
   lepton::coro::signal_channel done_chan(io.get_executor());        // 用于取消的信号通道
   asio::steady_timer ctx_done(io);
 
@@ -291,7 +291,7 @@ TEST(asio_coroutine_test_suit, async_select_done) {
         auto ec = co_await lepton::coro::async_select_done(
             [&](auto token) {
               std::cout << "Attempting to send message..." << std::endl;
-              return recvc.async_send(asio::error_code{}, raftpb::message{}, token);
+              return recvc.async_send(asio::error_code{}, raftpb::Message{}, token);
               std::cout << "Message sent successfully." << std::endl;
             },
             done_chan);
@@ -326,7 +326,7 @@ TEST(asio_coroutine_test_suit, async_select_done) {
 TEST(asio_coroutine_test_suit, async_select_any_expected_async_send) {
   // 初始化组件
   asio::io_context io;
-  lepton::coro::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
+  lepton::coro::channel<raftpb::Message> recvc(io.get_executor());  // 带缓冲的通道
   lepton::coro::signal_channel done_chan(io.get_executor());        // 用于取消的信号通道
 
   // 执行选择操作
@@ -336,7 +336,7 @@ TEST(asio_coroutine_test_suit, async_select_any_expected_async_send) {
         auto ec = co_await lepton::coro::async_select_any_expected(
             [&](auto token) {
               std::cout << "Attempting to send message..." << std::endl;
-              return recvc.async_send(asio::error_code{}, raftpb::message{}, token);
+              return recvc.async_send(asio::error_code{}, raftpb::Message{}, token);
               std::cout << "Message sent successfully." << std::endl;
             },
             [&](auto token) { return done_chan.async_receive(token); });
@@ -371,7 +371,7 @@ TEST(asio_coroutine_test_suit, async_select_any_expected_async_send) {
 TEST(asio_coroutine_test_suit, async_select_done_with_raft_message_type) {
   // 初始化组件
   asio::io_context io;
-  lepton::coro::channel<raftpb::message> recvc(io.get_executor());  // 带缓冲的通道
+  lepton::coro::channel<raftpb::Message> recvc(io.get_executor());  // 带缓冲的通道
   lepton::coro::signal_channel done_chan(io.get_executor());        // 用于取消的信号通道
 
   // 执行选择操作
@@ -407,8 +407,8 @@ TEST(asio_coroutine_test_suit, async_select_done_with_raft_message_type) {
   // 在下一轮事件循环中 stop()（此时 step() 应已挂起）
   asio::post(io, [&]() {
     LOG_INFO("ready to send msg heartbeat");
-    raftpb::message msg;
-    msg.set_type(raftpb::message_type::MSG_HEARTBEAT);
+    raftpb::Message msg;
+    msg.set_type(raftpb::MessageType::MSG_HEARTBEAT);
     recvc.try_send(asio::error_code{}, std::move(msg));
     LOG_INFO("has ready send msg heartbeat");
   });

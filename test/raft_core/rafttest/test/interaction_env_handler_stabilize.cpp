@@ -13,7 +13,7 @@
 namespace interaction {
 
 // Don't drop local messages, which require reliable delivery.
-static bool is_local_msg(const raftpb::message &msg) {
+static bool is_local_msg(const raftpb::Message &msg) {
   return msg.from() == msg.to() || lepton::core::pb::is_local_msg_target(msg.to()) ||
          lepton::core::pb::is_local_msg_target(msg.from());
 }

@@ -1058,7 +1058,7 @@ TEST_F(raft_log_test_suit, slice) {
   const std::uint64_t num = 100;
   const std::uint64_t last = offset + num;
   const std::uint64_t half = offset + num / 2;
-  raftpb::entry entry;
+  raftpb::Entry entry;
   entry.set_index(half);
   entry.set_term(half);
   const std::size_t base_entry_size = entry.ByteSizeLong();

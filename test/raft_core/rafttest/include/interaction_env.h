@@ -30,15 +30,15 @@ PRO_DEF_MEM_DISPATCH(storage_append, append);
 // the Ready handling loop.
 // clang-format off
 struct storage_builer : pro::facade_builder 
-  ::add_convention<lepton::core::storage_initial_state, lepton::leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>>() const> 
+  ::add_convention<lepton::core::storage_initial_state, lepton::leaf::result<std::tuple<raftpb::HardState, raftpb::ConfState>>() const> 
   ::add_convention<lepton::core::storage_entries, lepton::leaf::result<lepton::core::pb::repeated_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
   ::add_convention<lepton::core::storage_entries_view, lepton::leaf::result<lepton::core::pb::span_entry>(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const> 
   ::add_convention<lepton::core::storage_term, lepton::leaf::result<std::uint64_t>(std::uint64_t i) const> 
   ::add_convention<lepton::core::storage_last_index, lepton::leaf::result<std::uint64_t>() const> 
   ::add_convention<lepton::core::storage_first_index, lepton::leaf::result<std::uint64_t>() const> 
-  ::add_convention<lepton::core::storage_snapshot, lepton::leaf::result<raftpb::snapshot>() const>
-  ::add_convention<storage_set_hard_state, lepton::leaf::result<void>(raftpb::hard_state&& hard_state)>
-  ::add_convention<storage_apply_snapshot, lepton::leaf::result<void>(raftpb::snapshot &&snapshot)>
+  ::add_convention<lepton::core::storage_snapshot, lepton::leaf::result<raftpb::Snapshot>() const>
+  ::add_convention<storage_set_hard_state, lepton::leaf::result<void>(raftpb::HardState&& hard_state)>
+  ::add_convention<storage_apply_snapshot, lepton::leaf::result<void>(raftpb::Snapshot &&snapshot)>
   ::add_convention<storage_compact, lepton::leaf::result<void>(std::uint64_t compact_index)>
   ::add_convention<storage_append, lepton::leaf::result<void>(lepton::core::pb::repeated_entry&& entries)>
   ::add_skill<pro::skills::as_view>
@@ -47,9 +47,9 @@ struct storage_builer : pro::facade_builder
 
 struct snap_override_storage {
   pro::proxy<storage_builer> storage;
-  std::function<lepton::leaf::result<raftpb::snapshot>()> snap_override_func;
+  std::function<lepton::leaf::result<raftpb::Snapshot>()> snap_override_func;
 
-  lepton::leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> initial_state() const {
+  lepton::leaf::result<std::tuple<raftpb::HardState, raftpb::ConfState>> initial_state() const {
     return storage->initial_state();
   }
 
@@ -69,19 +69,19 @@ struct snap_override_storage {
 
   lepton::leaf::result<std::uint64_t> first_index() const { return storage->first_index(); }
 
-  lepton::leaf::result<raftpb::snapshot> snapshot() const {
+  lepton::leaf::result<raftpb::Snapshot> snapshot() const {
     if (snap_override_func != nullptr) {
       return snap_override_func();
     }
     return storage->snapshot();
   }
 
-  lepton::leaf::result<void> set_hard_state(raftpb::hard_state &&hard_state) {
+  lepton::leaf::result<void> set_hard_state(raftpb::HardState &&hard_state) {
     LEPTON_LEAF_CHECK(storage->set_hard_state(std::move(hard_state)));
     return {};
   }
 
-  lepton::leaf::result<void> apply_snapshot(raftpb::snapshot &&snapshot) {
+  lepton::leaf::result<void> apply_snapshot(raftpb::Snapshot &&snapshot) {
     return storage->apply_snapshot(std::move(snapshot));
   }
 
@@ -134,7 +134,7 @@ struct interaction_env {
 
   // AddNodes adds n new nodes initialized from the given snapshot (which may be
   // empty), and using the cfg as template. They will be assigned consecutive IDs.
-  lepton::leaf::result<void> add_nodes(std::size_t, const lepton::core::config &config, raftpb::snapshot &snap);
+  lepton::leaf::result<void> add_nodes(std::size_t, const lepton::core::config &config, raftpb::Snapshot &snap);
   lepton::leaf::result<void> handle_add_nodes(const datadriven::test_data &test_data);
 
   lepton::leaf::result<void> handle_campaign(const datadriven::test_data &test_data);
@@ -276,8 +276,8 @@ std::vector<std::size_t> node_idxs(const datadriven::test_data &test_data);
 std::tuple<lepton::core::pb::repeated_message, lepton::core::pb::repeated_message> split_msgs(
     const lepton::core::pb::repeated_message &msgs, std::uint64_t to, int raftpb_message_type, bool drop);
 
-lepton::leaf::result<void> process_append(node &n, raftpb::hard_state &&hard_state,
-                                          lepton::core::pb::repeated_entry &&ents, raftpb::snapshot &&snap);
+lepton::leaf::result<void> process_append(node &n, raftpb::HardState &&hard_state,
+                                          lepton::core::pb::repeated_entry &&ents, raftpb::Snapshot &&snap);
 
 lepton::leaf::result<void> process_apply(node &n, const lepton::core::pb::repeated_entry &ents);
 

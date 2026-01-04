@@ -20,11 +20,11 @@
 
 namespace rafttest {
 
-using channel_msg_handle = std::shared_ptr<lepton::coro::channel_endpoint<raftpb::message>>;
+using channel_msg_handle = std::shared_ptr<lepton::coro::channel_endpoint<raftpb::Message>>;
 
 // 基础网络接口 (等价于 Go iface)
 struct iface {
-  virtual void send(const raftpb::message& m) = 0;
+  virtual void send(const raftpb::Message& m) = 0;
   virtual channel_msg_handle recv() = 0;
   virtual void disconnect() = 0;
   virtual void close() = 0;
@@ -50,12 +50,12 @@ class raft_network {
   explicit raft_network(asio::any_io_executor executor, const std::vector<uint64_t>& nodes)
       : executor_(executor), rng_(1) {
     for (auto n : nodes) {
-      recv_queues_[n] = std::make_shared<lepton::coro::channel_endpoint<raftpb::message>>(executor_, 1024);
+      recv_queues_[n] = std::make_shared<lepton::coro::channel_endpoint<raftpb::Message>>(executor_, 1024);
       disconnected_[n] = false;
     }
   }
 
-  void send(const raftpb::message& m) {
+  void send(const raftpb::Message& m) {
     channel_msg_handle to = nullptr;
     bool disconnected = false;
     double drop = 0.0;
@@ -92,7 +92,7 @@ class raft_network {
       throw std::runtime_error("failed to serialize message");
     }
 
-    raftpb::message cm;
+    raftpb::Message cm;
     if (!cm.ParseFromString(buf)) {
       throw std::runtime_error("failed to parse message");
     }
@@ -143,13 +143,13 @@ class raft_network {
   void connect(uint64_t id) {
     std::unique_lock lk(mu_);
     disconnected_[id] = false;
-    recv_queues_[id] = std::make_shared<lepton::coro::channel_endpoint<raftpb::message>>(executor_, 1024);
+    recv_queues_[id] = std::make_shared<lepton::coro::channel_endpoint<raftpb::Message>>(executor_, 1024);
   }
 
  private:
   std::mutex mu_;
   asio::any_io_executor executor_;
-  std::map<uint64_t, std::shared_ptr<lepton::coro::channel_endpoint<raftpb::message>>> recv_queues_;
+  std::map<uint64_t, std::shared_ptr<lepton::coro::channel_endpoint<raftpb::Message>>> recv_queues_;
   std::map<uint64_t, bool> disconnected_;
   std::map<conn, double> dropmap_;
   std::map<conn, struct delay> delaymap_;
@@ -166,7 +166,7 @@ class node_network : public iface {
   void connect() override { net_->connect(id_); }
   void disconnect() override { net_->disconnect(id_); }
   void close() override { net_->close(id_); }
-  void send(const raftpb::message& m) override { net_->send(m); }
+  void send(const raftpb::Message& m) override { net_->send(m); }
   channel_msg_handle recv() override { return net_->recv_from(id_); }
 
  private:

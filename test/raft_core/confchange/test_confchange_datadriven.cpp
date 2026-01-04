@@ -47,7 +47,7 @@ static leaf::result<std::string> process_single_test_case(
     if (tok.size() < 2) {
       return fmt::format("unknown token {}", tok);
     }
-    raftpb::conf_change_single cc;
+    raftpb::ConfChangeSingle cc;
     switch (tok[0]) {
       case 'v':
         cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);

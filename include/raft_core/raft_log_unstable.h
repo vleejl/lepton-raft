@@ -50,17 +50,17 @@ class unstable {
         offset_(offset),
         offset_in_progress_(offset_in_progress),
         logger_(std::move(logger)) {}
-  unstable(pb::repeated_entry&& entries, std::optional<raftpb::snapshot>&& s, std::uint64_t offset_in_progress,
+  unstable(pb::repeated_entry&& entries, std::optional<raftpb::Snapshot>&& s, std::uint64_t offset_in_progress,
            bool snapshot_in_progress, std::shared_ptr<lepton::logger_interface> logger)
       : snapshot_(std::move(s)),
         entries_(std::move(entries)),
         snapshot_in_progress_(snapshot_in_progress),
         offset_in_progress_(offset_in_progress),
         logger_(std::move(logger)) {}
-  unstable(std::optional<raftpb::snapshot>&& s, bool snapshot_in_progress,
+  unstable(std::optional<raftpb::Snapshot>&& s, bool snapshot_in_progress,
            std::shared_ptr<lepton::logger_interface> logger)
       : snapshot_(std::move(s)), snapshot_in_progress_(snapshot_in_progress), logger_(std::move(logger)) {}
-  unstable(raftpb::snapshot&& snapshot, pb::repeated_entry&& entries, std::uint64_t offset,
+  unstable(raftpb::Snapshot&& snapshot, pb::repeated_entry&& entries, std::uint64_t offset,
            std::shared_ptr<lepton::logger_interface> logger)
       : snapshot_(std::move(snapshot)), entries_(std::move(entries)), offset_(offset), logger_(std::move(logger)) {}
   unstable(unstable&& lhs) = default;
@@ -93,7 +93,7 @@ class unstable {
 
   bool has_snapshot() const { return snapshot_.has_value(); }
 
-  const raftpb::snapshot& snapshot_view() const {
+  const raftpb::Snapshot& snapshot_view() const {
     assert(has_snapshot());
     return *snapshot_;
   }
@@ -155,7 +155,7 @@ class unstable {
 
   // nextSnapshot returns the unstable snapshot, if one exists that is not already
   // in the process of being written to storage.
-  std::optional<std::reference_wrapper<const raftpb::snapshot>> next_snapshot() const {
+  std::optional<std::reference_wrapper<const raftpb::Snapshot>> next_snapshot() const {
     if (!snapshot_ || snapshot_in_progress_) {
       return std::nullopt;
     }
@@ -238,7 +238,7 @@ class unstable {
     }
   }
 
-  void restore(raftpb::snapshot&& snapshot) {
+  void restore(raftpb::Snapshot&& snapshot) {
     offset_ = snapshot.metadata().index() + 1;
     offset_in_progress_ = offset_;
     entries_.Clear();
@@ -297,7 +297,7 @@ class unstable {
 
  private:
   // the incoming unstable snapshot, if any.
-  std::optional<raftpb::snapshot> snapshot_;
+  std::optional<raftpb::Snapshot> snapshot_;
   // all entries that have not yet been written to storage.
   pb::repeated_entry entries_;
   // 这个字段记录了未稳定日志条目在 Raft
@@ -320,8 +320,8 @@ class unstable {
   std::shared_ptr<lepton::logger_interface> logger_;
 };
 
-static_assert(std::is_move_constructible_v<raftpb::snapshot>, "raftpb::snapshot is not move constructible");
-static_assert(std::is_move_assignable_v<raftpb::snapshot>, "raftpb::snapshot is not move assignable");
+static_assert(std::is_move_constructible_v<raftpb::Snapshot>, "raftpb::Snapshot is not move constructible");
+static_assert(std::is_move_assignable_v<raftpb::Snapshot>, "raftpb::Snapshot is not move assignable");
 
 }  // namespace lepton::core
 

@@ -1,5 +1,8 @@
 #include "storage/fileutil/file_reader.h"
 
+#include <cstdint>
+#include <memory>
+
 #include "asio/error_code.hpp"
 #include "basic/logger.h"
 #include "error/leaf.h"
@@ -19,7 +22,7 @@ leaf::result<void> file_reader::seek_start(std::int64_t offset) {
   return {};
 }
 
-leaf::result<std::uint64_t> file_reader::seek_curr() {
+leaf::result<std::int64_t> file_reader::seek_curr() {
   asio::error_code ec;
   auto offset = raw_file().seek(0, asio::file_base::seek_cur, ec);
   if (ec) {
@@ -28,7 +31,7 @@ leaf::result<std::uint64_t> file_reader::seek_curr() {
   return offset;
 }
 
-leaf::result<std::uint64_t> file_reader::seek_end() {
+leaf::result<std::int64_t> file_reader::seek_end() {
   asio::error_code ec;
   auto offset = raw_file().seek(0, asio::file_base::seek_end, ec);
   if (ec) {

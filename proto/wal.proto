@@ -1,7 +1,8 @@
-syntax = "proto2";
+syntax = "proto3";
 package walpb;
 
-enum record_type {
+enum RecordType {
+  	RECORD_UNKNOWN_TYPE = 0;
   	METADATA_TYPE        = 1;
 	ENTRY_TYPE           = 2;
 	STATE_TYPE			 = 3;
@@ -9,8 +10,8 @@ enum record_type {
 	SNAPSHOT_TYPE		 = 5;
 }
 
-message record {
-	optional record_type type  = 1;
+message Record {
+	optional RecordType type  = 1;
 	optional uint32 crc  = 2;
 	optional bytes data  = 3;
 }

@@ -8,13 +8,13 @@
 #include <system_error>
 
 #include "error/coro_error.h"
-#include "error/expected.h"
 #include "error/io_error.h"
 #include "error/leaf.h"
 #include "error/logic_error.h"
 #include "error/protobuf_error.h"
 #include "error/raft_error.h"
 #include "error/storage_error.h"
+#include "error/wal_error.h"
 #include "tl/expected.hpp"
 
 #ifdef LEPTON_STORAGE
@@ -25,7 +25,8 @@ namespace lepton {
 template <typename T>
 inline constexpr bool is_lepton_error_v =
     std::is_same_v<T, io_error> || std::is_same_v<T, logic_error> || std::is_same_v<T, raft_error> ||
-    std::is_same_v<T, storage_error> || std::is_same_v<T, protobuf_error> || std::is_same_v<T, coro_error>
+    std::is_same_v<T, storage_error> || std::is_same_v<T, protobuf_error> || std::is_same_v<T, coro_error> ||
+    std::is_same_v<T, wal_error>
 #ifdef LEPTON_STORAGE
     || std::is_same_v<T, rocksdb::Status>
 #endif

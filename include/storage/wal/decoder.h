@@ -38,7 +38,7 @@ class decoder {
   // When it fails, it returns err and usually resets 'rec' to the defaults.
   // When continueOnCrcError is set, the method may return ErrUnexpectedEOF or ErrCRCMismatch, but preserve the read
   // (potentially corrupted) record content.
-  asio::awaitable<expected<void>> decode_record(walpb::record& r);
+  asio::awaitable<expected<void>> decode_record(walpb::Record& r);
 
   void update_crc(std::uint32_t prev_crc) { crc_ = absl::crc32c_t(prev_crc); }
 
@@ -48,7 +48,7 @@ class decoder {
 
  private:
   asio::awaitable<expected<void>> decode_at_offset(pro::proxy_view<ioutil::reader> buf_reader, std::uint64_t offset,
-                                                   walpb::record& rec);
+                                                   walpb::Record& rec);
 
   // isTornEntry determines whether the last entry of the WAL was partially written
   // and corrupted because of a torn write.

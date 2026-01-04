@@ -16,7 +16,7 @@
 namespace interaction {
 
 lepton::leaf::result<void> interaction_env::handle_deliver_msgs(const datadriven::test_data &test_data) {
-  // raftpb::message_type
+  // raftpb::MessageType
   int raftpb_message_type = -1;
   std::vector<recipient> rs;
   for (const auto &arg : test_data.cmd_args) {
@@ -82,7 +82,7 @@ int interaction_env::deliver_msgs(int raftpb_message_type, const std::vector<rec
       assert(node_idx < nodes.size());
       auto _ = boost::leaf::try_handle_some(
           [&]() -> lepton::leaf::result<void> {
-            raftpb::message msg;
+            raftpb::Message msg;
             msg.CopyFrom(m);
             LOG_TRACE("deliver_msgs {}", msg.DebugString());
             LEPTON_LEAF_CHECK(nodes[node_idx].raw_node.step(std::move(msg)));

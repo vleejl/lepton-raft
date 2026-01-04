@@ -52,11 +52,11 @@ lepton::leaf::result<void> interaction_env::process_append_thread(std::size_t no
   m.clear_responses();
   output->write_string("Processing:\n");
   output->write_string(lepton::core::describe_message(m, nullptr) + "\n");
-  raftpb::hard_state hard_state;
+  raftpb::HardState hard_state;
   hard_state.set_term(m.term());
   hard_state.set_vote(m.vote());
   hard_state.set_commit(m.commit());
-  raftpb::snapshot snap;
+  raftpb::Snapshot snap;
   if (m.has_snapshot()) {
     snap.CopyFrom(m.snapshot());
   }
@@ -71,8 +71,8 @@ lepton::leaf::result<void> interaction_env::process_append_thread(std::size_t no
   return {};
 }
 
-lepton::leaf::result<void> process_append(node &n, raftpb::hard_state &&hard_state,
-                                          lepton::core::pb::repeated_entry &&ents, raftpb::snapshot &&snap) {
+lepton::leaf::result<void> process_append(node &n, raftpb::HardState &&hard_state,
+                                          lepton::core::pb::repeated_entry &&ents, raftpb::Snapshot &&snap) {
   // TODO(tbg): the order of operations here is not necessarily safe. See:
   // https://github.com/etcd-io/etcd/pull/10861
   auto &s = n.storage;

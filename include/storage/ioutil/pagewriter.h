@@ -27,11 +27,11 @@ class page_writer {
   page_writer(pro::proxy_view<writer> w, size_t page_bytes, size_t page_offset)
       : w_(w),
         page_offset_(page_offset),
-        page_bytes_(page_bytes),
+        page_size_bytes(page_bytes),
         buffered_bytes_(0),
         // 设置为 defaultBufferBytes + pageBytes的原因是为了处理页面对齐的边界情况
         buf_(std::make_unique<std::byte[]>(DEFAULT_BUFFER_BYTES + page_bytes)),
-        buf_watermark_bytes_(DEFAULT_BUFFER_BYTES) {
+        flush_buf_watermark_bytes(DEFAULT_BUFFER_BYTES) {
     // invalid pageBytes (%d) value, it must be greater than 0
     assert(page_bytes > 0);
   }
@@ -78,7 +78,7 @@ class page_writer {
   std::size_t page_offset_;
   // pageBytes is the number of bytes per page
   // 当前 page size
-  const size_t page_bytes_ = 0;
+  const size_t page_size_bytes = 0;
   // bufferedBytes counts the number of bytes pending for write in the buffer
   // 当前 buffer 中的数据量
   std::size_t buffered_bytes_;
@@ -87,7 +87,7 @@ class page_writer {
   // bufWatermarkBytes is the number of bytes the buffer can hold before it needs
   // to be flushed. It is less than len(buf) so there is space for slack writes
   // to bring the writer to page alignment.
-  const std::size_t buf_watermark_bytes_ = 0;
+  const std::size_t flush_buf_watermark_bytes = 0;
 };
 
 }  // namespace lepton::storage::ioutil

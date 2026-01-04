@@ -27,7 +27,7 @@ leaf::result<raw_node> new_raw_node(config &&c) {
 
 // MustSync returns true if the hard state and count of Raft entries indicate
 // that a synchronous write to persistent storage is required.
-bool must_sync(const raftpb::hard_state &st, const raftpb::hard_state &prev_st, int ents_num) {
+bool must_sync(const raftpb::HardState &st, const raftpb::HardState &prev_st, int ents_num) {
   // Persistent state on all servers:
   // (Updated on stable storage before responding to RPCs)
   // currentTerm
@@ -82,9 +82,9 @@ static bool need_storage_append_resp_msg(const raft &r, const ready &rd) {
 // after the unstable log entries, hard state, and snapshot in the current Ready
 // (along with those in all prior Ready structs) have been saved to stable
 // storage.
-static raftpb::message new_storage_append_resp_msg(const raft &r, const ready &rd) {
-  raftpb::message m;
-  m.set_type(raftpb::message_type::MSG_STORAGE_APPEND_RESP);
+static raftpb::Message new_storage_append_resp_msg(const raft &r, const ready &rd) {
+  raftpb::Message m;
+  m.set_type(raftpb::MessageType::MSG_STORAGE_APPEND_RESP);
   m.set_to(r.id());
   m.set_from(pb::LOCAL_APPEND_THREAD);
   // Dropped after term change, see below.
@@ -198,9 +198,9 @@ static raftpb::message new_storage_append_resp_msg(const raft &r, const ready &r
 // state, and apply a snapshot. The message also carries a set of responses
 // that should be delivered after the rest of the message is processed. Used
 // with AsyncStorageWrites.
-static raftpb::message new_storage_append_msg(raft &r, const ready &rd) {
-  raftpb::message m;
-  m.set_type(raftpb::message_type::MSG_STORAGE_APPEND);
+static raftpb::Message new_storage_append_msg(raft &r, const ready &rd) {
+  raftpb::Message m;
+  m.set_type(raftpb::MessageType::MSG_STORAGE_APPEND);
   m.set_to(pb::LOCAL_APPEND_THREAD);
   m.set_from(r.id());
   *m.mutable_entries() = rd.entries;
@@ -244,9 +244,9 @@ static bool need_storage_apply_resp_msg(const ready &rd) { return need_storage_a
 // newStorageApplyRespMsg creates the message that should be returned to node
 // after the committed entries in the current Ready (along with those in all
 // prior Ready structs) have been applied to the local state machine.
-static raftpb::message new_storage_apply_resp_msg(const raft &r, const pb::repeated_entry &entries) {
-  raftpb::message m;
-  m.set_type(raftpb::message_type::MSG_STORAGE_APPLY_RESP);
+static raftpb::Message new_storage_apply_resp_msg(const raft &r, const pb::repeated_entry &entries) {
+  raftpb::Message m;
+  m.set_type(raftpb::MessageType::MSG_STORAGE_APPLY_RESP);
   m.set_to(r.id());
   m.set_from(pb::LOCAL_APPLY_THREAD);
   m.set_term(0);
@@ -258,9 +258,9 @@ static raftpb::message new_storage_apply_resp_msg(const raft &r, const pb::repea
 // apply thread to instruct it to apply committed log entries. The message
 // also carries a response that should be delivered after the rest of the
 // message is processed. Used with AsyncStorageWrites.
-static raftpb::message new_storage_apply_msg(const raft &r, const ready &rd) {
-  raftpb::message m;
-  m.set_type(raftpb::message_type::MSG_STORAGE_APPLY);
+static raftpb::Message new_storage_apply_msg(const raft &r, const ready &rd) {
+  raftpb::Message m;
+  m.set_type(raftpb::MessageType::MSG_STORAGE_APPLY);
   m.set_to(pb::LOCAL_APPLY_THREAD);
   m.set_from(r.id());
   m.set_term(0);  // committed entries don't apply under a specific term
@@ -422,7 +422,7 @@ leaf::result<void> raw_node::bootstrap(std::vector<peer> &&peers) {
   // We've faked out initial entries above, but nothing has been
   // persisted. Start with an empty HardState (thus the first Ready will
   // emit a HardState update for the app to persist).
-  prev_hard_state_ = raftpb::hard_state{};
+  prev_hard_state_ = raftpb::HardState{};
 
   // TODO(tbg): remove StartNode and give the application the right tools to
   // bootstrap the initial membership in a cleaner way.
@@ -431,7 +431,7 @@ leaf::result<void> raw_node::bootstrap(std::vector<peer> &&peers) {
   ents.Reserve(static_cast<int>(peers.size()));
   for (std::size_t i = 0; i < peers.size(); ++i) {
     auto &iter = peers[i];
-    raftpb::conf_change cc;
+    raftpb::ConfChange cc;
     cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
     cc.set_node_id(iter.ID);
     if (!iter.context.empty()) {
@@ -439,7 +439,7 @@ leaf::result<void> raw_node::bootstrap(std::vector<peer> &&peers) {
     }
 
     auto entry = ents.Add();
-    entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
+    entry->set_type(raftpb::EntryType::ENTRY_CONF_CHANGE);
     entry->set_term(1);
     entry->set_index(i + 1);
     if (!cc.SerializePartialToString(entry->mutable_data())) {
@@ -463,7 +463,7 @@ leaf::result<void> raw_node::bootstrap(std::vector<peer> &&peers) {
   // the invariant that committed < unstable?
   raft_.raft_log_handle_.set_commit(ents_size);
   for (const auto &iter : peers) {
-    raftpb::conf_change cc;
+    raftpb::ConfChange cc;
     cc.set_type(raftpb::CONF_CHANGE_ADD_NODE);
     cc.set_node_id(iter.ID);
     raft_.apply_conf_change(pb::conf_change_as_v2(std::move(cc)));

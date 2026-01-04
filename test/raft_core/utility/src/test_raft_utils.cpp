@@ -175,7 +175,7 @@ network new_network(std::vector<state_machine_builer_pair> &&peers) {
   return new_network_with_config(nullptr, std::move(peers));
 }
 
-void network::send(std::vector<raftpb::message> &&msgs) {
+void network::send(std::vector<raftpb::Message> &&msgs) {
   while (!msgs.empty()) {
     auto &msg = *msgs.begin();
     auto msg_to = msg.to();
@@ -189,14 +189,14 @@ void network::send(std::vector<raftpb::message> &&msgs) {
   }
 }
 
-std::vector<raftpb::message> network::filter(const lepton::core::pb::repeated_message &msgs) {
-  std::vector<raftpb::message> mm;
+std::vector<raftpb::Message> network::filter(const lepton::core::pb::repeated_message &msgs) {
+  std::vector<raftpb::Message> mm;
   for (auto &msg : msgs) {
     if (ignorem.contains(msg.type())) {
       continue;
     }
     switch (msg.type()) {
-      case raftpb::message_type::MSG_HUP: {
+      case raftpb::MessageType::MSG_HUP: {
         // hups never go over the network, so don't drop them but panic
         LEPTON_CRITICAL("unexpected msgHup");
         break;
@@ -215,7 +215,7 @@ std::vector<raftpb::message> network::filter(const lepton::core::pb::repeated_me
       }
     }
     // LOG_INFO(msg.DebugString());
-    mm.push_back(raftpb::message{msg});
+    mm.push_back(raftpb::Message{msg});
   }
   return mm;
 }
@@ -285,16 +285,16 @@ lepton::core::raft new_test_learner_raft(std::uint64_t id, int election_tick, in
   return new_test_raft(id, election_tick, heartbeat_tick, std::move(storage));
 }
 
-raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type) {
-  raftpb::message msg;
+raftpb::Message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::MessageType type) {
+  raftpb::Message msg;
   msg.set_from(from);
   msg.set_to(to);
   msg.set_type(type);
   return msg;
 }
 
-raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, std::uint64_t term, raftpb::message_type type) {
-  raftpb::message msg;
+raftpb::Message new_pb_message(std::uint64_t from, std::uint64_t to, std::uint64_t term, raftpb::MessageType type) {
+  raftpb::Message msg;
   msg.set_from(from);
   msg.set_to(to);
   msg.set_term(term);
@@ -302,8 +302,8 @@ raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, std::uint64
   return msg;
 }
 
-raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type, std::string data) {
-  raftpb::message msg;
+raftpb::Message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::MessageType type, std::string data) {
+  raftpb::Message msg;
   msg.set_from(from);
   msg.set_to(to);
   msg.set_type(type);
@@ -312,9 +312,9 @@ raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::mes
   return msg;
 }
 
-raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type,
+raftpb::Message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::MessageType type,
                                lepton::core::pb::repeated_entry &&entries) {
-  raftpb::message msg;
+  raftpb::Message msg;
   msg.set_from(from);
   msg.set_to(to);
   msg.set_type(type);
@@ -351,7 +351,7 @@ state_machine_builer_pair ents_with_config(std::function<void(lepton::core::conf
 state_machine_builer_pair voted_with_config(std::function<void(lepton::core::config &)> config_func, std::uint64_t vote,
                                             std::uint64_t term) {
   memory_storage ms;
-  raftpb::hard_state hard_state;
+  raftpb::HardState hard_state;
   hard_state.set_vote(vote);
   hard_state.set_term(term);
   ms.set_hard_state(std::move(hard_state));

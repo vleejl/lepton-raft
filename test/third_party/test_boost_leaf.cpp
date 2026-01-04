@@ -158,9 +158,9 @@ TEST(boost_leaaf_try, test_asio_error_code_with_tl_expected) {
 
 TEST(boost_leaaf_try, test_leaf_result_to_expected) {
   auto expected_err = lepton::make_error_code(raft_error::STOPPED);
-  auto func = []() -> leaf::result<raftpb::message> { return lepton::new_error(lepton::raft_error::STOPPED); };
+  auto func = []() -> leaf::result<raftpb::Message> { return lepton::new_error(lepton::raft_error::STOPPED); };
 
-  auto result = lepton::leaf_to_expected([&]() -> leaf::result<raftpb::message> {
+  auto result = lepton::leaf_to_expected([&]() -> leaf::result<raftpb::Message> {
     BOOST_LEAF_AUTO(m, func());
     return m;
   });

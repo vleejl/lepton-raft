@@ -24,15 +24,15 @@ class memory_storage {
 #ifdef LEPTON_TEST
   explicit memory_storage(const pb::repeated_entry& ents) : ents_(ents) {}
 
-  raftpb::snapshot& snapshot_ref() { return snapshot_; }
+  raftpb::Snapshot& snapshot_ref() { return snapshot_; }
 
   auto& mutable_ents() { return ents_; }
 #endif
-  leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> initial_state() const;
+  leaf::result<std::tuple<raftpb::HardState, raftpb::ConfState>> initial_state() const;
 
   const pb::repeated_entry& entries_view() const;
 
-  leaf::result<void> set_hard_state(raftpb::hard_state&& hard_state);
+  leaf::result<void> set_hard_state(raftpb::HardState&& hard_state);
 
   leaf::result<pb::repeated_entry> entries(std::uint64_t lo, std::uint64_t hi, std::uint64_t max_size) const;
 
@@ -44,17 +44,17 @@ class memory_storage {
 
   leaf::result<std::uint64_t> first_index() const;
 
-  leaf::result<raftpb::snapshot> snapshot() const;
+  leaf::result<raftpb::Snapshot> snapshot() const;
 
   // ApplySnapshot overwrites the contents of this Storage object with
   // those of the given snapshot.
-  leaf::result<void> apply_snapshot(raftpb::snapshot&& snapshot);
+  leaf::result<void> apply_snapshot(raftpb::Snapshot&& snapshot);
 
   // CreateSnapshot makes a snapshot which can be retrieved with Snapshot() and
   // can be used to reconstruct the state at that point.
   // If any configuration changes have been made since the last compaction,
   // the result of the last ApplyConfChange must be passed in.
-  leaf::result<raftpb::snapshot> create_snapshot(std::uint64_t i, std::optional<raftpb::conf_state> cs,
+  leaf::result<raftpb::Snapshot> create_snapshot(std::uint64_t i, std::optional<raftpb::ConfState> cs,
                                                  std::string&& data);
 
   // Compact discards all log entries prior to compactIndex.
@@ -73,8 +73,8 @@ class memory_storage {
   // goroutine.
   mutable std::mutex mutex_;
 
-  raftpb::hard_state hard_state_;
-  raftpb::snapshot snapshot_;
+  raftpb::HardState hard_state_;
+  raftpb::Snapshot snapshot_;
 
   // ents[i] has raft log position i+snapshot.Metadata.Index
   pb::repeated_entry ents_;

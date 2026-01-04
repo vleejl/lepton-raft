@@ -68,10 +68,10 @@ lepton::leaf::result<void> interaction_env::process_apply_thread(std::size_t nod
 lepton::leaf::result<void> process_apply(node &n, const lepton::core::pb::repeated_entry &ents) {
   for (const auto &ent : ents) {
     std::string update;
-    std::optional<raftpb::conf_state> cs;
+    std::optional<raftpb::ConfState> cs;
     switch (ent.type()) {
       case raftpb::ENTRY_CONF_CHANGE: {
-        raftpb::conf_change cc;
+        raftpb::ConfChange cc;
         if (!cc.ParseFromString(ent.data())) {
           return lepton::new_error(lepton::logic_error::INVALID_PARAM, "parse failed");
         }
@@ -80,7 +80,7 @@ lepton::leaf::result<void> process_apply(node &n, const lepton::core::pb::repeat
         break;
       }
       case raftpb::ENTRY_CONF_CHANGE_V2: {
-        raftpb::conf_change_v2 cc;
+        raftpb::ConfChangeV2 cc;
         if (!cc.ParseFromString(ent.data())) {
           return lepton::new_error(lepton::logic_error::INVALID_PARAM, "parse failed");
         }
@@ -97,7 +97,7 @@ lepton::leaf::result<void> process_apply(node &n, const lepton::core::pb::repeat
     // Record the new state by starting with the current state and applying
     // the command.
     const auto &last_snap = n.history[n.history.size() - 1];
-    raftpb::snapshot snap;
+    raftpb::Snapshot snap;
     snap.mutable_data()->append(last_snap.data().begin(), last_snap.data().end());
     // NB: this hard-codes an "appender" state machine.
     snap.mutable_data()->append(std::move(update));

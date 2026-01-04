@@ -28,8 +28,8 @@ lepton::leaf::result<void> interaction_env::send_snapshot(std::size_t from_idx, 
   BOOST_LEAF_AUTO(snap, nodes[from_idx].storage->snapshot());
   auto from = from_idx + 1;
   auto to = to_idx + 1;
-  raftpb::message msg;
-  msg.set_type(::raftpb::message_type::MSG_SNAP);
+  raftpb::Message msg;
+  msg.set_type(::raftpb::MessageType::MSG_SNAP);
   msg.set_from(from);
   msg.set_to(to);
   msg.set_term(nodes[from_idx].raw_node.basic_status().hard_state.term());

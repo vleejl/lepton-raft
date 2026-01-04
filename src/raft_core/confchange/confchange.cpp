@@ -205,7 +205,7 @@ void changer::remove(std::uint64_t id, tracker::config &cfg, tracker::progress_m
   }
 }
 
-leaf::result<void> changer::apply(absl::Span<const raftpb::conf_change_single *const> ccs, tracker::config &cfg,
+leaf::result<void> changer::apply(absl::Span<const raftpb::ConfChangeSingle *const> ccs, tracker::config &cfg,
                                   tracker::progress_map &prs) const {
   for (const auto &cc : ccs) {
     if (!cc->has_node_id()) {
@@ -218,19 +218,19 @@ leaf::result<void> changer::apply(absl::Span<const raftpb::conf_change_single *c
       continue;
     }
     switch (cc->type()) {
-      case raftpb::conf_change_type::CONF_CHANGE_ADD_NODE: {
+      case raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE: {
         make_voters(cc->node_id(), cfg, prs);
         break;
       }
-      case raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE: {
+      case raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE: {
         make_learners(cc->node_id(), cfg, prs);
         break;
       }
-      case raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE: {
+      case raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE: {
         remove(cc->node_id(), cfg, prs);
         break;
       }
-      case raftpb::conf_change_type::CONF_CHANGE_UPDATE_NODE: {
+      case raftpb::ConfChangeType::CONF_CHANGE_UPDATE_NODE: {
         break;
       }
       default:
@@ -243,7 +243,7 @@ leaf::result<void> changer::apply(absl::Span<const raftpb::conf_change_single *c
   return {};
 }
 
-changer::result changer::enter_joint(bool auto_leave, absl::Span<const raftpb::conf_change_single *const> ccs) const {
+changer::result changer::enter_joint(bool auto_leave, absl::Span<const raftpb::ConfChangeSingle *const> ccs) const {
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (cfg.joint()) {
@@ -309,7 +309,7 @@ auto symdiff(const std::set<std::uint64_t> &set1, const std::set<std::uint64_t> 
   return intersection_count;
 }
 
-changer::result changer::simple(absl::Span<const raftpb::conf_change_single *const> ccs) const {
+changer::result changer::simple(absl::Span<const raftpb::ConfChangeSingle *const> ccs) const {
   BOOST_LEAF_AUTO(v, check_and_copy());
   auto &[cfg, prs] = v;
   if (cfg.joint()) {

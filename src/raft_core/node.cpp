@@ -133,8 +133,8 @@ void node::tick() {
 }
 
 asio::awaitable<expected<void>> node::campaign() {
-  raftpb::message msg;
-  msg.set_type(::raftpb::message_type::MSG_HUP);
+  raftpb::Message msg;
+  msg.set_type(::raftpb::MessageType::MSG_HUP);
   auto result = co_await step_impl(std::move(msg));
   co_return result;
 }
@@ -145,15 +145,15 @@ asio::awaitable<expected<void>> node::propose(std::string&& data) {
 }
 
 asio::awaitable<expected<void>> node::propose(asio::any_io_executor executor, std::string&& data) {
-  raftpb::message msg;
-  msg.set_type(raftpb::message_type::MSG_PROP);
+  raftpb::Message msg;
+  msg.set_type(raftpb::MessageType::MSG_PROP);
   auto entry = msg.add_entries();
   entry->set_data(std::move(data));
   auto result = co_await step_with_wait_impl(executor, std::move(msg));
   co_return result;
 }
 
-asio::awaitable<expected<void>> node::step(raftpb::message&& msg) {
+asio::awaitable<expected<void>> node::step(raftpb::Message&& msg) {
   LOG_TRACE(msg.DebugString());
   if (pb::is_local_msg(msg.type()) && !pb::is_local_msg_target(msg.from())) {
     // Local messages are not handled by step, but by the node's
@@ -165,7 +165,7 @@ asio::awaitable<expected<void>> node::step(raftpb::message&& msg) {
 }
 
 asio::awaitable<expected<void>> node::propose_conf_change(const pb::conf_change_var& cc) {
-  auto msg_result = leaf_to_expected([&]() -> leaf::result<raftpb::message> {
+  auto msg_result = leaf_to_expected([&]() -> leaf::result<raftpb::Message> {
     BOOST_LEAF_AUTO(m, pb::conf_change_to_message(cc));
     return m;
   });
@@ -202,9 +202,9 @@ asio::awaitable<void> node::advance() {
   co_return;
 }
 
-asio::awaitable<expected<raftpb::conf_state>> node::apply_conf_change(raftpb::conf_change_v2&& cc) {
+asio::awaitable<expected<raftpb::ConfState>> node::apply_conf_change(raftpb::ConfChangeV2&& cc) {
   if (!is_running()) {
-    co_return raftpb::conf_state{};
+    co_return raftpb::ConfState{};
   }
   asio::error_code ec;
   co_await conf_chan_.raw_channel().async_send(asio::error_code{}, cc, asio::redirect_error(asio::use_awaitable, ec));
@@ -243,9 +243,9 @@ asio::awaitable<void> node::report_unreachable(std::uint64_t id) {
   if (!is_running()) {
     co_return;
   }
-  raftpb::message msg;
+  raftpb::Message msg;
   msg.set_from(id);
-  msg.set_type(raftpb::message_type::MSG_UNREACHABLE);
+  msg.set_type(raftpb::MessageType::MSG_UNREACHABLE);
   auto ec = co_await recv_chan_.async_send(std::move(msg));
   if (!ec) {
     LOG_ERROR(ec.error().message());
@@ -258,8 +258,8 @@ asio::awaitable<void> node::report_snapshot(std::uint64_t id, snapshot_status st
     co_return;
   }
   auto rej = status == snapshot_status::SNAPSHOT_FAILURE;
-  raftpb::message msg;
-  msg.set_type(raftpb::message_type::MSG_SNAP_STATUS);
+  raftpb::Message msg;
+  msg.set_type(raftpb::MessageType::MSG_SNAP_STATUS);
   msg.set_from(id);
   msg.set_reject(rej);
   auto ec = co_await recv_chan_.async_send(std::move(msg));
@@ -273,8 +273,8 @@ asio::awaitable<void> node::transfer_leadership(std::uint64_t lead, std::uint64_
   if (!is_running()) {
     co_return;
   }
-  raftpb::message msg;
-  msg.set_type(raftpb::message_type::MSG_TRANSFER_LEADER);
+  raftpb::Message msg;
+  msg.set_type(raftpb::MessageType::MSG_TRANSFER_LEADER);
   // manually set 'from' and 'to', so that leader can voluntarily transfers its leadership
   msg.set_from(transferee);
   msg.set_to(lead);
@@ -286,15 +286,15 @@ asio::awaitable<void> node::transfer_leadership(std::uint64_t lead, std::uint64_
 }
 
 asio::awaitable<expected<void>> node::forget_leader() {
-  raftpb::message msg;
-  msg.set_type(raftpb::message_type::MSG_FORGET_LEADER);
+  raftpb::Message msg;
+  msg.set_type(raftpb::MessageType::MSG_FORGET_LEADER);
   auto result = co_await step_impl(std::move(msg));
   co_return result;
 }
 
 asio::awaitable<expected<void>> node::read_index(std::string&& data) {
-  raftpb::message msg;
-  msg.set_type(raftpb::message_type::MSG_PROP);
+  raftpb::Message msg;
+  msg.set_type(raftpb::MessageType::MSG_PROP);
   auto entry = msg.add_entries();
   entry->set_data(std::move(data));
   auto result = co_await step_impl(std::move(msg));
@@ -529,7 +529,7 @@ asio::awaitable<void> node::listen_stop() {
   co_return;
 }
 
-asio::awaitable<expected<void>> node::handle_non_prop_msg(raftpb::message&& msg) {
+asio::awaitable<expected<void>> node::handle_non_prop_msg(raftpb::Message&& msg) {
   auto debugMsg = msg.DebugString();
   LOG_TRACE("ready to send non-proposal message, {}", debugMsg);
 
@@ -541,10 +541,10 @@ asio::awaitable<expected<void>> node::handle_non_prop_msg(raftpb::message&& msg)
   co_return ok();
 }
 
-asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
+asio::awaitable<expected<void>> node::step_impl(raftpb::Message&& msg) {
   LOG_TRACE(msg.DebugString());
   const auto msg_type = msg.type();
-  if (msg_type != raftpb::message_type::MSG_PROP) {
+  if (msg_type != raftpb::MessageType::MSG_PROP) {
     auto result = co_await handle_non_prop_msg(std::move(msg));
     co_return result;
   }
@@ -556,10 +556,10 @@ asio::awaitable<expected<void>> node::step_impl(raftpb::message&& msg) {
   co_return ec;
 }
 
-asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor executor, raftpb::message&& msg) {
+asio::awaitable<expected<void>> node::step_with_wait_impl(asio::any_io_executor executor, raftpb::Message&& msg) {
   LOG_TRACE(msg.DebugString());
   const auto msg_type = msg.type();
-  if (msg_type != raftpb::message_type::MSG_PROP) {
+  if (msg_type != raftpb::MessageType::MSG_PROP) {
     auto result = co_await handle_non_prop_msg(std::move(msg));
     co_return result;
   }

@@ -18,11 +18,12 @@ inline std::string wal_file_name(std::uint64_t seq, std::uint64_t index) {
 leaf::result<fileutil::file_endpoint> create_new_wal_file(asio::any_io_executor executor, const std::string& filename,
                                                           bool force_new);
 
-leaf::result<fileutil::locked_file_handle> create_new_wal_file(rocksdb::Env* env, asio::any_io_executor executor,
-                                                               const std::string& filename, bool force_new);
+leaf::result<fileutil::locked_file_endpoint_handle> create_new_wal_file(rocksdb::Env* env,
+                                                                        asio::any_io_executor executor,
+                                                                        const std::string& filename, bool force_new);
 
 leaf::result<std::unique_ptr<encoder>> new_file_encoder(asio::any_io_executor executor,
-                                                        fileutil::locked_file_endpoint& file, std::uint32_t prev_crc,
+                                                        fileutil::locked_file_endpoint* file, std::uint32_t prev_crc,
                                                         std::shared_ptr<lepton::logger_interface> logger);
 }  // namespace lepton::storage::wal
 

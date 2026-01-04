@@ -39,7 +39,7 @@ struct entry_view {
     size_t block_idx;
     size_t elem_idx;
 
-    const raftpb::entry& operator*() const { return *owner->blocks_[block_idx][elem_idx]; }
+    const raftpb::Entry& operator*() const { return *owner->blocks_[block_idx][elem_idx]; }
 
     iterator& operator++() {
       if (++elem_idx >= owner->blocks_[block_idx].size()) {

@@ -18,7 +18,7 @@ constexpr auto LOCAL_APPEND_THREAD = std::numeric_limits<std::uint64_t>::max();
 // target for MsgStorageApply messages when AsyncStorageWrites is enabled.
 constexpr auto LOCAL_APPLY_THREAD = std::numeric_limits<std::uint64_t>::max() - 1;
 
-constexpr int RAFTPB_MESSAGE_COUNT = raftpb::message_type::MSG_FORGET_LEADER + 1;
+constexpr int RAFTPB_MESSAGE_COUNT = raftpb::MessageType::MSG_FORGET_LEADER + 1;
 
 // entryEncodingSize represents the protocol buffer encoding size of one or more
 // entries.
@@ -28,13 +28,13 @@ using entry_encoding_size = std::uint64_t;
 // payloads, like those proposed after a leadership change, are considered
 // to be zero size.
 using entry_payload_size = std::uint64_t;
-using snapshot_ptr = std::unique_ptr<raftpb::snapshot>;
-using entry_ptr = std::unique_ptr<raftpb::entry>;
-using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::entry>;
-using span_entry = absl::Span<const raftpb::entry* const>;
-using repeated_message = google::protobuf::RepeatedPtrField<raftpb::message>;
-using repeated_snapshot = google::protobuf::RepeatedPtrField<raftpb::snapshot>;
-using repeated_conf_change = google::protobuf::RepeatedPtrField<raftpb::conf_change_single>;
+using snapshot_ptr = std::unique_ptr<raftpb::Snapshot>;
+using entry_ptr = std::unique_ptr<raftpb::Entry>;
+using repeated_entry = google::protobuf::RepeatedPtrField<raftpb::Entry>;
+using span_entry = absl::Span<const raftpb::Entry* const>;
+using repeated_message = google::protobuf::RepeatedPtrField<raftpb::Message>;
+using repeated_snapshot = google::protobuf::RepeatedPtrField<raftpb::Snapshot>;
+using repeated_conf_change = google::protobuf::RepeatedPtrField<raftpb::ConfChangeSingle>;
 using repeated_uint64 = google::protobuf::RepeatedField<std::uint64_t>;
 
 // entryID uniquely identifies a raft log entry.

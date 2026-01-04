@@ -1,59 +1,56 @@
 #pragma once
 #ifndef _LEPTON_BYTE_SPAN_H_
 #define _LEPTON_BYTE_SPAN_H_
+
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "storage/ioutil/fixed_byte_buffer.h"
+
 namespace lepton::storage::ioutil {
 
-class byte_span {
- public:
-  byte_span() = default;
+// 保留 std::span 原生语义
+using byte_span = std::span<const std::byte>;
 
-  // from const raw ptr
-  byte_span(const void* data, size_t size) : view_(static_cast<const std::byte*>(data), size) {}
+// ---------- free function 转换器 ----------
 
-  // from non-const raw ptr
-  byte_span(void* data, size_t size) : view_(static_cast<std::byte*>(data), size) {}
+// raw pointer
+inline byte_span to_bytes(const void* data, size_t size) { return {reinterpret_cast<const std::byte*>(data), size}; }
 
-  // from std::string
-  byte_span(const std::string& s) : view_(reinterpret_cast<const std::byte*>(s.data()), s.size()) {}
+inline byte_span to_bytes(void* data, size_t size) { return {reinterpret_cast<std::byte*>(data), size}; }
 
-  // from std::string_view
-  byte_span(std::string_view s) : view_(reinterpret_cast<const std::byte*>(s.data()), s.size()) {}
+// std::string / std::string_view / C-string
+inline byte_span to_bytes(const std::string& s) { return {reinterpret_cast<const std::byte*>(s.data()), s.size()}; }
 
-  // from c-string
-  byte_span(const char* s) : view_(reinterpret_cast<const std::byte*>(s), s ? std::string_view(s).size() : 0) {}
+inline byte_span to_bytes(std::string_view s) { return {reinterpret_cast<const std::byte*>(s.data()), s.size()}; }
 
-  // from std::vector<std::byte>
-  byte_span(const std::vector<std::byte>& v) : view_(v.data(), v.size()) {}
+inline byte_span to_bytes(const char* s) { return s ? to_bytes(std::string_view(s)) : byte_span{}; }
 
-  // from std::vector<uint8_t>
-  byte_span(const std::vector<std::uint8_t>& v) : view_(reinterpret_cast<const std::byte*>(v.data()), v.size()) {}
+// std::vector
+inline byte_span to_bytes(const std::vector<std::byte>& v) { return {v.data(), v.size()}; }
 
-  // from std::array<std::byte>
-  template <size_t N>
-  byte_span(std::array<std::byte, N>& arr) : view_(arr.data(), N) {}
+inline byte_span to_bytes(const std::vector<std::uint8_t>& v) {
+  return {reinterpret_cast<const std::byte*>(v.data()), v.size()};
+}
 
-  // from std::array<std::byte>
-  template <size_t N>
-  byte_span(const std::array<std::uint8_t, N>& arr) : view_(reinterpret_cast<const std::byte*>(arr.data()), N) {}
+// std::array
+template <size_t N>
+inline byte_span to_bytes(const std::array<std::byte, N>& arr) {
+  return {arr.data(), N};
+}
 
-  byte_span(const fixed_byte_buffer& buf) : view_(buf.data(), buf.size()) {}
+template <size_t N>
+inline byte_span to_bytes(const std::array<std::uint8_t, N>& arr) {
+  return {reinterpret_cast<const std::byte*>(arr.data()), N};
+}
 
-  std::span<const std::byte> view() const { return view_; }
-
-  const std::byte* data() const { return view_.data(); }
-
-  size_t size() const { return view_.size(); }
-
- private:
-  std::span<const std::byte> view_;
-};
+// fixed_byte_buffer
+inline byte_span to_bytes(const fixed_byte_buffer& buf) { return {buf.data(), buf.size()}; }
 
 }  // namespace lepton::storage::ioutil
 

@@ -189,10 +189,10 @@ std::uint64_t raft_log::max_appliable_index(bool allow_unstable) const {
   return hi;
 }
 
-leaf::result<raftpb::snapshot> raft_log::snapshot() const {
+leaf::result<raftpb::Snapshot> raft_log::snapshot() const {
   if (unstable_.has_snapshot()) {
     const auto& v = unstable_.snapshot_view();
-    return raftpb::snapshot{v};
+    return raftpb::Snapshot{v};
   }
   return storage_->snapshot();
 }
@@ -373,7 +373,7 @@ bool raft_log::maybe_commit(const pb::entry_id& at) {
   return false;
 }
 
-void raft_log::restore(raftpb::snapshot&& snapshot) {
+void raft_log::restore(raftpb::Snapshot&& snapshot) {
   LOGGER_INFO(logger_, "log [{}] starts to restore snapshot [index: {}, term: {}]", string(),
               snapshot.metadata().index(), snapshot.metadata().term());
   committed_ = snapshot.metadata().index();

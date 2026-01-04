@@ -12,8 +12,8 @@ namespace lepton::core {
 
 namespace confchange {
 
-raftpb::conf_change_single create_conf_change_single(raftpb::conf_change_type type, uint64_t node_id) {
-  raftpb::conf_change_single conf;
+raftpb::ConfChangeSingle create_conf_change_single(raftpb::ConfChangeType type, uint64_t node_id) {
+  raftpb::ConfChangeSingle conf;
   conf.set_node_id(node_id);
   conf.set_type(type);
   return conf;
@@ -22,7 +22,7 @@ raftpb::conf_change_single create_conf_change_single(raftpb::conf_change_type ty
 // toConfChangeSingle translates a conf state into 1) a slice of operations creating first the config that will become
 // the outgoing one, and then the incoming one, and b) another slice that, when applied to the config resulted from 1),
 // represents the ConfState.
-std::tuple<pb::repeated_conf_change, pb::repeated_conf_change> to_conf_change_single(const raftpb::conf_state &cs) {
+std::tuple<pb::repeated_conf_change, pb::repeated_conf_change> to_conf_change_single(const raftpb::ConfState &cs) {
   // Example to follow along this code:
   // voters=(1 2 3) learners=(5) outgoing=(1 2 4 6) learners_next=(4)
   //
@@ -55,7 +55,7 @@ std::tuple<pb::repeated_conf_change, pb::repeated_conf_change> to_conf_change_si
   for (const auto &id : cs.voters_outgoing()) {
     // If there are outgoing voters, first add them one by one so that the
     // (non-joint) config has them all.
-    out.Add(create_conf_change_single(raftpb::conf_change_type::CONF_CHANGE_ADD_NODE, id));
+    out.Add(create_conf_change_single(raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE, id));
   }
 
   // We're done constructing the outgoing slice, now on to the incoming one
@@ -66,24 +66,24 @@ std::tuple<pb::repeated_conf_change, pb::repeated_conf_change> to_conf_change_si
   in.Reserve(in_size);
   // First, we'll remove all of the outgoing voters.
   for (const auto &id : cs.voters_outgoing()) {
-    in.Add(create_conf_change_single(raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE, id));
+    in.Add(create_conf_change_single(raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE, id));
   }
   // Then we'll add the incoming voters and learners.
   for (const auto &id : cs.voters()) {
-    in.Add(create_conf_change_single(raftpb::conf_change_type::CONF_CHANGE_ADD_NODE, id));
+    in.Add(create_conf_change_single(raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE, id));
   }
   for (const auto &id : cs.learners()) {
-    in.Add(create_conf_change_single(raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE, id));
+    in.Add(create_conf_change_single(raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE, id));
   }
   // Same for LearnersNext; these are nodes we want to be learners but which
   // are currently voters in the outgoing config.
   for (const auto &id : cs.learners_next()) {
-    in.Add(create_conf_change_single(raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE, id));
+    in.Add(create_conf_change_single(raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE, id));
   }
   return {out, in};
 }
 
-changer::result restor(const raftpb::conf_state &cs, changer &&chg) {
+changer::result restor(const raftpb::ConfState &cs, changer &&chg) {
   auto [outgoing, incoming] = to_conf_change_single(cs);
   std::vector<std::function<changer::result(changer &)>> ops;
   if (outgoing.empty()) {

@@ -99,7 +99,7 @@ encoder::encoder(asio::any_io_executor executor, pro::proxy_view<ioutil::writer>
       write_buf_(1024 * 1024),
       logger_(std::move(logger)) {}
 
-asio::awaitable<expected<void>> encoder::encode(walpb::record& r) {
+asio::awaitable<expected<void>> encoder::encode(walpb::Record& r) {
   if (!strand_.running_in_this_thread()) {
     co_await asio::dispatch(strand_, asio::use_awaitable);
   }
@@ -124,7 +124,7 @@ asio::awaitable<expected<void>> encoder::flush() {
   co_return co_await page_writer_.async_flush();
 }
 
-asio::awaitable<expected<void>> encoder::write_record_frame(const walpb::record& r, const std::uint64_t bytes_size_long,
+asio::awaitable<expected<void>> encoder::write_record_frame(const walpb::Record& r, const std::uint64_t bytes_size_long,
                                                             const uint64_t len_field, const std::size_t pad_bytes,
                                                             ioutil::fixed_byte_buffer& write_buf) {
   assert(write_buf.size() >= (bytes_size_long + pad_bytes));

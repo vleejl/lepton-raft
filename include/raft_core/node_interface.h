@@ -139,10 +139,10 @@ struct node_builder : pro::facade_builder
   ::add_convention<node_campaign, asio::awaitable<expected<void>>()>
   ::add_convention<node_propose, asio::awaitable<expected<void>>(std::string &&data)>
   ::add_convention<node_propose_conf_change, asio::awaitable<expected<void>>(const pb::conf_change_var &cc)>
-  ::add_convention<node_step, asio::awaitable<expected<void>>(raftpb::message &&msg)>
+  ::add_convention<node_step, asio::awaitable<expected<void>>(raftpb::Message &&msg)>
   ::add_convention<node_wait_ready, asio::awaitable<expected<ready_handle>>(asio::any_io_executor executor)>
   ::add_convention<node_advance, asio::awaitable<void>()>
-  ::add_convention<node_apply_conf_change, asio::awaitable<expected<raftpb::conf_state>>(raftpb::conf_change_v2 &&cc)>
+  ::add_convention<node_apply_conf_change, asio::awaitable<expected<raftpb::ConfState>>(raftpb::ConfChangeV2 &&cc)>
   ::add_convention<node_transfer_leadership, asio::awaitable<void>(std::uint64_t leader_id, std::uint64_t transferee)>
   ::add_convention<node_read_index, asio::awaitable<expected<void>>(std::string &&rctx)>
   ::add_convention<node_status, asio::awaitable<expected<lepton::core::status>>()>

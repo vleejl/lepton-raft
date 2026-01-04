@@ -8,7 +8,7 @@ namespace lepton::core {
 
 namespace pb {
 
-leaf::result<void> conf_state_equivalent(const raftpb::conf_state &lhs, const raftpb::conf_state &rhs) {
+leaf::result<void> conf_state_equivalent(const raftpb::ConfState &lhs, const raftpb::ConfState &rhs) {
   // Voters comparison (set-based)
   {
     std::set<std::uint64_t> voter_lhs{lhs.voters().begin(), lhs.voters().end()};

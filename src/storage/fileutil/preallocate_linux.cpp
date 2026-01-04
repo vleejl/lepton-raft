@@ -11,7 +11,7 @@
 #include <system_error>
 
 namespace lepton::storage::fileutil {
-std::error_code prealloc_extend_trunc(int fd, off_t size_in_bytes) {
+std::error_code prealloc_extend_trunc(native_handle_t fd, off_t size_in_bytes) {
   // 1. save current offset
   off_t cur_off = ::lseek(fd, 0, SEEK_CUR);
   if (cur_off == static_cast<off_t>(-1)) {
@@ -42,7 +42,7 @@ std::error_code prealloc_extend_trunc(int fd, off_t size_in_bytes) {
 }
 
 // 尽最大努力分配磁盘空间并扩展文件大小；如果做不到，至少保证文件大小正确
-std::error_code prealloc_extend(int fd, off_t size_in_bytes) {
+std::error_code prealloc_extend(native_handle_t fd, off_t size_in_bytes) {
   // use mode = 0 to change size
   // 分配磁盘空间
   // 同时扩展文件逻辑大小 (st_size)
@@ -67,7 +67,7 @@ std::error_code prealloc_extend(int fd, off_t size_in_bytes) {
 // 分配磁盘块
 // 不改变文件逻辑大小
 // 如果文件系统支持，就提前分配磁盘；不支持就算了
-std::error_code prealloc_fixed(int fd, off_t size_in_bytes) {
+std::error_code prealloc_fixed(native_handle_t fd, off_t size_in_bytes) {
   // use mode = 1 to keep size; see FALLOC_FL_KEEP_SIZE
   if (::fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, size_in_bytes) == 0) {
     return {};

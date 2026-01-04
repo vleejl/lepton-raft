@@ -136,7 +136,7 @@ TEST_F(node_test_suit, test_node_step) {
   for (std::size_t i = 0; i < all_raftpb_message_types.size(); ++i) {
     asio::io_context io;
     auto msg_type = all_raftpb_message_types[i];
-    raftpb::message msg;
+    raftpb::Message msg;
     msg.set_type(msg_type);
 
     auto mm_storage_ptr = new_test_memory_storage_ptr({with_peers({1})});
@@ -160,7 +160,7 @@ TEST_F(node_test_suit, test_node_step) {
     auto expected_fut = asio::co_spawn(
         io,
         [&]() -> asio::awaitable<void> {
-          if (msg_type == raftpb::message_type::MSG_PROP) {
+          if (msg_type == raftpb::MessageType::MSG_PROP) {
             // Propose message should be sent to propc chan
             auto msg_result =
                 n.prop_chan_.raw_channel().try_receive([&](asio::error_code _, msg_with_result msg_result) {
@@ -168,7 +168,7 @@ TEST_F(node_test_suit, test_node_step) {
                 });
             EXPECT_TRUE(msg_result) << "msg type: " << magic_enum::enum_name(msg_type);
           } else {
-            auto msg_result = n.recv_chan_.raw_channel().try_receive([&](asio::error_code _, raftpb::message msg) {
+            auto msg_result = n.recv_chan_.raw_channel().try_receive([&](asio::error_code _, raftpb::Message msg) {
               EXPECT_EQ(msg_type, msg.type()) << "msg type: " << magic_enum::enum_name(msg_type);
             });
             if (lepton::core::pb::is_local_msg(msg_type)) {
@@ -231,8 +231,8 @@ TEST_F(node_test_suit, test_node_step_unblock) {
     asio::co_spawn(
         io,
         [&]() -> asio::awaitable<void> {
-          raftpb::message msg;
-          msg.set_type(raftpb::message_type::MSG_PROP);
+          raftpb::Message msg;
+          msg.set_type(raftpb::MessageType::MSG_PROP);
           auto step_result = co_await n.step(std::move(msg));
           LOG_INFO("step result has received");
           EXPECT_FALSE(step_result);
@@ -313,9 +313,9 @@ TEST_F(node_test_suit, test_node_propose) {
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             LOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
-                                               raftpb::message&& msg) -> lepton::leaf::result<void> {
+                                               raftpb::Message&& msg) -> lepton::leaf::result<void> {
               LOG_INFO(lepton::core::describe_message(msg, nullptr));
-              if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
+              if (msg.type() == raftpb::MessageType::MSG_APP_RESP) {
                 return {};  // injected by (*raft).advance
               }
               msgs.Add(std::move(msg));
@@ -348,7 +348,7 @@ TEST_F(node_test_suit, test_node_propose) {
 
   // 验证结果
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_PROP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(raftpb::MessageType::MSG_PROP), magic_enum::enum_name(msgs[0].type()));
   ASSERT_EQ("somedata", msgs[0].entries(0).data());
 }
 
@@ -370,7 +370,7 @@ TEST_F(node_test_suit, test_disable_proposal_forwarding) {
   auto nt = new_network(std::move(peers));
 
   // elect r1 as leader
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -381,13 +381,13 @@ TEST_F(node_test_suit, test_disable_proposal_forwarding) {
   }
 
   // send proposal to r2(follower) where DisableProposalForwarding is false
-  ASSERT_TRUE(r2.step(new_pb_message(2, 2, raftpb::message_type::MSG_PROP, "testdata")));
+  ASSERT_TRUE(r2.step(new_pb_message(2, 2, raftpb::MessageType::MSG_PROP, "testdata")));
 
   // verify r2(follower) does forward the proposal when DisableProposalForwarding is false
   ASSERT_EQ(1, r2.msgs_.size());
 
   // send proposal to r3(follower) where DisableProposalForwarding is true
-  ASSERT_FALSE(r3.step(new_pb_message(3, 3, raftpb::message_type::MSG_PROP, "testdata")));
+  ASSERT_FALSE(r3.step(new_pb_message(3, 3, raftpb::MessageType::MSG_PROP, "testdata")));
 
   // verify r3(follower) does not forward the proposal when DisableProposalForwarding is true
   ASSERT_EQ(0, r3.msgs_.size());
@@ -410,7 +410,7 @@ TEST_F(node_test_suit, test_node_read_index_to_old_leader) {
   auto nt = new_network(std::move(peers));
 
   // elect r1 as leader
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -421,23 +421,23 @@ TEST_F(node_test_suit, test_node_read_index_to_old_leader) {
   }
 
   // send readindex request to r2(follower)
-  ASSERT_TRUE(r2.step(new_pb_message(2, 2, raftpb::message_type::MSG_PROP, "testdata")));
+  ASSERT_TRUE(r2.step(new_pb_message(2, 2, raftpb::MessageType::MSG_PROP, "testdata")));
 
   // verify r2(follower) does forward the proposal when DisableProposalForwarding is false
   ASSERT_EQ(1, r2.msgs_.size());
-  auto read_indx_msg1 = new_pb_message(2, 1, raftpb::message_type::MSG_PROP, "testdata");
+  auto read_indx_msg1 = new_pb_message(2, 1, raftpb::MessageType::MSG_PROP, "testdata");
   ASSERT_EQ(read_indx_msg1.DebugString(), r2.msgs_[0].DebugString());
 
   // send readindex request to r3(follower)
-  ASSERT_TRUE(r3.step(new_pb_message(3, 3, raftpb::message_type::MSG_PROP, "testdata")));
+  ASSERT_TRUE(r3.step(new_pb_message(3, 3, raftpb::MessageType::MSG_PROP, "testdata")));
 
   // verify r3(follower) forwards this message to r1(leader) with term not set as well.
   ASSERT_EQ(1, r3.msgs_.size());
-  auto read_indx_msg2 = new_pb_message(3, 1, raftpb::message_type::MSG_PROP, "testdata");
+  auto read_indx_msg2 = new_pb_message(3, 1, raftpb::MessageType::MSG_PROP, "testdata");
   ASSERT_EQ(read_indx_msg2.DebugString(), r3.msgs_[0].DebugString());
 
   // now elect r3 as leader
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -448,14 +448,14 @@ TEST_F(node_test_suit, test_node_read_index_to_old_leader) {
   }
 
   // let r1 steps the two messages previously we got from r2, r3
-  ASSERT_TRUE(r1.step(raftpb::message{read_indx_msg1}));
-  ASSERT_TRUE(r1.step(raftpb::message{read_indx_msg2}));
+  ASSERT_TRUE(r1.step(raftpb::Message{read_indx_msg1}));
+  ASSERT_TRUE(r1.step(raftpb::Message{read_indx_msg2}));
 
   // verify r1(follower) forwards these messages again to r3(new leader)
   ASSERT_EQ(2, r1.msgs_.size());
-  auto read_indx_msg3 = new_pb_message(2, 3, raftpb::message_type::MSG_PROP, "testdata");
+  auto read_indx_msg3 = new_pb_message(2, 3, raftpb::MessageType::MSG_PROP, "testdata");
   ASSERT_EQ(read_indx_msg3.DebugString(), r1.msgs_[0].DebugString());
-  read_indx_msg3 = new_pb_message(3, 3, raftpb::message_type::MSG_PROP, "testdata");
+  read_indx_msg3 = new_pb_message(3, 3, raftpb::MessageType::MSG_PROP, "testdata");
   ASSERT_EQ(read_indx_msg3.DebugString(), r1.msgs_[1].DebugString());
 }
 
@@ -512,9 +512,9 @@ TEST_F(node_test_suit, test_node_propose_config) {
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             LOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
-                                               raftpb::message&& msg) -> lepton::leaf::result<void> {
+                                               raftpb::Message&& msg) -> lepton::leaf::result<void> {
               LOG_INFO(lepton::core::describe_message(msg, nullptr));
-              if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
+              if (msg.type() == raftpb::MessageType::MSG_APP_RESP) {
                 return {};  // injected by (*raft).advance
               }
               msgs.Add(std::move(msg));
@@ -528,8 +528,8 @@ TEST_F(node_test_suit, test_node_propose_config) {
         }
 
         // 提出提案
-        auto cc = lepton::core::pb::conf_change_as_v2(
-            create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE));
+        auto cc =
+            lepton::core::pb::conf_change_as_v2(create_conf_change_v1(1, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE));
         msg_data = cc.SerializeAsString();
         co_await n.propose_conf_change(cc);
 
@@ -547,7 +547,7 @@ TEST_F(node_test_suit, test_node_propose_config) {
   io_context.run();
 
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_PROP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(raftpb::MessageType::MSG_PROP), magic_enum::enum_name(msgs[0].type()));
   ASSERT_EQ(msg_data, msgs[0].entries(0).data());
 }
 
@@ -616,10 +616,10 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
                 auto applied = false;
                 for (auto& entry : rd.committed_entries) {
                   auto entry_type = entry.type();
-                  all_committed_entries.Add(raftpb::entry{entry});
+                  all_committed_entries.Add(raftpb::Entry{entry});
                   switch (entry_type) {
                     case raftpb::ENTRY_CONF_CHANGE: {
-                      raftpb::conf_change cc;
+                      raftpb::ConfChange cc;
                       EXPECT_TRUE(cc.ParseFromString(entry.data()));
                       co_await node_handle->apply_conf_change(lepton::core::pb::conf_change_var_as_v2(cc));
                       applied = true;
@@ -649,8 +649,8 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
             asio::detached);
         LOG_INFO("[main logic]start sub loop successful");
 
-        raftpb::conf_change cc1;
-        cc1.set_type(::raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
+        raftpb::ConfChange cc1;
+        cc1.set_type(::raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE);
         cc1.set_node_id(1);
         auto ccdata1 = cc1.SerializeAsString();
         LOG_INFO("[main logic]first times ready to propose conf change");
@@ -665,8 +665,8 @@ TEST_F(node_test_suit, test_node_propose_add_duplicate_node) {
         LOG_INFO("[main logic]first times try add the same node again...");
 
         // the new node join should be ok
-        raftpb::conf_change cc2;
-        cc2.set_type(::raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
+        raftpb::ConfChange cc2;
+        cc2.set_type(::raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE);
         cc2.set_node_id(2);
         auto ccdata2 = cc2.SerializeAsString();
         co_await node_handle->propose_conf_change(cc2);
@@ -797,13 +797,13 @@ TEST_F(node_test_suit, test_node_propose_wait_dropped) {
           if (rd.soft_state && rd.soft_state->leader_id == n.raw_node_.raft_.id()) {
             LOG_INFO("Node {} became leader", n.raw_node_.raft_.id());
             n.raw_node_.raft_.step_func_ = [&](lepton::core::raft& _,
-                                               raftpb::message&& msg) -> lepton::leaf::result<void> {
+                                               raftpb::Message&& msg) -> lepton::leaf::result<void> {
               LOG_INFO(lepton::core::describe_message(msg, nullptr));
-              if ((msg.type() == raftpb::message_type::MSG_PROP) &&
+              if ((msg.type() == raftpb::MessageType::MSG_PROP) &&
                   (msg.DebugString().find("test_dropping")) != std::string::npos) {
                 return new_error(lepton::raft_error::PROPOSAL_DROPPED);
               }
-              if (msg.type() == raftpb::message_type::MSG_APP_RESP) {
+              if (msg.type() == raftpb::MessageType::MSG_APP_RESP) {
                 // This is produced by raft internally, see (*raft).advance.
                 return {};
               }
@@ -975,20 +975,20 @@ TEST_F(node_test_suit, test_node_stop) {
 // start with correct configuration change entries, and can accept and commit
 // proposals.
 TEST_F(node_test_suit, test_node_start) {
-  auto cc = create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE);
+  auto cc = create_conf_change_v1(1, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE);
   auto ccdata = cc.SerializeAsString();
   std::vector<lepton::core::ready> wants;
   {
     lepton::core::ready ready;
     ready.hard_state.set_term(1);
     ready.hard_state.set_commit(1);
-    raftpb::entry entry;
-    entry.set_type(::raftpb::entry_type::ENTRY_CONF_CHANGE);
+    raftpb::Entry entry;
+    entry.set_type(::raftpb::EntryType::ENTRY_CONF_CHANGE);
     entry.set_term(1);
     entry.set_index(1);
     entry.set_data(cc.SerializeAsString());
-    ready.entries.Add(raftpb::entry{entry});
-    ready.committed_entries.Add(raftpb::entry{entry});
+    ready.entries.Add(raftpb::Entry{entry});
+    ready.committed_entries.Add(raftpb::Entry{entry});
     ready.must_sync = true;
     wants.push_back(std::move(ready));
   }
@@ -1000,13 +1000,13 @@ TEST_F(node_test_suit, test_node_start) {
     ready.hard_state.set_vote(1);
 
     // Entries (index=3)
-    raftpb::entry new_entry;
+    raftpb::Entry new_entry;
     new_entry.set_term(2);
     new_entry.set_index(3);
     new_entry.set_data("foo");  // 直接设置二进制数据
 
     // CommittedEntries (index=2)
-    raftpb::entry committed_entry;
+    raftpb::Entry committed_entry;
     committed_entry.set_term(2);
     committed_entry.set_index(2);
     // 默认类型为 ENTRY_NORMAL, data 为空
@@ -1024,7 +1024,7 @@ TEST_F(node_test_suit, test_node_start) {
     ready.hard_state.set_vote(1);
 
     // CommittedEntries (index=3)
-    raftpb::entry committed_entry;
+    raftpb::Entry committed_entry;
     committed_entry.set_term(2);
     committed_entry.set_index(3);
     committed_entry.set_data("foo");
@@ -1183,13 +1183,13 @@ TEST_F(node_test_suit, test_node_restart) {
     entry->set_index(2);
     entry->set_data("foo");
   }
-  raftpb::hard_state hs;
+  raftpb::HardState hs;
   hs.set_term(1);
   hs.set_commit(1);
 
   ready want_rd;
   // No HardState is emitted because there was no change.
-  want_rd.hard_state = raftpb::hard_state{};
+  want_rd.hard_state = raftpb::HardState{};
   // commit up to index commit index in st
   want_rd.committed_entries =
       lepton::core::pb::repeated_entry{entries.begin(), entries.begin() + static_cast<int>(hs.commit())};
@@ -1232,14 +1232,14 @@ TEST_F(node_test_suit, test_node_restart_from_snapshot) {
   entry.set_index(3);
   entry.set_data("foo");
 
-  raftpb::hard_state hs;
+  raftpb::HardState hs;
   hs.set_term(1);
   hs.set_commit(3);
 
   ready want_rd;
   // No HardState is emitted because nothing changed relative to what is
   // already persisted.
-  want_rd.hard_state = raftpb::hard_state{};
+  want_rd.hard_state = raftpb::HardState{};
   // commit up to index commit index in st
   want_rd.committed_entries = entries;
   // MustSync is only true when there is a new HardState or new entries;
@@ -1352,24 +1352,24 @@ TEST_F(node_test_suit, test_soft_state_equal) {
 
 TEST_F(node_test_suit, test_is_hard_state_equal) {
   struct test_case {
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     bool wt;
   };
 
   std::vector<test_case> tests;
   tests.emplace_back(test_case{.wt = true});
   {
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     hs.set_vote(1);
     tests.emplace_back(test_case{.hs = hs, .wt = false});
   }
   {
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     hs.set_commit(1);
     tests.emplace_back(test_case{.hs = hs, .wt = false});
   }
   {
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     hs.set_term(1);
     tests.emplace_back(test_case{.hs = hs, .wt = false});
   }
@@ -1429,7 +1429,7 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
                   auto entry_type = entry.type();
                   switch (entry_type) {
                     case raftpb::ENTRY_CONF_CHANGE: {
-                      raftpb::conf_change cc;
+                      raftpb::ConfChange cc;
                       EXPECT_TRUE(cc.ParseFromString(entry.data()));
                       co_await node_handle->apply_conf_change(lepton::core::pb::conf_change_var_as_v2(cc));
                       co_await apply_conf_chan.async_send(asio::error_code{});
@@ -1456,8 +1456,8 @@ TEST_F(node_test_suit, test_node_propose_add_learner_node) {
             asio::detached);
         LOG_INFO("[main logic]start sub loop successful");
 
-        raftpb::conf_change cc1;
-        cc1.set_type(::raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE);
+        raftpb::ConfChange cc1;
+        cc1.set_type(::raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE);
         cc1.set_node_id(2);
         LOG_INFO("[main logic]first times ready to propose conf change");
         co_await node_handle->propose_conf_change(cc1);
@@ -1490,8 +1490,8 @@ TEST_F(node_test_suit, test_append_pagination) {
 
   // Inspect all messages to see that we never exceed the limit, but
   // we do see messages of larger than half the limit.
-  n.msg_hook = [&](const raftpb::message& m) -> bool {
-    if (m.type() == raftpb::message_type::MSG_APP) {
+  n.msg_hook = [&](const raftpb::Message& m) -> bool {
+    if (m.type() == raftpb::MessageType::MSG_APP) {
       std::size_t size = 0;
       for (const auto& entry : m.entries()) {
         size += entry.data().size();
@@ -1504,19 +1504,19 @@ TEST_F(node_test_suit, test_append_pagination) {
     return true;
   };
 
-  n.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  n.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
 
   // Partition the network while we make our proposals. This forces
   // the entries to be batched into larger messages.
   n.isolate(1);
   for (auto i = 0; i < 5; ++i) {
-    n.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, std::string(1000, 'a'))});
+    n.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, std::string(1000, 'a'))});
   }
   n.recover();
 
   // After the partition recovers, tick the clock to wake everything
   // back up and send the messages.
-  n.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+  n.send({new_pb_message(1, 1, raftpb::MessageType::MSG_BEAT)});
   ASSERT_TRUE(seen_full_message)
       << "didn't see any messages more than half the max size; something is wrong with this test";
 }
@@ -1621,7 +1621,7 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           LOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
-          EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
+          EXPECT_EQ(raftpb::MessageType::MSG_STORAGE_APPEND, m.type());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
             auto resp_msg = lepton::core::describe_message(resp, nullptr);
@@ -1643,7 +1643,7 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           LOG_INFO("[receive ready] ready content:\n{}", lepton::core::describe_ready(rd, nullptr));
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
-          EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
+          EXPECT_EQ(raftpb::MessageType::MSG_STORAGE_APPEND, m.type());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
             auto resp_msg = lepton::core::describe_message(resp, nullptr);
@@ -1668,13 +1668,13 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           }
           EXPECT_EQ(2, rd.messages.size());
           for (auto& m : rd.messages) {
-            if (m.type() == raftpb::message_type::MSG_STORAGE_APPEND) {
+            if (m.type() == raftpb::MessageType::MSG_STORAGE_APPEND) {
               EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
               for (auto& resp : *m.mutable_responses()) {
                 auto step_result = co_await node_handle->step(std::move(resp));
                 EXPECT_TRUE(step_result);
               }
-            } else if (m.type() == raftpb::message_type::MSG_STORAGE_APPLY) {
+            } else if (m.type() == raftpb::MessageType::MSG_STORAGE_APPLY) {
               EXPECT_EQ(1, m.entries_size());
               EXPECT_EQ(1, m.responses_size());
               auto step_result = co_await node_handle->step(std::move(*m.mutable_responses(0)));
@@ -1697,7 +1697,7 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           auto& rd = *rd_handle.get();
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
-          EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPEND, m.type());
+          EXPECT_EQ(raftpb::MessageType::MSG_STORAGE_APPEND, m.type());
           EXPECT_EQ(1, m.entries_size());
           EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
           for (auto& resp : *m.mutable_responses()) {
@@ -1716,16 +1716,16 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           auto& rd = *rd_handle.get();
           EXPECT_EQ(2, rd.messages.size());
           for (auto& m : rd.messages) {
-            if (m.type() == raftpb::message_type::MSG_STORAGE_APPEND) {
+            if (m.type() == raftpb::MessageType::MSG_STORAGE_APPEND) {
               EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
               for (auto& resp : *m.mutable_responses()) {
                 auto step_result = co_await node_handle->step(std::move(resp));
                 EXPECT_TRUE(step_result);
               }
-            } else if (m.type() == raftpb::message_type::MSG_STORAGE_APPLY) {
+            } else if (m.type() == raftpb::MessageType::MSG_STORAGE_APPLY) {
               EXPECT_EQ(1, m.entries_size());
               EXPECT_EQ(1, m.responses_size());
-              apply_resps.Add({raftpb::message{m.responses(0)}});
+              apply_resps.Add({raftpb::Message{m.responses(0)}});
             } else {
               assert(false);
             }
@@ -1741,16 +1741,16 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           auto& rd = *rd_handle.get();
           EXPECT_EQ(2, rd.messages.size());
           for (auto& m : rd.messages) {
-            if (m.type() == raftpb::message_type::MSG_STORAGE_APPEND) {
+            if (m.type() == raftpb::MessageType::MSG_STORAGE_APPEND) {
               EXPECT_TRUE(mm_storage.append(std::move(*m.mutable_entries())));
               for (auto& resp : *m.mutable_responses()) {
                 auto step_result = co_await node_handle->step(std::move(resp));
                 EXPECT_TRUE(step_result);
               }
-            } else if (m.type() == raftpb::message_type::MSG_STORAGE_APPLY) {
+            } else if (m.type() == raftpb::MessageType::MSG_STORAGE_APPLY) {
               EXPECT_EQ(1, m.entries_size());
               EXPECT_EQ(1, m.responses_size());
-              apply_resps.Add({raftpb::message{m.responses(0)}});
+              apply_resps.Add({raftpb::Message{m.responses(0)}});
             } else {
               assert(false);
             }
@@ -1769,7 +1769,7 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
               auto recv_result = std::get<0>(result);
               auto& rd = *recv_result;
               for (const auto& m : rd->messages) {
-                EXPECT_NE(raftpb::message_type::MSG_STORAGE_APPLY, m.type())
+                EXPECT_NE(raftpb::MessageType::MSG_STORAGE_APPLY, m.type())
                     << "unexpected message: " << m.DebugString();
               }
               break;
@@ -1792,9 +1792,9 @@ TEST_F(node_test_suit, test_commit_pagination_with_async_storage_writes) {
           auto& rd = *rd_handle.get();
           EXPECT_EQ(1, rd.messages.size());
           auto& m = rd.messages[0];
-          EXPECT_EQ(raftpb::message_type::MSG_STORAGE_APPLY, m.type());
+          EXPECT_EQ(raftpb::MessageType::MSG_STORAGE_APPLY, m.type());
           EXPECT_EQ(1, m.entries_size());
-          apply_resps.Add(raftpb::message{m.responses(0)});
+          apply_resps.Add(raftpb::Message{m.responses(0)});
           // Acknowledged second and third entry application.
           for (auto& resp : apply_resps) {
             auto step_result = co_await node_handle->step(std::move(resp));
@@ -1830,11 +1830,11 @@ TEST_F(node_test_suit, test_node_commit_pagination_after_restart) {
   auto& mm_storage = *mm_storage_ptr;
   pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
 
-  raftpb::hard_state persisted_hard_state;
+  raftpb::HardState persisted_hard_state;
   persisted_hard_state.set_term(1);
   persisted_hard_state.set_commit(1);
   persisted_hard_state.set_commit(10);
-  mm_storage.set_hard_state(raftpb::hard_state{persisted_hard_state});
+  mm_storage.set_hard_state(raftpb::HardState{persisted_hard_state});
 
   auto& ents = mm_storage.mutable_ents();
   std::uint64_t size = 0;

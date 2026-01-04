@@ -8,7 +8,6 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <string>
 
 #include "basic/utility_macros.h"
@@ -29,7 +28,13 @@ class file_endpoint : public file_reader {
 
   file_endpoint(file_endpoint&& lhs) : file_reader(std::move(lhs)) {}
 
-  leaf::result<void> pre_allocate(uint64_t length, bool extend_file);
+  leaf::result<void> preallocate(std::uint64_t length, bool extend_file);
+
+  leaf::result<void> truncate(std::uintmax_t size);
+
+  // ZeroToEnd zeros a file starting from SEEK_CUR to its SEEK_END. May temporarily
+  // shorten the length of the file.
+  leaf::result<void> zero_to_end();
 
   leaf::result<std::size_t> write(ioutil::byte_span data);
 
@@ -39,8 +44,6 @@ class file_endpoint : public file_reader {
 
   expected<void> fdatasync();
 };
-
-using file_endpoint_handle = std::unique_ptr<file_endpoint>;
 
 }  // namespace lepton::storage::fileutil
 

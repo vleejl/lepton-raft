@@ -2,7 +2,7 @@
   "clangd.arguments": [
     "--background-index",
     "--compile-commands-dir=${workspaceFolder}/.vscode",
-    "-j=12",
+    "-j=8",
     "--clang-tidy",
     "--clang-tidy-checks=cppcoreguidelines-*,performance-*,bugprone-*,portability-*,modernize-*,google-*",
     "--all-scopes-completion",
@@ -13,10 +13,14 @@
   ],
   "C_Cpp.intelliSenseEngine": "disabled",
   "C_Cpp.autocomplete": "disabled",
-  "C_Cpp.clang_format_style": "${workspaceFolder}/.clang-format",
   "C_Cpp.errorSquiggles": "disabled",
+  "[cpp]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+  },
+  "[c]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+  },
   "editor.formatOnSave": true,
-  "files.autoSave": "afterDelay",
   "editor.semanticTokenColorCustomizations": {
     "enabled": true,
     "rules": {
@@ -75,5 +79,8 @@
         "fontStyle": "underline"
       }
     }
-  }
+  },
+  "files.autoSave": "afterDelay",
+  "protobuf.clangFormat.enabled": true,
+  "protobuf.clangFormat.path": "/usr/bin/clang-format"
 }

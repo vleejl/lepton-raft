@@ -104,7 +104,7 @@ void release_pending_read_index_message(raft& r) {
   r.pending_read_index_messages_.Clear();
 }
 
-void send_msg_read_index_response(raft& r, raftpb::message&& m) {
+void send_msg_read_index_response(raft& r, raftpb::Message&& m) {
   // thinking: use an internally defined context instead of the user given context.
   // We can express this in terms of the term and index instead of a user-supplied value.
   // This would allow multiple reads to piggyback on the same message.
@@ -131,7 +131,7 @@ void send_msg_read_index_response(raft& r, raftpb::message&& m) {
   }
 }
 
-leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
+leaf::result<void> step_leader(raft& r, raftpb::Message&& m) {
   const auto msg_type = m.type();
   // These message types do not require any progress for m.From.
   switch (msg_type) {
@@ -184,10 +184,10 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
       // 配置变更（ConfChange）处理
       for (int i = 0; i < m.entries_size(); i++) {
         auto& e = *m.mutable_entries(i);
-        std::optional<raftpb::conf_change_v2> cc;
+        std::optional<raftpb::ConfChangeV2> cc;
         switch (e.type()) {
           case raftpb::ENTRY_CONF_CHANGE: {
-            raftpb::conf_change ccc;
+            raftpb::ConfChange ccc;
             if (e.has_data()) {
               if (!ccc.ParseFromString(e.data())) {
                 LEPTON_CRITICAL("entry hex:{} conf change parse from string failed ", e.data());
@@ -198,7 +198,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
             break;
           }
           case raftpb::ENTRY_CONF_CHANGE_V2: {
-            raftpb::conf_change_v2 ccc;
+            raftpb::ConfChangeV2 ccc;
             if (e.has_data()) {
               if (!ccc.ParseFromString(e.data())) {
                 LEPTON_CRITICAL("entry hex:{} conf change v2 parse from string failed ", e.data());
@@ -232,7 +232,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
           if (!failed_check.empty() && !r.disable_conf_change_validation_) {
             LOGGER_INFO(r.logger_, "{} ignoring conf change {} at config {}: {}", r.id_,
                         pb::describe_conf_change_v2(*cc), r.trk_.config_view().string(), failed_check);
-            e = raftpb::entry{};
+            e = raftpb::Entry{};
             e.set_type(raftpb::ENTRY_NORMAL);
           } else {
             r.pending_conf_index_ = r.raft_log_handle_.last_index() + static_cast<std::uint64_t>(i) + 1;
@@ -646,7 +646,7 @@ leaf::result<void> step_leader(raft& r, raftpb::message&& m) {
   return {};
 }
 
-leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
+leaf::result<void> step_candidate(raft& r, raftpb::Message&& m) {
   // Only handle vote responses corresponding to our candidacy (while in
   // StateCandidate, we may get stale MsgPreVoteResp messages in this term from
   // our pre-candidate state).
@@ -750,7 +750,7 @@ leaf::result<void> step_candidate(raft& r, raftpb::message&& m) {
   return {};
 }
 
-leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
+leaf::result<void> step_follower(raft& r, raftpb::Message&& m) {
   switch (m.type()) {
     case raftpb::MSG_PROP: {  // client request, 客户端提案
       if (r.lead_ == NONE) {  // 若 Follower 无 Leader（如网络分区），直接拒绝。
@@ -885,8 +885,8 @@ leaf::result<void> step_follower(raft& r, raftpb::message&& m) {
   return {};
 }
 
-raftpb::hard_state raft::hard_state() const {
-  raftpb::hard_state hs;
+raftpb::HardState raft::hard_state() const {
+  raftpb::HardState hs;
   hs.set_term(term_);
   if (vote_id_ != 0) {
     hs.set_vote(vote_id_);
@@ -913,15 +913,15 @@ status raft::get_status() const {
   };
 }
 
-void raft::send(raftpb::message&& message) {
+void raft::send(raftpb::Message&& message) {
   if (message.from() == NONE) {
     message.set_from(id_);
   }
 
   const auto msg_type = message.type();
   // 处理选举类消息
-  if (msg_type == raftpb::message_type::MSG_VOTE || msg_type == raftpb::message_type::MSG_VOTE_RESP ||
-      msg_type == raftpb::message_type::MSG_PRE_VOTE || msg_type == raftpb::message_type::MSG_PRE_VOTE_RESP) {
+  if (msg_type == raftpb::MessageType::MSG_VOTE || msg_type == raftpb::MessageType::MSG_VOTE_RESP ||
+      msg_type == raftpb::MessageType::MSG_PRE_VOTE || msg_type == raftpb::MessageType::MSG_PRE_VOTE_RESP) {
     if (message.term() == 0) {
       // All {pre-,}campaign messages need to have the term set when
       // sending.
@@ -947,12 +947,12 @@ void raft::send(raftpb::message&& message) {
     // MsgReadIndex is also forwarded to leader.
     // MsgProp 和 MsgReadIndex 不设置 Term，因为它们可能被转发给 Leader，由
     // Leader 处理时再填充正确 Term。
-    if (msg_type != raftpb::message_type::MSG_PROP && msg_type != raftpb::message_type::MSG_READ_INDEX) {
+    if (msg_type != raftpb::MessageType::MSG_PROP && msg_type != raftpb::MessageType::MSG_READ_INDEX) {
       message.set_term(term_);
     }
   }
-  if (msg_type == raftpb::message_type::MSG_APP_RESP || msg_type == raftpb::message_type::MSG_VOTE_RESP ||
-      msg_type == raftpb::message_type::MSG_PRE_VOTE_RESP) {
+  if (msg_type == raftpb::MessageType::MSG_APP_RESP || msg_type == raftpb::MessageType::MSG_VOTE_RESP ||
+      msg_type == raftpb::MessageType::MSG_PRE_VOTE_RESP) {
     // If async storage writes are enabled, messages added to the msgs slice
     // are allowed to be sent out before unstable state (e.g. log entry
     // writes and election votes) have been durably synced to the local
@@ -1055,9 +1055,9 @@ bool raft::maybe_send_append(std::uint64_t to, bool send_if_empty) {
   }
 
   // Send the actual MsgApp otherwise, and update the progress accordingly.
-  raftpb::message msg;
+  raftpb::Message msg;
   msg.set_to(to);
-  msg.set_type(raftpb::message_type::MSG_APP);
+  msg.set_type(raftpb::MessageType::MSG_APP);
   msg.set_index(prev_index);
   msg.set_log_term(prev_term.value());
   msg.mutable_entries()->Swap(&ents);
@@ -1076,11 +1076,11 @@ bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
   }
 
   auto snap_result = leaf::try_handle_some(
-      [&]() -> leaf::result<raftpb::snapshot> {
+      [&]() -> leaf::result<raftpb::Snapshot> {
         BOOST_LEAF_AUTO(result, raft_log_handle_.snapshot());
         return result;
       },
-      [&](const lepton::lepton_error& err) -> leaf::result<raftpb::snapshot> {
+      [&](const lepton::lepton_error& err) -> leaf::result<raftpb::Snapshot> {
         if (err == storage_error::SNAPSHOT_TEMPORARILY_UNAVAILABLE) {
           LOGGER_DEBUG(logger_, "{} failed to send snapshot to {} because snapshot is temporarily unavailable", id_,
                        to);
@@ -1105,9 +1105,9 @@ bool raft::maybe_send_snapshot(std::uint64_t to, tracker::progress& pr) {
   pr.become_snapshot(sindex);
   LOGGER_DEBUG(logger_, "{} paused sending replication messages to {} [{}]", id_, to, pr.string());
 
-  raftpb::message msg;
+  raftpb::Message msg;
   msg.set_to(to);
-  msg.set_type(raftpb::message_type::MSG_SNAP);
+  msg.set_type(raftpb::MessageType::MSG_SNAP);
   msg.mutable_snapshot()->Swap(&*snap_result);
   // existing_snap 现在已为空
   assert(!snap_result->has_metadata());
@@ -1124,9 +1124,9 @@ void raft::send_heartbeat(std::uint64_t id, std::string&& ctx) {
   // The leader MUST NOT forward the follower's commit to
   // an unmatched index.
   auto commit = std::min(pr_iter->second.match(), raft_log_handle_.committed());
-  raftpb::message m;
+  raftpb::Message m;
   m.set_to(id);
-  m.set_type(raftpb::message_type::MSG_HEARTBEAT);
+  m.set_type(raftpb::MessageType::MSG_HEARTBEAT);
   m.set_commit(commit);
   if (!ctx.empty()) {
     *m.mutable_context() = std::move(ctx);
@@ -1167,13 +1167,13 @@ void raft::applied_to(std::uint64_t index, pb::entry_encoding_size size) {
     // benefit that appendEntry can never refuse it based on its size
     // (which registers as zero).
     auto m = leaf::try_handle_some(
-        [&]() -> leaf::result<raftpb::message> {
+        [&]() -> leaf::result<raftpb::Message> {
           pb::conf_change_var empty_cc = std::monostate{};
           BOOST_LEAF_AUTO(v, pb::conf_change_to_message(empty_cc));
           return v;
         },
-        [&](const lepton::lepton_error& err) -> leaf::result<raftpb::message> {
-          LEPTON_CRITICAL("{} failed to convert conf change to raftpb::message, error: {}", id_, err.message);
+        [&](const lepton::lepton_error& err) -> leaf::result<raftpb::Message> {
+          LEPTON_CRITICAL("{} failed to convert conf change to raftpb::Message, error: {}", id_, err.message);
           return {};
         });
     assert(m);
@@ -1199,7 +1199,7 @@ void raft::applied_to(std::uint64_t index, pb::entry_encoding_size size) {
   }
 }
 
-void raft::applied_snap(const raftpb::snapshot& snapshot) {
+void raft::applied_snap(const raftpb::Snapshot& snapshot) {
   auto index = snapshot.metadata().index();
   raft_log_handle_.stable_snap_to(index);
   applied_to(index, 0);
@@ -1268,9 +1268,9 @@ bool raft::append_entry(pb::repeated_entry&& entries) {
   // 为了减少一次RPC，且避免死循环（​​自我响应悖论​​：发送 MsgApp
   // 后需要等待自己的响应才能确认持久化 → 但响应又依赖于持久化完成 → 逻辑死结）
   // 所以leader 不能自己给自己发送 MSG_APP 消息
-  raftpb::message m;
+  raftpb::Message m;
   m.set_to(id_);
-  m.set_type(raftpb::message_type::MSG_APP_RESP);
+  m.set_type(raftpb::MessageType::MSG_APP_RESP);
   m.set_index(li);
   send(std::move(m));
   return true;
@@ -1280,9 +1280,9 @@ void raft::tick_election() {
   election_elapsed_++;
   if (promotable() && past_election_timeout()) {
     election_elapsed_ = 0;
-    raftpb::message m;
+    raftpb::Message m;
     m.set_from(id_);
-    m.set_type(raftpb::message_type::MSG_HUP);
+    m.set_type(raftpb::MessageType::MSG_HUP);
     auto _ = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
           LEPTON_LEAF_CHECK(step(std::move(m)));
@@ -1303,9 +1303,9 @@ void raft::tick_heartbeat() {
   if (election_elapsed_ >= election_timeout_) {
     election_elapsed_ = 0;
     if (check_quorum_) {
-      raftpb::message m;
+      raftpb::Message m;
       m.set_from(id_);
-      m.set_type(raftpb::message_type::MSG_CHECK_QUORUM);
+      m.set_type(raftpb::MessageType::MSG_CHECK_QUORUM);
       auto _ = leaf::try_handle_some(
           [&]() -> leaf::result<void> {
             LEPTON_LEAF_CHECK(step(std::move(m)));
@@ -1329,9 +1329,9 @@ void raft::tick_heartbeat() {
   }
   if (heartbeat_elapsed_ >= heartbeat_timeout_) {
     heartbeat_elapsed_ = 0;
-    raftpb::message m;
+    raftpb::Message m;
     m.set_from(id_);
-    m.set_type(raftpb::message_type::MSG_BEAT);
+    m.set_type(raftpb::MessageType::MSG_BEAT);
     auto _ = leaf::try_handle_some(
         [&]() -> leaf::result<void> {
           LEPTON_LEAF_CHECK(step(std::move(m)));
@@ -1473,8 +1473,8 @@ bool raft::has_unapplied_conf_change() const {
         LEPTON_LEAF_CHECK(
             raft_log_handle_.scan(lo, hi, page_size, [&](const pb::entry_view& entries) -> leaf::result<void> {
               for (auto& iter : entries) {
-                if (iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE ||
-                    iter.type() == raftpb::entry_type::ENTRY_CONF_CHANGE_V2) {
+                if (iter.type() == raftpb::EntryType::ENTRY_CONF_CHANGE ||
+                    iter.type() == raftpb::EntryType::ENTRY_CONF_CHANGE_V2) {
                   found = true;
                   return new_error(logic_error::LOOP_BREAK);
                 }
@@ -1501,20 +1501,20 @@ void raft::campaign(campaign_type t) {
     LOGGER_WARN(logger_, "{} is unpromotable; campaign() should have been called", id_);
   }
   std::uint64_t term = 0;
-  raftpb::message_type vote_msg_type;
+  raftpb::MessageType vote_msg_type;
   if (t == campaign_type::PRE_ELECTION) {
     become_pre_candidate();
-    vote_msg_type = raftpb::message_type::MSG_PRE_VOTE;
+    vote_msg_type = raftpb::MessageType::MSG_PRE_VOTE;
     // PreVote RPCs are sent for the next term before we've incremented r.Term.
     term = term_ + 1;
   } else {
     become_candidate();
-    vote_msg_type = raftpb::message_type::MSG_VOTE;
+    vote_msg_type = raftpb::MessageType::MSG_VOTE;
     term = term_;
   }
   auto ids = trk_.voter_nodes();
   for (const auto& id : ids) {
-    raftpb::message m;
+    raftpb::Message m;
     m.set_to(id);
     m.set_term(term);
 
@@ -1545,7 +1545,7 @@ void raft::campaign(campaign_type t) {
   }
 }
 
-std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::uint64_t id, raftpb::message_type vt,
+std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::uint64_t id, raftpb::MessageType vt,
                                                                          bool vote) {
   if (vote) {
     LOGGER_INFO(logger_, "{} received {} from {} at term {}", id_, enum_name(vt), id, term_);
@@ -1556,7 +1556,7 @@ std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> raft::poll(std::ui
   return trk_.tally_votes();
 }
 
-leaf::result<void> raft::step(raftpb::message&& m) {
+leaf::result<void> raft::step(raftpb::Message&& m) {
   trace_receive_message(*this, m);
   auto msg_type = m.type();
   LOGGER_TRACE(logger_, "{} [term {}] [commit {}] ready step message: {} {}", id_, term_, raft_log_handle_.committed(),
@@ -1566,7 +1566,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
     // local message
     LOGGER_TRACE(logger_, "{} [term {}] received local message: {}", id_, term_, m.DebugString());
   } else if (m.term() > term_) {
-    if ((m.type() == raftpb::message_type::MSG_VOTE) || (m.type() == raftpb::message_type::MSG_PRE_VOTE)) {
+    if ((m.type() == raftpb::MessageType::MSG_VOTE) || (m.type() == raftpb::MessageType::MSG_PRE_VOTE)) {
       auto force = m.context() == enum_name(campaign_type::TRANSFER);
       // 当前节点是否在租约期内（即 Leader 有效期内）
       auto in_lease = check_quorum_ && (lead_ != NONE) && (election_elapsed_ < election_timeout_);
@@ -1585,11 +1585,11 @@ leaf::result<void> raft::step(raftpb::message&& m) {
         return {};
       }
     }
-    if (m.type() == raftpb::message_type::MSG_PRE_VOTE) {
+    if (m.type() == raftpb::MessageType::MSG_PRE_VOTE) {
       // Never change our term in response to a PreVote
       LOGGER_TRACE(logger_, "{} [term {}] ignored PreVote from {} [term: {}, index: {}]", id_, term_, m.from(),
                    m.term(), m.index());
-    } else if ((msg_type == raftpb::message_type::MSG_PRE_VOTE_RESP) && !m.reject()) {
+    } else if ((msg_type == raftpb::MessageType::MSG_PRE_VOTE_RESP) && !m.reject()) {
       // We send pre-vote requests with a term in our future. If the
       // pre-vote is granted, we will increment our term when we get a
       // quorum. If it is not, the term comes from the node that
@@ -1600,8 +1600,8 @@ leaf::result<void> raft::step(raftpb::message&& m) {
     } else {
       LOGGER_INFO(logger_, "{} [term: {}] received a {} message with higher term from {} [term: {}]", id_, term_,
                   enum_name(m.type()), m.from(), m.term());
-      if (m.type() == raftpb::message_type::MSG_APP || m.type() == raftpb::message_type::MSG_HEARTBEAT ||
-          m.type() == raftpb::message_type::MSG_SNAP) {
+      if (m.type() == raftpb::MessageType::MSG_APP || m.type() == raftpb::MessageType::MSG_HEARTBEAT ||
+          m.type() == raftpb::MessageType::MSG_SNAP) {
         // MsgApp/MsgHeartbeat/MsgSnap：来自合法 Leader 的消息，直接更新 Leader。
         become_follower(m.term(), m.from());
       } else {
@@ -1611,7 +1611,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
     }
   } else if (m.term() < term_) {
     if ((check_quorum_ || pre_vote_) &&
-        (m.type() == raftpb::message_type::MSG_HEARTBEAT || m.type() == raftpb::message_type::MSG_APP)) {
+        (m.type() == raftpb::MessageType::MSG_HEARTBEAT || m.type() == raftpb::MessageType::MSG_APP)) {
       // We have received messages from a leader at a lower term. It is possible
       // that these messages were simply delayed in the network, but this could
       // also mean that this node has advanced its term number during a network
@@ -1637,11 +1637,11 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       // 通知旧 Leader 当前节点已处于更高 Term，迫使其下台。
       // 当节点因网络分区提升 Term 后，旧 Leader 可能仍在发送心跳或日志请求。通过返回 MsgAppResp（携带当前节点的更高
       // Term），旧 Leader 会发现自己 Term 过低，触发 Step 函数中的 becomeFollower 逻辑，从而下台并更新 Term。
-      raftpb::message resp;
+      raftpb::Message resp;
       resp.set_to(m.from());
-      resp.set_type(raftpb::message_type::MSG_APP_RESP);
+      resp.set_type(raftpb::MessageType::MSG_APP_RESP);
       send(std::move(resp));
-    } else if (m.type() == raftpb::message_type::MSG_PRE_VOTE) {
+    } else if (m.type() == raftpb::MessageType::MSG_PRE_VOTE) {
       // Before Pre-Vote enable, there may have candidate with higher term,
       // but less log. After update to Pre-Vote, the cluster may deadlock if
       // we drop messages with a lower term.
@@ -1651,13 +1651,13 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       LOGGER_INFO(logger_,
                   "{} [logterm: {}, index: {}, vote: {}] rejected {} from {} [logterm: {}, index: {}] at term {}", id_,
                   cand_last.term, cand_last.index, vote_id_, enum_name(m.type()), m.from(), m.term(), m.index(), term_);
-      raftpb::message resp;
+      raftpb::Message resp;
       resp.set_to(m.from());
       resp.set_term(term_);
-      resp.set_type(raftpb::message_type::MSG_PRE_VOTE_RESP);
+      resp.set_type(raftpb::MessageType::MSG_PRE_VOTE_RESP);
       resp.set_reject(true);
       send(std::move(resp));
-    } else if (m.type() == raftpb::message_type::MSG_STORAGE_APPEND_RESP) {
+    } else if (m.type() == raftpb::MessageType::MSG_STORAGE_APPEND_RESP) {
       if (m.index() != 0) {
         // 忽略日志追加结果，因为低 Term 的日志可能已被更高 Term 的日志覆盖。记录警告日志。
         // Don't consider the appended log entries to be stable because
@@ -1682,7 +1682,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
   }
 
   switch (m.type()) {
-    case raftpb::message_type::MSG_HUP: {
+    case raftpb::MessageType::MSG_HUP: {
       if (pre_vote_) {
         hup(campaign_type::PRE_ELECTION);
       } else {
@@ -1690,7 +1690,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       }
       break;
     }
-    case raftpb::message_type::MSG_STORAGE_APPEND_RESP: {
+    case raftpb::MessageType::MSG_STORAGE_APPEND_RESP: {
       if (m.index() != 0) {
         raft_log_handle_.stable_to({m.log_term(), m.index()});
       }
@@ -1699,7 +1699,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       }
       break;
     }
-    case raftpb::message_type::MSG_STORAGE_APPLY_RESP: {
+    case raftpb::MessageType::MSG_STORAGE_APPLY_RESP: {
       if (m.entries_size() > 0) {
         auto index = m.entries().at(m.entries_size() - 1).index();
         applied_to(index, pb::ent_size(m.entries()));
@@ -1707,8 +1707,8 @@ leaf::result<void> raft::step(raftpb::message&& m) {
       }
       break;
     }
-    case raftpb::message_type::MSG_VOTE:
-    case raftpb::message_type::MSG_PRE_VOTE: {
+    case raftpb::MessageType::MSG_VOTE:
+    case raftpb::MessageType::MSG_PRE_VOTE: {
       // We can vote if this is a repeat of a vote we've already cast...
       auto can_vote =
           vote_id_ == m.from() ||  // // 已投给该候选者
@@ -1716,7 +1716,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
           (vote_id_ == NONE && lead_ == NONE) ||  // 未投票且无 Leader
           // ...or this is a PreVote for a future term...
           // 消息类型是预投票且请求的消息的 Term 更高
-          (m.type() == raftpb::message_type::MSG_PRE_VOTE && m.term() > term_);
+          (m.type() == raftpb::MessageType::MSG_PRE_VOTE && m.term() > term_);
       // ...and we believe the candidate is up to date.
       auto last = raft_log_handle_.last_entry_id();
       auto cand_last_id = pb::entry_id{.term = m.log_term(), .index = m.index()};
@@ -1751,12 +1751,12 @@ leaf::result<void> raft::step(raftpb::message&& m) {
         // the message (it ignores all out of date messages).
         // The term in the original message and current local term are the
         // same in the case of regular votes, but different for pre-votes.
-        raftpb::message resp;
+        raftpb::Message resp;
         resp.set_to(m.from());
         resp.set_term(m.term());
         resp.set_type(pb::vote_resp_msg_type(m.type()));
         send(std::move(resp));
-        if (m.type() == raftpb::message_type::MSG_VOTE) {
+        if (m.type() == raftpb::MessageType::MSG_VOTE) {
           // Only record real votes.
           election_elapsed_ = 0;
           vote_id_ = m.from();
@@ -1765,7 +1765,7 @@ leaf::result<void> raft::step(raftpb::message&& m) {
         LOGGER_INFO(
             logger_, "{} [logterm: {}, index: {}, vote: {}] rejected {} from {} [logterm: {}, index: {}] at term {}",
             id_, last.term, last.index, vote_id_, enum_name(m.type()), m.from(), m.log_term(), m.index(), term_);
-        raftpb::message resp;
+        raftpb::Message resp;
         resp.set_to(m.from());
         resp.set_term(term_);
         resp.set_type(pb::vote_resp_msg_type(m.type()));
@@ -1789,14 +1789,14 @@ void raft::tick() {
   (this->*tick_func_)();
 }
 
-void raft::handle_append_entries(raftpb::message&& message) {
+void raft::handle_append_entries(raftpb::Message&& message) {
   // TODO(pav-kv): construct logSlice up the stack next to receiving the
   // message, and validate it before taking any action (e.g. bumping term).
   pb::log_slice log_slice{message.term(), {message.log_term(), message.index()}, std::move(*message.mutable_entries())};
 
-  raftpb::message resp_msg;
+  raftpb::Message resp_msg;
   resp_msg.set_to(message.from());
-  resp_msg.set_type(raftpb::message_type::MSG_APP_RESP);
+  resp_msg.set_type(raftpb::MessageType::MSG_APP_RESP);
   // 若 Leader 的前一条日志索引 a.prev.index 小于本地已提交的索引 r.raftLog.committed
   if (log_slice.prev.index < raft_log_handle_.committed()) {
     resp_msg.set_index(raft_log_handle_.committed());
@@ -1844,19 +1844,19 @@ void raft::handle_append_entries(raftpb::message&& message) {
   send(std::move(resp_msg));
 }
 
-void raft::handle_heartbeat(raftpb::message&& message) {
+void raft::handle_heartbeat(raftpb::Message&& message) {
   raft_log_handle_.commit_to(message.commit());
-  raftpb::message resp_msg;
+  raftpb::Message resp_msg;
   resp_msg.set_to(message.from());
-  resp_msg.set_type(raftpb::message_type::MSG_HEARTBEAT_RESP);
+  resp_msg.set_type(raftpb::MessageType::MSG_HEARTBEAT_RESP);
   resp_msg.set_allocated_context(message.release_context());
   send(std::move(resp_msg));
 }
 
-void raft::handle_snapshot(raftpb::message&& message) {
+void raft::handle_snapshot(raftpb::Message&& message) {
   // MsgSnap messages should always carry a non-nil Snapshot, but err on the
   // side of safety and treat a nil Snapshot as a zero-valued Snapshot.
-  raftpb::snapshot snapshot;
+  raftpb::Snapshot snapshot;
   if (message.has_snapshot()) {
     snapshot = std::move(*message.mutable_snapshot());
   } else {
@@ -1865,9 +1865,9 @@ void raft::handle_snapshot(raftpb::message&& message) {
   auto sindex = snapshot.metadata().index();
   auto sterm = snapshot.metadata().term();
 
-  raftpb::message resp_msg;
+  raftpb::Message resp_msg;
   resp_msg.set_to(message.from());
-  resp_msg.set_type(raftpb::message_type::MSG_APP_RESP);
+  resp_msg.set_type(raftpb::MessageType::MSG_APP_RESP);
   if (restore(std::move(snapshot))) {
     LOGGER_INFO(logger_, "{} [commit: {}] restored snapshot [index: {}, term: {}]", id_, raft_log_handle_.committed(),
                 sindex, sterm);
@@ -1884,7 +1884,7 @@ void raft::handle_snapshot(raftpb::message&& message) {
 // restore recovers the state machine from a snapshot. It restores the log and the
 // configuration of state machine. If this method returns false, the snapshot was
 // ignored, either because it was obsolete or because of an error.
-bool raft::restore(raftpb::snapshot&& snapshot) {
+bool raft::restore(raftpb::Snapshot&& snapshot) {
   if (snapshot.metadata().index() <= raft_log_handle_.committed()) {
     return false;
   }
@@ -1981,7 +1981,7 @@ bool raft::promotable() {
   return true;
 }
 
-raftpb::conf_state raft::apply_conf_change(raftpb::conf_change_v2&& cc) {
+raftpb::ConfState raft::apply_conf_change(raftpb::ConfChangeV2&& cc) {
   auto change_func = [&]() -> confchange::changer::result {
     confchange::changer changer{trk_.clone(), raft_log_handle_.last_index()};
     if (pb::leave_joint(cc)) {
@@ -2007,7 +2007,7 @@ raftpb::conf_state raft::apply_conf_change(raftpb::conf_change_v2&& cc) {
   return switch_to_config(std::move(cfg), std::move(trk));
 }
 
-raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map) {
+raftpb::ConfState raft::switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map) {
   trace_conf_change_event(cfg, *this);
 
   trk_.update_config(std::move(cfg));
@@ -2079,7 +2079,7 @@ raftpb::conf_state raft::switch_to_config(tracker::config&& cfg, tracker::progre
   return cs;
 }
 
-void raft::load_state(const raftpb::hard_state& state) {
+void raft::load_state(const raftpb::HardState& state) {
   if (state.commit() < raft_log_handle_.committed() || state.commit() > raft_log_handle_.last_index()) {
     LEPTON_CRITICAL("{} state.commit {} is out of range [{}, {}]", id_, state.commit(), raft_log_handle_.committed(),
                     raft_log_handle_.last_index());
@@ -2099,9 +2099,9 @@ void raft::reset_randomized_election_timeout() {
 }
 
 void raft::send_timmeout_now(std::uint64_t id) {
-  raftpb::message m;
+  raftpb::Message m;
   m.set_to(id);
-  m.set_type(raftpb::message_type::MSG_TIMEOUT_NOW);
+  m.set_type(raftpb::MessageType::MSG_TIMEOUT_NOW);
   send(std::move(m));
 }
 
@@ -2113,14 +2113,14 @@ bool raft::committed_entry_in_current_term() const {
   return raft_log_handle_.zero_term_on_err_compacted(raft_log_handle_.committed()) == term_;
 }
 
-raftpb::message raft::response_to_read_index_req(raftpb::message&& req, std::uint64_t read_index) {
+raftpb::Message raft::response_to_read_index_req(raftpb::Message&& req, std::uint64_t read_index) {
   if (req.from() == NONE || req.from() == id_) {
     read_states_.emplace_back(read_state{read_index, std::move(*req.mutable_entries(0)->mutable_data())});
     return {};
   }
-  raftpb::message resp;
+  raftpb::Message resp;
   resp.set_to(req.from());
-  resp.set_type(raftpb::message_type::MSG_READ_INDEX_RESP);
+  resp.set_type(raftpb::MessageType::MSG_READ_INDEX_RESP);
   resp.set_index(read_index);
   req.mutable_entries()->Swap(resp.mutable_entries());
   return resp;

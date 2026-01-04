@@ -2,7 +2,7 @@
 
 namespace lepton::storage::fileutil {
 
-std::error_code preallocate(int fd, std::int64_t size_in_bytes, bool extend_file) {
+std::error_code preallocate(native_handle_t fd, std::int64_t size_in_bytes, bool extend_file) {
   if (size_in_bytes == 0) {
     // fallocate will return EINVAL if length is 0; skip
     return {};

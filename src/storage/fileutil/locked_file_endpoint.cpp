@@ -1,14 +1,18 @@
 #include "storage/fileutil/locked_file_endpoint.h"
 
+#include <memory>
+
 #include "asio/any_io_executor.hpp"
 #include "basic/logger.h"
+#include "error/io_error.h"
 #include "error/lepton_error.h"
 #include "storage/fileutil/file_endpoint.h"
+#include "storage/fileutil/path.h"
 
 namespace lepton::storage::fileutil {
 
-leaf::result<locked_file_handle> create_locked_file_endpoint(rocksdb::Env* env, file_endpoint&& base,
-                                                             const std::string& filename) {
+leaf::result<locked_file_endpoint_handle> create_locked_file_endpoint(rocksdb::Env* env, file_endpoint&& base,
+                                                                      const std::string& filename) {
   rocksdb::FileLock* lock;
   if (auto s = env->LockFile(filename, &lock); !s.ok()) {
     LOG_ERROR("Failed to lock WAL file {}: {}", filename, s.ToString());
@@ -17,9 +21,13 @@ leaf::result<locked_file_handle> create_locked_file_endpoint(rocksdb::Env* env, 
   return std::make_unique<locked_file_endpoint>(std::move(base), env, lock);
 }
 
-leaf::result<locked_file_handle> create_locked_file_endpoint(rocksdb::Env* env, asio::any_io_executor executor,
-                                                             const std::string& filename,
-                                                             asio::file_base::flags open_flags) {
+leaf::result<locked_file_endpoint_handle> create_locked_file_endpoint(rocksdb::Env* env, asio::any_io_executor executor,
+                                                                      const std::string& filename,
+                                                                      asio::file_base::flags open_flags) {
+  if (!fileutil::path_exist(filename)) {
+    LOG_ERROR("file: {} not exist", filename);
+    return new_error(io_error::PARH_NOT_EXIT);
+  }
   std::error_code ec;
   asio::stream_file file_stream(executor);
   ec = file_stream.open(filename, open_flags, ec);

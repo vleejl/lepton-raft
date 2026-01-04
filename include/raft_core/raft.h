@@ -29,15 +29,15 @@ class raft;
 class raw_node;
 
 using tick_func = void (raft::*)();
-using step_func = std::function<leaf::result<void>(raft&, raftpb::message&&)>;
+using step_func = std::function<leaf::result<void>(raft&, raftpb::Message&&)>;
 leaf::result<raft> new_raft(config&&);
 void release_pending_read_index_message(raft& r);
-void send_msg_read_index_response(raft& r, raftpb::message&& m);
-leaf::result<void> step_leader(raft& r, raftpb::message&& m);
+void send_msg_read_index_response(raft& r, raftpb::Message&& m);
+leaf::result<void> step_leader(raft& r, raftpb::Message&& m);
 // stepCandidate is shared by StateCandidate and StatePreCandidate; the
 // difference is whether they respond to MsgVoteResp or MsgPreVoteResp.
-leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
-leaf::result<void> step_follower(raft& r, raftpb::message&& m);
+leaf::result<void> step_candidate(raft& r, raftpb::Message&& m);
+leaf::result<void> step_follower(raft& r, raftpb::Message&& m);
 
 class raft {
 // 为了方便单元测试 修改私有成员函数作用域
@@ -50,14 +50,14 @@ class raft {
   friend class raw_node;
   friend leaf::result<raft> new_raft(config&&);
   friend void release_pending_read_index_message(raft& r);
-  friend void send_msg_read_index_response(raft& r, raftpb::message&& m);
-  friend leaf::result<void> step_leader(raft& r, raftpb::message&& m);
-  friend leaf::result<void> step_candidate(raft& r, raftpb::message&& m);
-  friend leaf::result<void> step_follower(raft& r, raftpb::message&& m);
+  friend void send_msg_read_index_response(raft& r, raftpb::Message&& m);
+  friend leaf::result<void> step_leader(raft& r, raftpb::Message&& m);
+  friend leaf::result<void> step_candidate(raft& r, raftpb::Message&& m);
+  friend leaf::result<void> step_follower(raft& r, raftpb::Message&& m);
 
   // send schedules persisting state to a stable storage and AFTER that
   // sending the message (as part of next Ready message processing).
-  void send(raftpb::message&& message);
+  void send(raftpb::Message&& message);
 
   // sendAppend sends an append RPC with new entries (if any) and the
   // current commit index to the given peer
@@ -92,7 +92,7 @@ class raft {
 
   void applied_to(std::uint64_t index, pb::entry_encoding_size size);
 
-  void applied_snap(const raftpb::snapshot& snapshot);
+  void applied_snap(const raftpb::Snapshot& snapshot);
 
   // maybeCommit attempts to advance the commit index. Returns true if
   // the commit index changed (in which case the caller should call
@@ -124,22 +124,22 @@ class raft {
   // This must only be called after verifying that this is a legitimate transition.
   void campaign(campaign_type t);
 
-  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id, raftpb::message_type vt,
+  std::tuple<std::uint64_t, std::uint64_t, quorum::vote_result> poll(std::uint64_t id, raftpb::MessageType vt,
                                                                      bool vote);
 
   //  function step is public function
-  // leaf::result<void> step(raftpb::message&& m);
+  // leaf::result<void> step(raftpb::Message&& m);
 
-  void handle_append_entries(raftpb::message&& message);
+  void handle_append_entries(raftpb::Message&& message);
 
-  void handle_heartbeat(raftpb::message&& message);
+  void handle_heartbeat(raftpb::Message&& message);
 
-  void handle_snapshot(raftpb::message&& message);
+  void handle_snapshot(raftpb::Message&& message);
 
   // restore recovers the state machine from a snapshot. It restores the log and the
   // configuration of state machine. If this method returns false, the snapshot was
   // ignored, either because it was obsolete or because of an error.
-  bool restore(raftpb::snapshot&& snapshot);
+  bool restore(raftpb::Snapshot&& snapshot);
 
   // promotable indicates whether state machine can be promoted to leader,
   // which is true when its own id is in progress list.
@@ -152,9 +152,9 @@ class raft {
   //
   // The inputs usually result from restoring a ConfState or applying a
   // ConfChange.
-  raftpb::conf_state switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map);
+  raftpb::ConfState switch_to_config(tracker::config&& cfg, tracker::progress_map&& pgs_map);
 
-  void load_state(const raftpb::hard_state& state);
+  void load_state(const raftpb::HardState& state);
 
   // pastElectionTimeout returns true if r.electionElapsed is greater
   // than or equal to the randomized election timeout in
@@ -172,7 +172,7 @@ class raft {
 
   // responseToReadIndexReq constructs a response for `req`. If `req` comes from the peer
   // itself, a blank value will be returned.
-  raftpb::message response_to_read_index_req(raftpb::message&& req, std::uint64_t read_index);
+  raftpb::Message response_to_read_index_req(raftpb::Message&& req, std::uint64_t read_index);
 
   // increaseUncommittedSize computes the size of the proposed entries and
   // determines whether they would push leader over its maxUncommittedSize limit.
@@ -240,7 +240,7 @@ class raft {
 
   lepton::core::soft_state soft_state() const { return lepton::core::soft_state{lead_, state_type_}; }
 
-  raftpb::hard_state hard_state() const;
+  raftpb::HardState hard_state() const;
 
   // getStatus gets a copy of the current raft status.
   basic_status get_basic_status() const;
@@ -257,9 +257,9 @@ class raft {
 
   bool has_trk_progress(std::uint64_t id) const { return trk_.progress_map_view().view().contains(id); }
 
-  raftpb::conf_state apply_conf_change(raftpb::conf_change_v2&& cc);
+  raftpb::ConfState apply_conf_change(raftpb::ConfChangeV2&& cc);
 
-  leaf::result<void> step(raftpb::message&& m);
+  leaf::result<void> step(raftpb::Message&& m);
 
   void tick();
 

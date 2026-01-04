@@ -1,17 +1,20 @@
 #include "storage/wal/wal.h"
 
-#include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <filesystem>
 #include <format>
 #include <memory>
-#include <ranges>
 #include <string>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include "asio/use_future.hpp"
 #include "basic/defer.h"
+#include "basic/failpoint_async.h"
 #include "basic/logger.h"
+#include "basic/pbutil.h"
 #include "basic/time.h"
 #include "error/expected.h"
 #include "error/io_error.h"
@@ -19,8 +22,13 @@
 #include "error/leaf_expected.h"
 #include "error/lepton_error.h"
 #include "error/logic_error.h"
+#include "error/wal_error.h"
 #include "fmt/format.h"
 #include "leaf.hpp"
+#include "magic_enum.hpp"
+#include "raft.pb.h"
+#include "raft_core/pb/protobuf.h"
+#include "raft_core/raw_node.h"
 #include "storage/fileutil/directory.h"
 #include "storage/fileutil/file_reader.h"
 #include "storage/fileutil/locked_file_endpoint.h"
@@ -29,129 +37,32 @@
 #include "storage/ioutil/reader.h"
 #include "storage/pb/types.h"
 #include "storage/pb/wal_protobuf.h"
+#include "storage/wal/decoder.h"
 #include "storage/wal/wal.h"
 #include "storage/wal/wal_file.h"
+#include "tl/expected.hpp"
 #include "v4/proxy.h"
 #include "wal.pb.h"
 namespace lepton::storage::wal {
 
 constexpr auto WARN_SYNC_DURATION = std::chrono::seconds{1};
 
-asio::awaitable<expected<void>> wal::save_crc(std::uint32_t prev_crc) {
-  walpb::record record;
-  record.set_type(::walpb::record_type::CRC_TYPE);
-  record.set_crc(prev_crc);
-  co_return co_await encoder_->encode(record);
-}
+std::vector<pro::proxy_view<ioutil::reader>> to_reader_views(std::vector<wal_segment>& files) {
+  std::vector<pro::proxy_view<ioutil::reader>> result;
+  result.reserve(files.size());
 
-asio::awaitable<expected<void>> wal::save_snapshot(const pb::snapshot& snapshot) {
-  if (auto ret = pb::validate_snapshot_for_write(snapshot); !ret) {
-    LOGGER_ERROR(logger_, "validate failed, error:{}", ret.error().message());
-    co_return ret;
+  for (auto& seg : files) {
+    std::visit(
+        [&](auto& f_ptr) {
+          // f_ptr 是 unique_ptr<file_reader> 或 unique_ptr<locked_file_endpoint>
+          if (f_ptr) {                         // 安全检查
+            result.emplace_back(f_ptr.get());  // 注意这里要 .get()
+          }
+        },
+        seg);
   }
 
-  auto self = shared_from_this();
-  if (!strand_.running_in_this_thread()) {
-    co_await asio::dispatch(strand_, asio::use_awaitable);
-  }
-
-  walpb::record record;
-  record.set_type(::walpb::record_type::SNAPSHOT_TYPE);
-  if (snapshot.ByteSizeLong() > 0) {
-    std::string data;
-    if (!snapshot.SerializeToString(&data)) {
-      LOGGER_CRITICAL(logger_, "SerializeToString snapshot failed");
-      co_return unexpected(logic_error::SERIALIZE_FAILED);
-    }
-    record.set_data(std::move(data));
-  }
-
-  CO_CHECK_AWAIT(encoder_->encode(record));
-
-  // update enti only when snapshot is ahead of last index
-  if (entry_index_ < snapshot.index()) {
-    entry_index_ = snapshot.index();
-  }
-
-  co_return co_await sync();
-}
-
-asio::awaitable<expected<void>> wal::sync() {
-  if (encoder_ != nullptr) {
-    CO_CHECK_AWAIT(encoder_->flush());
-  }
-
-  if (unsafe_no_sync_) {
-    co_return ok();
-  }
-
-  auto start = std::chrono::steady_clock::now();
-  auto result = tail()->fdatasync();
-  if (auto took = time_since(start); took > WARN_SYNC_DURATION) {
-    LOGGER_WARN(logger_, "slow fdatasyc, took: {} seconds, expect: {} seconds", to_seconds(took),
-                to_seconds(WARN_SYNC_DURATION));
-  }
-  co_return result;
-}
-
-leaf::result<void> wal::rename_wal(const std::string& tmp_dir_path) {
-  LEPTON_LEAF_CHECK(fileutil::remove_all(dir_));
-  LEPTON_LEAF_CHECK(fileutil::rename(tmp_dir_path, dir_));
-  BOOST_LEAF_AUTO(file_pipeline, new_file_pipeline(executor_, env_, dir_, segment_size_bytes_, logger_));
-  file_pipeline_ = std::move(file_pipeline);
-  BOOST_LEAF_AUTO(dir_file, fileutil::new_directory(env_, dir_));
-  dir_file_ = std::move(dir_file);
-  return {};
-}
-
-void wal::cleanup_wal() {
-  co_spawn(
-      executor_,
-      [&]() -> asio::awaitable<void> {
-        if (auto result = co_await close(); !result) {
-          LOGGER_CRITICAL(logger_, "Failed to close wal during cleanup: {}", result.error().message());
-        }
-        co_return;
-      },
-      asio::use_future);
-
-  using namespace std::chrono;
-  auto now = system_clock::now();
-  auto seconds = floor<std::chrono::seconds>(now);
-  auto micros = duration_cast<microseconds>(now - seconds).count();
-  auto broken_dir_name = std::format("{}.broken.{:%Y%m%d.%H%M%S}.{:06}", dir_, seconds, micros);
-  if (auto result = leaf_to_expected([&]() { return fileutil::rename(dir_, broken_dir_name); }); !result) {
-    LOGGER_CRITICAL(logger_, "Failed to rename broken wal dir {} to {}: {}", dir_, broken_dir_name,
-                    result.error().message());
-  }
-  return;
-}
-
-asio::awaitable<expected<void>> wal::close() {
-  auto self = shared_from_this();
-  if (!strand_.running_in_this_thread()) {
-    co_await asio::dispatch(strand_, asio::use_awaitable);
-  }
-
-  if (is_closed_) co_return ok();
-  is_closed_ = true;
-  if (file_pipeline_ != nullptr) {
-    co_await file_pipeline_->close();
-    file_pipeline_.reset();
-  }
-
-  if (tail() != nullptr) {
-    CO_CHECK_AWAIT(sync());
-  }
-  for (auto& file_handle : lock_files_) {
-    if (file_handle == nullptr) {
-      continue;
-    }
-    if (auto result = file_handle->close(); !result) {
-      LOGGER_WARN(logger_, "Failed to close wal file handle: {}", result.error().message());
-    }
-  }
-  co_return leaf_to_expected([&]() -> leaf::result<void> { return dir_file_.close(); });
+  return result;
 }
 
 bool exist_wal(const std::string& dir) {
@@ -167,7 +78,7 @@ bool exist_wal(const std::string& dir) {
  * 解析 WAL 文件名
  * 格式示例: 0000000000000001-0000000000000005.wal
  */
-auto parse_wal_name(std::string_view str) -> leaf::result<std::pair<uint64_t, uint64_t>> {
+auto parse_wal_name(std::string_view str) -> leaf::result<std::pair<std::uint64_t, std::uint64_t>> {
   // 检查后缀是否为 .wal (C++20 ends_with)
   if (!str.ends_with(".wal")) {
     return new_error(logic_error::INVALID_FORMAT, "bad WAL name: missing .wal suffix");
@@ -279,10 +190,9 @@ leaf::result<std::pair<std::vector<std::string>, uint64_t>> select_wal_files(con
   return {wnames, static_cast<uint64_t>(name_index)};
 }
 
-leaf::result<std::vector<fileutil::file_reader_handle>> open_readonly_wal_files(asio::any_io_executor executor,
-                                                                                const std::string& dir,
-                                                                                std::span<const std::string> names) {
-  std::vector<fileutil::file_reader_handle> file_readers;
+leaf::result<std::vector<wal_segment>> open_readonly_wal_files(asio::any_io_executor executor, const std::string& dir,
+                                                               std::span<const std::string> names) {
+  std::vector<wal_segment> file_readers;
   for (const auto& name : names) {
     auto filepath = fileutil::join_paths(dir, name);
     BOOST_LEAF_AUTO(file_handle, fileutil::create_file_reader(executor, filepath));
@@ -291,11 +201,10 @@ leaf::result<std::vector<fileutil::file_reader_handle>> open_readonly_wal_files(
   return file_readers;
 }
 
-leaf::result<std::vector<fileutil::locked_file_handle>> open_locked_wal_file(rocksdb::Env* env,
-                                                                             asio::any_io_executor executor,
-                                                                             const std::string& dir,
-                                                                             std::span<const std::string> names) {
-  std::vector<fileutil::locked_file_handle> lock_files;
+leaf::result<std::vector<wal_segment>> open_locked_wal_file(rocksdb::Env* env, asio::any_io_executor executor,
+                                                            const std::string& dir,
+                                                            std::span<const std::string> names) {
+  std::vector<wal_segment> lock_files;
   for (const auto& name : names) {
     auto filepath = fileutil::join_paths(dir, name);
     BOOST_LEAF_AUTO(file_handle,
@@ -303,6 +212,122 @@ leaf::result<std::vector<fileutil::locked_file_handle>> open_locked_wal_file(roc
     lock_files.push_back(std::move(file_handle));
   }
   return lock_files;
+}
+
+leaf::result<wal_handle> open_at_index(rocksdb::Env* env, asio::any_io_executor executor, const std::string& dir,
+                                       std::size_t segment_size_bytes, pb::snapshot&& snap, bool write,
+                                       std::shared_ptr<lepton::logger_interface> logger) {
+  BOOST_LEAF_AUTO(wal_files_pair, select_wal_files(dir, snap));
+  auto& [wal_names, start_index] = wal_files_pair;
+  if (write) {
+    BOOST_LEAF_AUTO(lock_files, open_locked_wal_file(env, executor, dir, wal_names));
+    BOOST_LEAF_AUTO(file_pipeline_handle, new_file_pipeline(executor, env, dir, segment_size_bytes, logger));
+    auto wal_handle = std::make_shared<wal>(env, executor, dir, segment_size_bytes, std::move(snap),
+                                            std::move(lock_files), std::move(file_pipeline_handle), logger);
+    LOG_TRACE("wal tail file name: {}", wal_handle->tail()->name());
+    BOOST_LEAF_AUTO(_, parse_wal_name(fileutil::base_name(wal_handle->tail()->name())));
+    return wal_handle;
+  } else {
+    BOOST_LEAF_AUTO(file_readers, open_readonly_wal_files(executor, dir, wal_names));
+    return std::make_shared<wal>(env, executor, dir, segment_size_bytes, std::move(snap), std::move(file_readers),
+                                 nullptr, logger);
+  }
+}
+
+leaf::result<wal_handle> open(rocksdb::Env* env, asio::any_io_executor executor, const std::string& dir,
+                              std::size_t segment_size_bytes, pb::snapshot&& snap,
+                              std::shared_ptr<lepton::logger_interface> logger) {
+  BOOST_LEAF_AUTO(wal_handle, open_at_index(env, executor, dir, segment_size_bytes, std::move(snap), true, logger));
+  BOOST_LEAF_AUTO(dir_handle, fileutil::new_directory(env, dir));
+  wal_handle->set_directory(std::move(dir_handle));
+  return wal_handle;
+}
+
+asio::awaitable<expected<raftpb::HardState>> verify(asio::any_io_executor executor, const std::string& dir,
+                                                    const pb::snapshot& snap,
+                                                    std::shared_ptr<lepton::logger_interface> logger) {
+  auto file_readers_result = leaf_to_expected([&]() -> leaf::result<std::vector<wal_segment>> {
+    BOOST_LEAF_AUTO(wal_files_pair, select_wal_files(dir, snap));
+    auto& [wal_names, start_index] = wal_files_pair;
+    BOOST_LEAF_AUTO(file_readers, open_readonly_wal_files(executor, dir, wal_names));
+    return file_readers;
+  });
+  if (!file_readers_result) {
+    LOGGER_ERROR(logger, "create decoder failed, error:{}", file_readers_result.error().message());
+    co_return tl::unexpected(file_readers_result.error());
+  }
+  auto file_readers = std::move(file_readers_result.value());
+  // create a new decoder from the readers on the WAL files
+  auto decoder_handle = std::make_unique<decoder>(executor, logger, to_reader_views(file_readers));
+
+  walpb::Record rec;
+  std::string metadata;
+  std::error_code ec;
+  auto match = false;
+  raftpb::HardState state;
+  while (!ec) {
+    auto result = co_await decoder_handle->decode_record(rec);
+    if (!result) {
+      ec = result.error();
+      continue;
+    }
+
+    switch (rec.type()) {
+      case walpb::METADATA_TYPE: {
+        if ((!metadata.empty()) && metadata != rec.data()) {
+          co_return unexpected(wal_error::ERR_METADATA_CONFLICT);
+        }
+        metadata = rec.data();
+        break;
+      }
+        // We ignore all entry and state type records as these
+        // are not necessary for validating the WAL contents
+      case walpb::ENTRY_TYPE: {
+        break;
+      }
+      case walpb::STATE_TYPE: {
+        protobuf_must_parse(rec.data(), state, *logger);
+        break;
+      }
+      case walpb::CRC_TYPE: {
+        auto crc = decoder_handle->last_crc();
+        // Current crc of decoder must match the crc of the record.
+        // We need not match 0 crc, since the decoder is a new one at this point.
+        if ((crc != 0) && !pb::validate_rec_crc(rec, crc)) {
+          co_return unexpected(wal_error::ERR_CRC_MISMATCH);
+        }
+        decoder_handle->update_crc(rec.crc());
+        break;
+      }
+      case walpb::SNAPSHOT_TYPE: {
+        pb::snapshot last_snap;
+        protobuf_must_parse(rec.data(), last_snap, *logger);
+        if (last_snap.index() == snap.index()) {
+          if (last_snap.term() != snap.term()) {
+            co_return unexpected(wal_error::ERR_SNAPSHOT_MISMATCH);
+          }
+          match = true;
+        }
+        break;
+      }
+      default: {
+        co_return unexpected(wal_error::ERR_REC_TYPE_INVALID);
+        break;
+      }
+    }
+  }
+
+  // We do not have to read out all the WAL entries
+  // as the decoder is opened in read mode.
+  if (ec != io_error::IO_EOF && ec != io_error::UNEXPECTED_EOF) {
+    co_return tl::unexpected(ec);
+  }
+
+  if (!match) {
+    co_return unexpected(wal_error::ERR_SNAPSHOT_NOT_FOUND);
+  }
+
+  co_return state;
 }
 
 asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io_executor executor,
@@ -330,8 +355,8 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io
     auto wal_file_path = std::filesystem::path(temp_dir_path) / wal_file_name(0, 0);
     BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(env, executor, wal_file_path.string(), false));
     BOOST_LEAF_AUTO(_, wal_file_handle->seek_end());
-    LEPTON_LEAF_CHECK(wal_file_handle->pre_allocate(segment_size_bytes, true));
-    BOOST_LEAF_AUTO(encoder, new_file_encoder(executor, *wal_file_handle, 0, logger));
+    LEPTON_LEAF_CHECK(wal_file_handle->preallocate(segment_size_bytes, true));
+    BOOST_LEAF_AUTO(encoder, new_file_encoder(executor, wal_file_handle.get(), 0, logger));
     auto wal_handle =
         std::make_shared<wal>(executor, env, std::move(encoder), dirpath, metadata, segment_size_bytes, logger);
     wal_handle->append_lock_file(std::move(wal_file_handle));
@@ -344,8 +369,8 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io
   auto wal_handle = std::move(wal_handle_result.value());
   CO_CHECK_AWAIT(wal_handle->save_crc(0));
 
-  walpb::record record;
-  record.set_type(::walpb::record_type::METADATA_TYPE);
+  walpb::Record record;
+  record.set_type(::walpb::RecordType::METADATA_TYPE);
   record.set_data(metadata);
   CO_CHECK_AWAIT(wal_handle->encode(record));
   CO_CHECK_AWAIT(wal_handle->save_snapshot(pb::snapshot{}));
@@ -375,4 +400,461 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io
   }
   co_return wal_handle;
 }
+
+wal::wal(rocksdb::Env* env, asio::any_io_executor executor, const std::string& dir_path,
+         const std::size_t segment_size_bytes, pb::snapshot&& snap, std::vector<wal_segment>&& segments,
+         file_pipeline_handle&& file_pipeline, std::shared_ptr<lepton::logger_interface> logger)
+    : executor_(executor),
+      strand_(executor),
+      env_(env),
+      dir_(dir_path),
+      segment_size_bytes_(segment_size_bytes),
+      start_(std::move(snap)),
+      segments_(std::move(segments)),
+      file_pipeline_(std::move(file_pipeline)),
+      logger_(std::move(logger)) {
+  decoder_ = std::make_unique<decoder>(executor, logger, to_reader_views(segments));
+}
+
+asio::awaitable<expected<wal::read_result>> wal::read_all() {
+  auto self = shared_from_this();
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
+  }
+
+  if (decoder_ == nullptr) {
+    co_return unexpected(wal_error::ERR_DECODER_NOT_FOUND);
+  }
+
+  walpb::Record rec;
+  std::error_code ec;
+  auto match = false;
+  read_result ret_result;
+  auto& metadata = ret_result.metadata;
+  auto& entries = ret_result.entries;
+  auto& hard_state = ret_result.state;
+  while (!ec) {
+    if (auto result = co_await decoder_->decode_record(rec); !result) {
+      ec = result.error();
+      continue;
+    }
+
+    switch (rec.type()) {
+      case walpb::METADATA_TYPE: {
+        if ((!metadata.empty()) && metadata != rec.data()) {
+          co_return unexpected(wal_error::ERR_METADATA_CONFLICT);
+        }
+        metadata = rec.data();
+        break;
+      }
+      case walpb::ENTRY_TYPE: {
+        raftpb::Entry entry;
+        protobuf_must_parse(rec.data(), entry, *logger_);
+        // 0 <= e.Index-w.start.Index - 1 < len(ents)
+        if (entry.index() > start_.index()) {
+          // prevent "panic: runtime error: slice bounds out of range [:13038096702221461992] with capacity 0"
+          // - 背景：在 Raft 中，如果 Leader 崩溃，新 Leader 可能会发送索引相同但 Term
+          // 不同的日志，覆盖掉旧的未提交日志。
+          // - 做法：ents[:offset] 会丢弃掉 offset 之后的所有旧数据，然后把最新的 e 加上去。这保证了 ents
+          // 始终保存的是最新的、有效的日志流。
+
+          // index 从 1 开始，数组下标从 0 开始
+          auto diff = entry.index() - start_.index() - 1;
+          assert(diff > static_cast<uint64_t>(std::numeric_limits<int>::max()));
+          auto offset = static_cast<int>(diff);
+          if (offset > entries.size()) {
+            // return error before append call causes runtime panic.
+            // We still return the continuous WAL entries that have already been read.
+            // Refer to https://github.com/etcd-io/etcd/pull/19038#issuecomment-2557414292.
+            LOGGER_ERROR(logger_,
+                         "{}, snapshot[Index: {}, Term: {}], current entry[Index: {}, Term: {}], len(ents): {}",
+                         magic_enum::enum_name(wal_error::ERR_SLICE_OUT_OF_RANGE), start_.index(), start_.term(),
+                         entry.index(), entry.term(), entries.size());
+            co_return unexpected(wal_error::ERR_SLICE_OUT_OF_RANGE);
+          } else if (offset == entries.size()) {
+            entry_index_ = entry.index();
+            entries.Add(std::move(entry));
+          } else {
+            // The line below is potentially overriding some 'uncommitted' entries.
+            // TODO(veejl): use protobuf 3
+            entry_index_ = entry.index();
+            entries.Mutable(offset)->Swap(&entry);
+            entries.DeleteSubrange(offset + 1, entries.size() - offset - 1);
+          }
+        }
+        break;
+      }
+      case walpb::STATE_TYPE: {
+        protobuf_must_parse(rec.data(), hard_state, *logger_);
+        break;
+      }
+      case walpb::CRC_TYPE: {
+        auto crc = decoder_->last_crc();
+        // Current crc of decoder must match the crc of the record.
+        // We need not match 0 crc, since the decoder is a new one at this point.
+        if ((crc != 0) && !pb::validate_rec_crc(rec, crc)) {
+          hard_state.Clear();
+          co_return unexpected(wal_error::ERR_CRC_MISMATCH);
+        }
+        decoder_->update_crc(rec.crc());
+        break;
+      }
+      case walpb::SNAPSHOT_TYPE: {
+        pb::snapshot snap;
+        protobuf_must_parse(rec.data(), snap, *logger_);
+        if (snap.index() == start_.index()) {
+          if (snap.term() != start_.term()) {
+            hard_state.Clear();
+            co_return unexpected(wal_error::ERR_SNAPSHOT_MISMATCH);
+          }
+          match = true;
+        }
+        break;
+      }
+      default: {
+        hard_state.Clear();
+        co_return unexpected(wal_error::ERR_REC_TYPE_INVALID);
+        break;
+      }
+    }
+  }
+
+  if (tail() == nullptr) {
+    // We do not have to read out all entries in read mode.
+    // The last record maybe a partial written one, so
+    // `io.ErrUnexpectedEOF` might be returned.
+    if (ec != io_error::IO_EOF && ec != io_error::UNEXPECTED_EOF) {
+      hard_state.Clear();
+      co_return tl::unexpected(ec);
+    }
+  } else {
+    // We must read all the entries if WAL is opened in write mode.
+    if (ec != io_error::IO_EOF) {
+      hard_state.Clear();
+      co_return tl::unexpected(ec);
+    }
+    // decodeRecord() will return io.EOF if it detects a zero record,
+    // but this zero record may be followed by non-zero records from
+    // a torn write. Overwriting some of these non-zero records, but
+    // not all, will cause CRC errors on WAL open. Since the records
+    // were never fully synced to disk in the first place, it's safe
+    // to zero them out to avoid any CRC errors from new writes.
+    assert(tail());
+    if (auto ret = leaf_to_expected([&]() { return tail()->seek_start(decoder_->last_valid_off()); }); !ret) {
+      LOGGER_ERROR(logger_, "seek start failed, error:{}", ret.error().message());
+      co_return tl::unexpected(ret.error());
+    }
+    if (auto ret = leaf_to_expected([&]() { return tail()->zero_to_end(); }); !ret) {
+      LOGGER_ERROR(logger_, "zero_to_end failed, error:{}", ret.error().message());
+      co_return tl::unexpected(ret.error());
+    }
+  }
+  ec = std::error_code{};
+  if (!match) {
+    ret_result.ec = make_error_code(wal_error::ERR_SNAPSHOT_NOT_FOUND);
+  }
+  // close decoder, disable reading
+  start_.Clear();
+  metadata_ = metadata;
+  if (tail() != nullptr) {
+    // create encoder (chain crc with the decoder), enable appending
+    if (auto ret = leaf_to_expected([&]() -> leaf::result<void> {
+          BOOST_LEAF_AUTO(encoder, new_file_encoder(executor_, tail(), decoder_->last_crc(), logger_));
+          encoder_ = std::move(encoder);
+          return {};
+        });
+        !ret) {
+      LOGGER_ERROR(logger_, "new_file_encoder failed, error:{}", ret.error().message());
+      co_return tl::unexpected(ret.error());
+    }
+  }
+  decoder_ = nullptr;
+  co_return ret_result;
+}
+
+asio::awaitable<expected<void>> wal::save_crc(std::uint32_t prev_crc) {
+  walpb::Record record;
+  record.set_type(::walpb::RecordType::CRC_TYPE);
+  record.set_crc(prev_crc);
+  co_return co_await encoder_->encode(record);
+}
+
+asio::awaitable<expected<void>> wal::save_snapshot(const pb::snapshot& snapshot) {
+  if (auto ret = pb::validate_snapshot_for_write(snapshot); !ret) {
+    LOGGER_ERROR(logger_, "validate failed, error:{}", ret.error().message());
+    co_return ret;
+  }
+
+  auto self = shared_from_this();
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
+  }
+
+  walpb::Record record;
+  record.set_type(::walpb::RecordType::SNAPSHOT_TYPE);
+  if (snapshot.ByteSizeLong() > 0) {
+    record.set_data(must_serialize_to_string(snapshot, *logger_));
+  }
+
+  CO_CHECK_AWAIT(encoder_->encode(record));
+
+  // update enti only when snapshot is ahead of last index
+  if (entry_index_ < snapshot.index()) {
+    entry_index_ = snapshot.index();
+  }
+
+  co_return co_await sync();
+}
+
+asio::awaitable<expected<void>> wal::save_entry(const raftpb::Entry& entry) {
+  walpb::Record record;
+  record.set_type(::walpb::RecordType::ENTRY_TYPE);
+  if (entry.ByteSizeLong() > 0) {
+    record.set_data(must_serialize_to_string(entry, *logger_));
+  }
+  CO_CHECK_AWAIT(encoder_->encode(record));
+  entry_index_ = entry.index();
+  co_return ok();
+}
+
+asio::awaitable<expected<void>> wal::save_state(raftpb::HardState&& state) {
+  if (core::pb::is_empty_hard_state(state)) {
+    co_return ok();
+  }
+  state_ = std::move(state);
+  walpb::Record record;
+  record.set_type(::walpb::RecordType::STATE_TYPE);
+  if (state_.ByteSizeLong() > 0) {
+    record.set_data(must_serialize_to_string(state_, *logger_));
+  }
+  CO_CHECK_AWAIT(encoder_->encode(record));
+  co_return ok();
+}
+
+asio::awaitable<expected<void>> wal::save(const core::pb::repeated_entry& entries, raftpb::HardState&& state) {
+  auto self = shared_from_this();
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
+  }
+
+  // short cut, do not call sync
+  if (core::pb::is_empty_hard_state(state) && entries.empty()) {
+    co_return ok();
+  }
+
+  auto must_sync = core::must_sync(state, state_, entries.size());
+  for (const auto& ent : entries) {
+    CO_CHECK_AWAIT(save_entry(ent));
+  }
+  CO_CHECK_AWAIT(save_state(std::move(state)));
+
+  auto seek_curr_result = leaf_to_expected([&]() -> leaf::result<std::uint64_t> { return tail()->seek_curr(); });
+  if (!seek_curr_result) {
+    LOGGER_ERROR(logger_, "file:{}, seek failed, error:{}", tail()->name(), seek_curr_result.error().message());
+    co_return tl::unexpected(seek_curr_result.error());
+  }
+  auto curr_off = *seek_curr_result;
+  if (curr_off < segment_size_bytes_) {
+    if (must_sync) {
+      FAILPOINT_ASYNC("wal_before_sync", executor_);
+      auto sync_result = co_await sync();
+      FAILPOINT_ASYNC("wal_after_sync", executor_);
+      co_return sync_result;
+    }
+    co_return ok();
+  }
+
+  co_return co_await cut();
+}
+
+asio::awaitable<expected<void>> wal::cut() {
+  assert(tail());
+  // close old wal file; truncate to avoid wasting space if an early cut
+  if (auto resize_result = leaf_to_expected([&]() -> leaf::result<void> {
+        BOOST_LEAF_AUTO(off, tail()->seek_curr());
+        // 释放 wal 文件磁盘空间
+        return tail()->truncate(off);
+      });
+      !resize_result) {
+    LOGGER_ERROR(logger_, "file:{}, resize failed, error:{}", tail()->name(), resize_result.error().message());
+    co_return resize_result;
+  }
+  if (auto result = co_await sync(); !result) {
+    LOGGER_ERROR(logger_, "sync failed, error:{}", result.error().message());
+    co_return result;
+  }
+
+  auto fpath = fileutil::join_paths(dir_, wal_file_name(seq() + 1, entry_index_ + 1));
+  // create a temp wal file with name sequence + 1, or truncate the existing one
+  auto new_tail_result = co_await file_pipeline_->open();
+  if (!new_tail_result) {
+    LOGGER_ERROR(logger_, "file pipeline open new tail file failed, error: {}", new_tail_result.error().message());
+    co_return tl::unexpected(new_tail_result.error());
+  }
+
+  // update writer and save the previous crc
+  auto prev_crc = encoder_->crc32();
+  if (auto result = leaf_to_expected([&]() -> leaf::result<void> {
+        append_lock_file(std::move(*new_tail_result));
+        BOOST_LEAF_AUTO(encoder, new_file_encoder(executor_, tail(), prev_crc, logger_));
+        encoder_ = std::move(encoder);
+        return {};
+      });
+      !result) {
+    LOGGER_ERROR(logger_, "update encodeer failed, error:{}", result.error().message());
+    co_return result;
+  }
+
+  CO_CHECK_AWAIT(save_crc(prev_crc));
+
+  walpb::Record record;
+  record.set_type(::walpb::RecordType::METADATA_TYPE);
+  record.set_data(metadata_);
+  CO_CHECK_AWAIT(encoder_->encode(record));
+
+  if (!core::pb::is_empty_hard_state(state_)) {
+    CO_CHECK_AWAIT(save_state(std::move(state_)));
+  }
+
+  // atomically move temp wal file to wal file
+  CO_CHECK_AWAIT(sync());
+
+  if (auto result = leaf_to_expected([&]() -> leaf::result<void> {
+        BOOST_LEAF_AUTO(off, tail()->seek_curr());
+        LEPTON_LEAF_CHECK(fileutil::rename(tail()->name(), fpath));
+        assert(dir_file_);
+        LEPTON_LEAF_CHECK(dir_file_->fsync());
+        // reopen newTail with its new path so calls to Name() match the wal filename format
+        assert(tail()->close());
+        BOOST_LEAF_AUTO(new_tail,
+                        fileutil::create_locked_file_endpoint(env_, executor_, fpath, asio::file_base::write_only));
+        LEPTON_LEAF_CHECK(new_tail->seek_start(off));
+        segments_.back() = std::move(new_tail);
+        return {};
+      });
+      !result) {
+    LOGGER_ERROR(logger_, "update last tail file handle failed, error:{}", result.error().message());
+    co_return result;
+  }
+
+  prev_crc = encoder_->crc32();
+  if (auto result = leaf_to_expected([&]() -> leaf::result<void> {
+        BOOST_LEAF_AUTO(encoder, new_file_encoder(executor_, tail(), prev_crc, logger_));
+        encoder_ = std::move(encoder);
+        return {};
+      });
+      !result) {
+    LOGGER_ERROR(logger_, "update encodeer failed, error:{}", result.error().message());
+    co_return result;
+  }
+
+  LOGGER_INFO(logger_, "created a new WAL segment: {}", fpath);
+  co_return ok();
+}
+
+asio::awaitable<expected<void>> wal::sync() {
+  if (encoder_ != nullptr) {
+    CO_CHECK_AWAIT(encoder_->flush());
+  }
+
+  if (unsafe_no_sync_) {
+    co_return ok();
+  }
+
+  auto start = std::chrono::steady_clock::now();
+  auto result = tail()->fdatasync();
+  if (auto took = time_since(start); took > WARN_SYNC_DURATION) {
+    LOGGER_WARN(logger_, "slow fdatasyc, took: {} seconds, expect: {} seconds", to_seconds(took),
+                to_seconds(WARN_SYNC_DURATION));
+  }
+  co_return result;
+}
+
+leaf::result<void> wal::rename_wal(const std::string& tmp_dir_path) {
+  LEPTON_LEAF_CHECK(fileutil::remove_all(dir_));
+  LEPTON_LEAF_CHECK(fileutil::rename(tmp_dir_path, dir_));
+  BOOST_LEAF_AUTO(file_pipeline, new_file_pipeline(executor_, env_, dir_, segment_size_bytes_, logger_));
+  file_pipeline_ = std::move(file_pipeline);
+  BOOST_LEAF_AUTO(dir_file, fileutil::new_directory(env_, dir_));
+  dir_file_ = std::move(dir_file);
+  return {};
+}
+
+void wal::cleanup_wal() {
+  co_spawn(
+      executor_,
+      [&]() -> asio::awaitable<void> {
+        if (auto result = co_await close(); !result) {
+          LOGGER_CRITICAL(logger_, "Failed to close wal during cleanup: {}", result.error().message());
+        }
+        co_return;
+      },
+      asio::use_future);
+
+  using namespace std::chrono;
+  auto now = system_clock::now();
+  auto seconds = floor<std::chrono::seconds>(now);
+  auto micros = duration_cast<microseconds>(now - seconds).count();
+  auto broken_dir_name = std::format("{}.broken.{:%Y%m%d.%H%M%S}.{:06}", dir_, seconds, micros);
+  if (auto result = leaf_to_expected([&]() { return fileutil::rename(dir_, broken_dir_name); }); !result) {
+    LOGGER_CRITICAL(logger_, "Failed to rename broken wal dir {} to {}: {}", dir_, broken_dir_name,
+                    result.error().message());
+  }
+  return;
+}
+
+asio::awaitable<expected<void>> wal::close() {
+  auto self = shared_from_this();
+  if (!strand_.running_in_this_thread()) {
+    co_await asio::dispatch(strand_, asio::use_awaitable);
+  }
+
+  if (is_closed_) co_return ok();
+  is_closed_ = true;
+  if (file_pipeline_ != nullptr) {
+    co_await file_pipeline_->close();
+    file_pipeline_.reset();
+  }
+
+  if (tail() != nullptr) {
+    CO_CHECK_AWAIT(sync());
+  }
+  for (auto& file_handle : segments_) {
+    auto result = std::visit([](auto& handle) { return handle->close(); }, file_handle);
+    if (!result) {
+      LOGGER_WARN(logger_, "Failed to close wal file handle: {}", result.error().message());
+    }
+  }
+  assert(dir_file_);
+  co_return leaf_to_expected([&]() -> leaf::result<void> { return dir_file_->close(); });
+}
+
+fileutil::locked_file_endpoint* wal::tail() {
+  if (segments_.empty()) return nullptr;
+  auto& seg = segments_.back();
+  if (auto* p = std::get_if<fileutil::locked_file_endpoint_handle>(&seg)) {
+    return p->get();  // unique_ptr -> raw pointer
+  }
+  return nullptr;
+}
+
+std::uint64_t wal::seq() {
+  auto tail_segment = tail();
+  if (tail_segment == nullptr) {
+    return 0;
+  }
+  auto parse_result = leaf::try_handle_some(
+      [&]() -> leaf::result<std::uint64_t> {
+        BOOST_LEAF_AUTO(v, parse_wal_name(fileutil::base_name(tail_segment->name())));
+        auto [seq, _] = v;
+        return seq;
+      },
+      [&](const lepton_error& e) -> leaf::result<std::uint64_t> {
+        LOG_CRITICAL(e.message);
+        return new_error(e);
+      });
+  assert(parse_result);
+  return *parse_result;
+}
+
 }  // namespace lepton::storage::wal

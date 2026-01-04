@@ -10,12 +10,12 @@
 #include "raft_core/pb/conf_state.h"
 #include "raft_core/pb/types.h"
 
-static raftpb::hard_state EMPTY_STATE;
+static raftpb::HardState EMPTY_STATE;
 
 namespace lepton::core {
 
 // 需要放在全局命名空间
-bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs) {
+bool operator==(const raftpb::HardState& lhs, const raftpb::HardState& rhs) {
   return lhs.term() == rhs.term() && lhs.vote() == rhs.vote() && lhs.commit() == rhs.commit();
 }
 
@@ -61,7 +61,7 @@ entry_encoding_size ent_size(const pb::entry_view& entries) {
   return size;
 }
 
-entry_payload_size payloads_size(const raftpb::entry& entry) {
+entry_payload_size payloads_size(const raftpb::Entry& entry) {
   return static_cast<entry_payload_size>(entry.data().size());
 }
 
@@ -73,12 +73,12 @@ entry_payload_size payloads_size(const repeated_entry& entries) {
   return size;
 }
 
-entry_id pb_entry_id(const raftpb::entry* const entry_ptr) {
+entry_id pb_entry_id(const raftpb::Entry* const entry_ptr) {
   assert(entry_ptr != nullptr);
   return {entry_ptr->term(), entry_ptr->index()};
 }
 
-bool is_empty_snap(const raftpb::snapshot& snap) {
+bool is_empty_snap(const raftpb::Snapshot& snap) {
   if (!snap.has_metadata()) {
     return true;
   }
@@ -98,7 +98,7 @@ repeated_entry extract_range_without_copy(repeated_entry& src, int start, int en
 
   // 预分配指针数组
   const int num_elements = end - start;
-  raftpb::entry** extracted = new raftpb::entry*[static_cast<std::size_t>(num_elements)];
+  raftpb::Entry** extracted = new raftpb::Entry*[static_cast<std::size_t>(num_elements)];
 
   // 核心操作：提取元素指针
   src.UnsafeArenaExtractSubrange(start,         // 起始索引
@@ -166,7 +166,7 @@ repeated_entry extend(repeated_entry& dst, pb::span_entry vals) {
   return dst;
 }
 
-void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::conf_state& rhs) {
+void assert_conf_states_equivalent(const raftpb::ConfState& lhs, const raftpb::ConfState& rhs) {
   auto result = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
         LEPTON_LEAF_CHECK(conf_state_equivalent(lhs, rhs));
@@ -179,14 +179,14 @@ void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::
   assert(result);
 }
 
-bool is_empty_hard_state(const raftpb::hard_state& hs) { return hs == EMPTY_STATE; }
+bool is_empty_hard_state(const raftpb::HardState& hs) { return hs == EMPTY_STATE; }
 
-raftpb::message_type vote_resp_msg_type(raftpb::message_type type) {
+raftpb::MessageType vote_resp_msg_type(raftpb::MessageType type) {
   switch (type) {
-    case raftpb::message_type::MSG_VOTE:
-      return raftpb::message_type::MSG_VOTE_RESP;
-    case raftpb::message_type::MSG_PRE_VOTE:
-      return raftpb::message_type::MSG_PRE_VOTE_RESP;
+    case raftpb::MessageType::MSG_VOTE:
+      return raftpb::MessageType::MSG_VOTE_RESP;
+    case raftpb::MessageType::MSG_PRE_VOTE:
+      return raftpb::MessageType::MSG_PRE_VOTE_RESP;
     default:
       LEPTON_CRITICAL("not a vote message: {}", enum_name(type));
   }

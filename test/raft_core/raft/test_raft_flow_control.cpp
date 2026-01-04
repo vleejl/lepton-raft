@@ -41,10 +41,10 @@ TEST_F(raft_flow_control_test_suit, test_msg_app_flow_control_full) {
   pr2.become_replicate();
   // fill in the inflights window
   for (std::size_t i = 0; i < r.trk_.max_inflight(); ++i) {
-    r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"));
+    r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"));
     auto ms = r.read_messages();
     ASSERT_EQ(1, ms.size());
-    ASSERT_EQ(raftpb::message_type::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
+    ASSERT_EQ(raftpb::MessageType::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
   }
 
   // ensure 1
@@ -52,7 +52,7 @@ TEST_F(raft_flow_control_test_suit, test_msg_app_flow_control_full) {
 
   // ensure 2
   for (std::size_t i = 0; i < 10; ++i) {
-    r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"));
+    r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"));
     auto ms = r.read_messages();
     ASSERT_EQ(0, ms.size());
   }
@@ -73,27 +73,27 @@ TEST_F(raft_flow_control_test_suit, test_msg_app_flow_control_move_forward) {
 
   // fill in the inflights window
   for (std::size_t i = 0; i < r.trk_.max_inflight(); ++i) {
-    r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"));
+    r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"));
     auto ms = r.read_messages();
     ASSERT_EQ(1, ms.size());
-    ASSERT_EQ(raftpb::message_type::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
+    ASSERT_EQ(raftpb::MessageType::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
   }
 
   // 1 is noop, 2 is the first proposal we just sent.
   // so we start with 2.
   for (std::size_t tt = 2; tt < r.trk_.max_inflight(); ++tt) {
     // move forward the window
-    auto msg = new_pb_message(2, 1, raftpb::message_type::MSG_APP_RESP);
+    auto msg = new_pb_message(2, 1, raftpb::MessageType::MSG_APP_RESP);
     msg.set_index(tt);
-    r.step(raftpb::message{msg});
+    r.step(raftpb::Message{msg});
     r.read_messages();
     ASSERT_FALSE(pr2.is_paused()) << fmt::format("pr2 should not be paused at tt: {}", tt);
 
     // fill in the inflights window again
-    r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"));
+    r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"));
     auto ms = r.read_messages();
     ASSERT_EQ(1, ms.size());
-    ASSERT_EQ(raftpb::message_type::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
+    ASSERT_EQ(raftpb::MessageType::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
 
     // ensure 1
     ASSERT_TRUE(pr2.is_paused());
@@ -101,7 +101,7 @@ TEST_F(raft_flow_control_test_suit, test_msg_app_flow_control_move_forward) {
     // ensure 2
     for (std::size_t i = 0; i < tt; ++i) {
       msg.set_index(i);
-      r.step(raftpb::message{msg});
+      r.step(raftpb::Message{msg});
       ASSERT_TRUE(pr2.is_paused());
     }
   }
@@ -120,10 +120,10 @@ TEST_F(raft_flow_control_test_suit, test_msg_app_flow_control_recv_heartbeat) {
 
   // fill in the inflights window
   for (std::size_t i = 0; i < r.trk_.max_inflight(); ++i) {
-    r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"));
+    r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"));
     auto ms = r.read_messages();
     ASSERT_EQ(1, ms.size());
-    ASSERT_EQ(raftpb::message_type::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
+    ASSERT_EQ(raftpb::MessageType::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
   }
 
   for (std::size_t tt = 1; tt < 5; ++tt) {
@@ -131,23 +131,23 @@ TEST_F(raft_flow_control_test_suit, test_msg_app_flow_control_recv_heartbeat) {
     for (std::size_t i = 0; i < tt; ++i) {
       ASSERT_TRUE(pr2.is_paused());
       // Unpauses the progress, sends an empty MsgApp, and pauses it again.
-      r.step(new_pb_message(2, 1, raftpb::message_type::MSG_HEARTBEAT_RESP));
+      r.step(new_pb_message(2, 1, raftpb::MessageType::MSG_HEARTBEAT_RESP));
       auto ms = r.read_messages();
       ASSERT_EQ(1, ms.size()) << fmt::format("#{}.{}", tt, i);
-      ASSERT_EQ(raftpb::message_type::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
+      ASSERT_EQ(raftpb::MessageType::MSG_APP, ms[0].type()) << "msg type should be MSG_APP";
       ASSERT_TRUE(ms[0].entries().empty()) << "msg app should be empty";
     }
 
     // No more appends are sent if there are no heartbeats.
     for (std::size_t i = 0; i < 10; ++i) {
       ASSERT_TRUE(pr2.is_paused());
-      r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"));
+      r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"));
       auto ms = r.read_messages();
       ASSERT_TRUE(ms.empty());
     }
 
     // clear all pending messages.
-    r.step(new_pb_message(2, 1, raftpb::message_type::MSG_HEARTBEAT_RESP));
+    r.step(new_pb_message(2, 1, raftpb::MessageType::MSG_HEARTBEAT_RESP));
     r.read_messages();
   }
 }

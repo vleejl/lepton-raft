@@ -18,7 +18,7 @@ class proxy_test_suit : public testing::Test {
 };
 
 struct proxy_test_state_machine_builer {
-  lepton::leaf::result<void> step(raftpb::message &&) { return {}; }
+  lepton::leaf::result<void> step(raftpb::Message &&) { return {}; }
 
   lepton::core::pb::repeated_message read_messages() { return {}; }
 

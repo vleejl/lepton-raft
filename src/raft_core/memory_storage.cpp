@@ -48,17 +48,17 @@ memory_storage::memory_storage() {
   auto entry = ents_.Add();
   entry->set_term(0);
   entry->set_index(0);
-  entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+  entry->set_type(raftpb::EntryType::ENTRY_NORMAL);
   assert(!ents_.empty());
 }
 
-leaf::result<std::tuple<raftpb::hard_state, raftpb::conf_state>> memory_storage::initial_state() const {
+leaf::result<std::tuple<raftpb::HardState, raftpb::ConfState>> memory_storage::initial_state() const {
   return {hard_state_, snapshot_.metadata().conf_state()};
 }
 
 const pb::repeated_entry& memory_storage::entries_view() const { return ents_; }
 
-leaf::result<void> memory_storage::set_hard_state(raftpb::hard_state&& hard_state) {
+leaf::result<void> memory_storage::set_hard_state(raftpb::HardState&& hard_state) {
   std::lock_guard<std::mutex> guard(mutex_);
   hard_state_ = std::move(hard_state);
   return {};
@@ -140,12 +140,12 @@ leaf::result<std::uint64_t> memory_storage::first_index() const {
   return _first_index();
 }
 
-leaf::result<raftpb::snapshot> memory_storage::snapshot() const {
+leaf::result<raftpb::Snapshot> memory_storage::snapshot() const {
   std::lock_guard<std::mutex> guard(mutex_);
   return snapshot_;
 }
 
-leaf::result<void> memory_storage::apply_snapshot(raftpb::snapshot&& snapshot) {
+leaf::result<void> memory_storage::apply_snapshot(raftpb::Snapshot&& snapshot) {
   std::lock_guard<std::mutex> guard(mutex_);
   const auto index = snapshot.metadata().index();
   if (auto meta_index = snapshot_.metadata().index(); index <= meta_index) {
@@ -156,11 +156,11 @@ leaf::result<void> memory_storage::apply_snapshot(raftpb::snapshot&& snapshot) {
   auto entry = ents_.Add();
   entry->set_term(snapshot_.metadata().term());
   entry->set_index(index);
-  entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+  entry->set_type(raftpb::EntryType::ENTRY_NORMAL);
   return {};
 }
 
-leaf::result<raftpb::snapshot> memory_storage::create_snapshot(std::uint64_t i, std::optional<raftpb::conf_state> cs,
+leaf::result<raftpb::Snapshot> memory_storage::create_snapshot(std::uint64_t i, std::optional<raftpb::ConfState> cs,
                                                                std::string&& data) {
   std::lock_guard<std::mutex> guard(mutex_);
   if (i <= snapshot_.metadata().index()) {

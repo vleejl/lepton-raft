@@ -57,11 +57,11 @@ lepton::leaf::result<void> interaction_env::process_ready(std::size_t node_idx) 
         LEPTON_CRITICAL("unexpected local msg target");
       }
       switch (msg.type()) {
-        case raftpb::message_type::MSG_STORAGE_APPEND: {
+        case raftpb::MessageType::MSG_STORAGE_APPEND: {
           n.append_work.Add(std::move(msg));
           break;
         }
-        case raftpb::message_type::MSG_STORAGE_APPLY: {
+        case raftpb::MessageType::MSG_STORAGE_APPLY: {
           n.apply_work.Add(std::move(msg));
           break;
         }

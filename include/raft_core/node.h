@@ -37,7 +37,7 @@
 namespace lepton::core {
 
 struct msg_with_result {
-  raftpb::message msg;
+  raftpb::Message msg;
   std::optional<std::weak_ptr<coro::channel_endpoint<std::error_code>>> err_chan;
 };
 
@@ -83,7 +83,7 @@ class node {
 
   asio::awaitable<expected<void>> propose(asio::any_io_executor executor, std::string&& data);
 
-  asio::awaitable<expected<void>> step(raftpb::message&& msg);
+  asio::awaitable<expected<void>> step(raftpb::Message&& msg);
 
   asio::awaitable<expected<void>> propose_conf_change(const pb::conf_change_var& cc);
 
@@ -91,7 +91,7 @@ class node {
 
   asio::awaitable<void> advance();
 
-  asio::awaitable<expected<raftpb::conf_state>> apply_conf_change(raftpb::conf_change_v2&& cc);
+  asio::awaitable<expected<raftpb::ConfState>> apply_conf_change(raftpb::ConfChangeV2&& cc);
 
   asio::awaitable<expected<lepton::core::status>> status();
 
@@ -127,11 +127,11 @@ class node {
 
   asio::awaitable<void> listen_stop();
 
-  asio::awaitable<expected<void>> handle_non_prop_msg(raftpb::message&& msg);
+  asio::awaitable<expected<void>> handle_non_prop_msg(raftpb::Message&& msg);
 
-  asio::awaitable<expected<void>> step_impl(raftpb::message&& msg);
+  asio::awaitable<expected<void>> step_impl(raftpb::Message&& msg);
 
-  asio::awaitable<expected<void>> step_with_wait_impl(asio::any_io_executor executor, raftpb::message&& msg);
+  asio::awaitable<expected<void>> step_with_wait_impl(asio::any_io_executor executor, raftpb::Message&& msg);
 
   bool is_running() const { return !stop_source_.stop_requested(); }
 
@@ -150,9 +150,9 @@ class node {
   coro::signal_channel_endpoint active_advance_chan_;
 
   coro::channel_endpoint<msg_with_result> prop_chan_;
-  coro::channel_endpoint<raftpb::message> recv_chan_;
-  coro::channel_endpoint<raftpb::conf_change_v2> conf_chan_;
-  coro::channel_endpoint<raftpb::conf_state> conf_state_chan_;
+  coro::channel_endpoint<raftpb::Message> recv_chan_;
+  coro::channel_endpoint<raftpb::ConfChangeV2> conf_chan_;
+  coro::channel_endpoint<raftpb::ConfState> conf_state_chan_;
   ready_channel ready_chan_;
   coro::channel_endpoint<std::weak_ptr<ready_channel>> ready_request_chan_;
   coro::signal_channel_endpoint advance_chan_;

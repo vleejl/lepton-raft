@@ -33,12 +33,6 @@ struct reader : pro::facade_builder
   ::build{};
 // clang-format on
 
-template <typename T>
-auto to_reader_views(const std::vector<T>& file_handles) {
-  return file_handles | std::views::transform([](const auto& h) { return h.get(); }) |
-         std::ranges::to<std::vector<pro::proxy_view<ioutil::reader>>>();
-}
-
 }  // namespace lepton::storage::ioutil
 
 #endif  // _LEPTON_READER_H_

@@ -1,10 +1,11 @@
 #pragma once
-#include <cstddef>
 #ifndef _LEPTON_PATH_H_
 #define _LEPTON_PATH_H_
+#include <cstddef>
 #include <filesystem>
 
 #include "error/leaf.h"
+#include "storage/fileutil/types.h"
 namespace lepton::storage::fileutil {
 
 bool path_exist(const std::string& path);
@@ -25,6 +26,14 @@ std::string join_paths(Args... args) {
   ((result /= fs::path(args)), ...);
   return result.string();
 }
+
+/**
+ * @brief 跨平台截断逻辑
+ * @param fd 文件原生描述符 (POSIX 为 int)
+ * @param path 文件路径 (Windows 平台标准库使用)
+ * @param length 目标截断长度
+ */
+std::error_code truncate([[maybe_unused]] native_handle_t fd, const std::string& path, std::uint64_t length);
 }  // namespace lepton::storage::fileutil
 
 #endif  // _LEPTON_PATH_H_

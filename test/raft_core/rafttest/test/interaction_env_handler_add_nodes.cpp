@@ -14,7 +14,7 @@
 namespace interaction {
 
 lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepton::core::config &config,
-                                                      raftpb::snapshot &snap) {
+                                                      raftpb::Snapshot &snap) {
   auto bootstrap = !lepton::core::pb::is_empty_snap(snap);
   for (std::size_t i = 0; i < n; ++i) {
     auto id = static_cast<std::uint64_t>(nodes.size() + 1);
@@ -26,7 +26,7 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
                                                 // give you some fixed snapshot and also the snapshot changes
                                                 // whenever you compact the logs and vice versa, so it's all a bit
                                                 // awkward to use.
-                                                [&, id]() -> lepton::leaf::result<raftpb::snapshot> const {
+                                                [&, id]() -> lepton::leaf::result<raftpb::Snapshot> const {
                                                   auto &history = this->nodes[id - 1].history;
                                                   return history.at(history.size() - 1);
                                                 }));
@@ -39,7 +39,7 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
         return lepton::new_error(lepton::logic_error::INVALID_PARAM, "index must be specified as > 1 due to bootstrap");
       }
       snap.mutable_metadata()->set_term(1);
-      raftpb::snapshot copy_snap;
+      raftpb::Snapshot copy_snap;
       copy_snap.CopyFrom(snap);
       if (auto ret = s.apply_snapshot(std::move(copy_snap)); !ret) {
         return ret;
@@ -89,7 +89,7 @@ lepton::leaf::result<void> interaction_env::add_nodes(std::size_t n, const lepto
 
 lepton::leaf::result<void> interaction_env::handle_add_nodes(const datadriven::test_data &test_data) {
   auto n = first_as_int(test_data);
-  raftpb::snapshot snap;
+  raftpb::Snapshot snap;
   auto cfg = raft_config_stub();
   assert(test_data.cmd_args.size() >= 1);
   for (std::size_t i = 1; i < test_data.cmd_args.size(); ++i) {

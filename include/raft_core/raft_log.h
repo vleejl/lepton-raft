@@ -84,7 +84,7 @@ class raft_log {
 
   // nextUnstableSnapshot returns the snapshot, if present, that is available to
   // be applied to the local storage and is not already in-progress.
-  std::optional<std::reference_wrapper<const raftpb::snapshot>> next_unstable_snapshot() const {
+  std::optional<std::reference_wrapper<const raftpb::Snapshot>> next_unstable_snapshot() const {
     return unstable_.next_snapshot();
   }
 
@@ -96,7 +96,7 @@ class raft_log {
   // applying or in the process of being applied.
   bool has_next_or_in_progress_snapshot() const { return unstable_.has_pending_snapshot(); }
 
-  leaf::result<raftpb::snapshot> snapshot() const;
+  leaf::result<raftpb::Snapshot> snapshot() const;
 
   std::uint64_t first_index() const;
 
@@ -160,7 +160,7 @@ class raft_log {
 
   bool maybe_commit(const pb::entry_id& at);
 
-  void restore(raftpb::snapshot&& snapshot);
+  void restore(raftpb::Snapshot&& snapshot);
 
   // scan visits all log entries in the [lo, hi) range, returning them via the
   // given callback. The callback can be invoked multiple times, with consecutive

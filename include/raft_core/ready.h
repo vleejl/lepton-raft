@@ -44,7 +44,7 @@ struct ready {
   // 代表持久化的状态，包括
   // Term（当前任期）、Vote（投票给谁）、Commit（已提交的日志索引）。
   // 需要在发送消息之前保存到稳定存储（如磁盘）。
-  raftpb::hard_state hard_state;
+  raftpb::HardState hard_state;
 
   // ReadStates can be used for node to serve linearizable read requests locally
   // when its applied index is greater than the index in ReadState.
@@ -66,7 +66,7 @@ struct ready {
   // Snapshot specifies the snapshot to be saved to stable storage.
   // 如果存在快照数据，需要存储到稳定存储。
   // 这个字段用于快照恢复，如果没有新的快照，该字段为空。
-  raftpb::snapshot snapshot;
+  raftpb::Snapshot snapshot;
 
   // CommittedEntries specifies entries to be committed to a
   // store/state-machine. These have previously been committed to stable

@@ -175,8 +175,8 @@ class progress_tracker {
   progress_map&& move_progress() { return std::move(progress_map_); }
 
   // ConfState returns a ConfState representing the active configuration.
-  raftpb::conf_state conf_state() {
-    raftpb::conf_state cs;
+  raftpb::ConfState conf_state() {
+    raftpb::ConfState cs;
 
     auto primary_config_slice = config_.voters.primary_config_slice();
     cs.mutable_voters()->Add(primary_config_slice.begin(), primary_config_slice.end());

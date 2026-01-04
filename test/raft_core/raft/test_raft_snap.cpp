@@ -27,8 +27,8 @@ class raft_snap_test_suit : public testing::Test {
   virtual void TearDown() override { std::cout << "exit from TearDown" << std::endl; }
 };
 
-static raftpb::snapshot init_test_raft_snap() {
-  raftpb::snapshot snap;
+static raftpb::Snapshot init_test_raft_snap() {
+  raftpb::Snapshot snap;
   snap.mutable_metadata()->set_index(11);
   snap.mutable_metadata()->set_term(11);
   snap.mutable_metadata()->mutable_conf_state()->add_voters(1);
@@ -47,10 +47,10 @@ TEST_F(raft_snap_test_suit, test_sending_snapshot_set_pending_snapshot) {
   // node 2 needs a snapshot
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(sm.raft_log_handle_.first_index());
 
-  auto msg = new_pb_message(2, 1, raftpb::message_type::MSG_APP_RESP);
+  auto msg = new_pb_message(2, 1, raftpb::MessageType::MSG_APP_RESP);
   msg.set_index(sm.trk_.progress_map_view().view().at(2).next() - 1);
   msg.set_reject(true);
-  sm.step(raftpb::message{msg});
+  sm.step(raftpb::Message{msg});
   ASSERT_EQ(11, sm.trk_.progress_map_view().view().at(2).pending_snapshot()) << "pending snapshot should be set to 11";
 }
 
@@ -62,7 +62,7 @@ TEST_F(raft_snap_test_suit, test_pending_snapshot_pause_replication) {
   sm.become_leader();
 
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).become_snapshot(11);
-  sm.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"));
+  sm.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"));
   auto ms = sm.read_messages();
   ASSERT_EQ(0, ms.size());
 }
@@ -79,11 +79,11 @@ TEST_F(raft_snap_test_suit, test_snapshot_failure) {
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(1);
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).become_snapshot(11);
 
-  auto msg = new_pb_message(2, 1, raftpb::message_type::MSG_SNAP_STATUS);
+  auto msg = new_pb_message(2, 1, raftpb::MessageType::MSG_SNAP_STATUS);
   msg.set_reject(true);
   //   确保 Leader 在收到快照失败响应后，​​立即清除 Follower 的 PendingSnapshot 标记​
   // ​（重置 pending_snapshot 为 0）
-  sm.step(raftpb::message{msg});
+  sm.step(raftpb::Message{msg});
   ASSERT_EQ(0, sm.trk_.progress_map_view().view().at(2).pending_snapshot());
   ASSERT_EQ(1, sm.trk_.progress_map_view().view().at(2).next());
   ASSERT_TRUE(sm.trk_.progress_map_view().view().at(2).msg_app_flow_paused());
@@ -99,8 +99,8 @@ TEST_F(raft_snap_test_suit, test_snapshot_succeed) {
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(1);
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).become_snapshot(11);
 
-  auto msg = new_pb_message(2, 1, raftpb::message_type::MSG_SNAP_STATUS);
-  sm.step(raftpb::message{msg});
+  auto msg = new_pb_message(2, 1, raftpb::MessageType::MSG_SNAP_STATUS);
+  sm.step(raftpb::Message{msg});
   ASSERT_EQ(0, sm.trk_.progress_map_view().view().at(2).pending_snapshot());
   ASSERT_EQ(12, sm.trk_.progress_map_view().view().at(2).next());
   ASSERT_TRUE(sm.trk_.progress_map_view().view().at(2).msg_app_flow_paused());
@@ -118,9 +118,9 @@ TEST_F(raft_snap_test_suit, test_snapshot_abort) {
 
   // A successful msgAppResp that has a higher/equal index than the
   // pending snapshot should abort the pending snapshot.
-  auto msg = new_pb_message(2, 1, raftpb::message_type::MSG_APP_RESP);
+  auto msg = new_pb_message(2, 1, raftpb::MessageType::MSG_APP_RESP);
   msg.set_index(11);
-  sm.step(raftpb::message{msg});
+  sm.step(raftpb::Message{msg});
   ASSERT_EQ(0, sm.trk_.progress_map_view().view().at(2).pending_snapshot());
   // The follower entered StateReplicate and the leader send an append
   // and optimistically updated the progress (so we see 13 instead of 12).

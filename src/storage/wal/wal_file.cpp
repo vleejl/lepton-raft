@@ -1,5 +1,6 @@
 #include "storage/wal/wal_file.h"
 
+#include <cassert>
 #include <memory>
 
 #include "basic/logger.h"
@@ -51,17 +52,19 @@ leaf::result<fileutil::file_endpoint> create_new_wal_file(asio::any_io_executor 
   return fileutil::file_endpoint(filename, std::move(final_stream));
 }
 
-leaf::result<fileutil::locked_file_handle> create_new_wal_file(rocksdb::Env* env, asio::any_io_executor executor,
-                                                               const std::string& filename, bool force_new) {
+leaf::result<fileutil::locked_file_endpoint_handle> create_new_wal_file(rocksdb::Env* env,
+                                                                        asio::any_io_executor executor,
+                                                                        const std::string& filename, bool force_new) {
   BOOST_LEAF_AUTO(file_handle, create_new_wal_file(executor, filename, force_new));
   return fileutil::create_locked_file_endpoint(env, std::move(file_handle), filename);
 }
 
 leaf::result<std::unique_ptr<encoder>> new_file_encoder(asio::any_io_executor executor,
-                                                        fileutil::locked_file_endpoint& file, std::uint32_t prev_crc,
+                                                        fileutil::locked_file_endpoint* file, std::uint32_t prev_crc,
                                                         std::shared_ptr<lepton::logger_interface> logger) {
-  BOOST_LEAF_AUTO(offset, file.seek_curr());
-  pro::proxy_view<ioutil::writer> writer = &file;
+  assert(file);
+  BOOST_LEAF_AUTO(offset, file->seek_curr());
+  pro::proxy_view<ioutil::writer> writer = file;
   return std::make_unique<encoder>(executor, writer, prev_crc, static_cast<std::uint32_t>(offset), std::move(logger));
 }
 

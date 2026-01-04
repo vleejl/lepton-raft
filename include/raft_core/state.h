@@ -27,7 +27,7 @@ struct soft_state {
 struct basic_status {
   std::uint64_t id;
 
-  raftpb::hard_state hard_state;
+  raftpb::HardState hard_state;
   lepton::core::soft_state soft_state;
 
   std::uint64_t applied;

@@ -36,7 +36,7 @@ asio::awaitable<void> file_pipeline::close() {
   co_return;
 }
 
-asio::awaitable<expected<fileutil::locked_file_handle>> file_pipeline::open() {
+asio::awaitable<expected<fileutil::locked_file_endpoint_handle>> file_pipeline::open() {
   if (!is_running()) {
     co_return unexpected(coro_error::COROUTINE_EXIST);
   }
@@ -48,11 +48,11 @@ asio::awaitable<expected<fileutil::locked_file_handle>> file_pipeline::open() {
   co_return std::move(*wal_file_handle_result);
 }
 
-leaf::result<fileutil::locked_file_handle> file_pipeline::alloc() {
+leaf::result<fileutil::locked_file_endpoint_handle> file_pipeline::alloc() {
   // count % 2 so this file isn't the same as the one last published
   auto wal_file_path = wal_file_dir_ / fmt::format("{}.tmp", count_ % 2);
   BOOST_LEAF_AUTO(wal_file_handle, create_new_wal_file(env_, executor_, wal_file_path.string(), false));
-  LEPTON_LEAF_CHECK(wal_file_handle->pre_allocate(file_size_, true));
+  LEPTON_LEAF_CHECK(wal_file_handle->preallocate(file_size_, true));
   count_++;
   return wal_file_handle;
 }
@@ -74,7 +74,7 @@ asio::awaitable<void> file_pipeline::run() {
 
   while (is_running()) {
     LOGGER_TRACE(logger_, "waiting to alloc new file handle");
-    auto wal_file_handle_result = leaf_to_expected([&]() -> leaf::result<fileutil::locked_file_handle> {
+    auto wal_file_handle_result = leaf_to_expected([&]() -> leaf::result<fileutil::locked_file_endpoint_handle> {
       BOOST_LEAF_AUTO(wal_file_handle, alloc());
       return wal_file_handle;
     });

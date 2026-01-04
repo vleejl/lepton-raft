@@ -30,16 +30,18 @@ class encoder {
         write_buf_(std::move(lhs.write_buf_)),
         logger_(std::move(lhs.logger_)) {}
 
-  asio::awaitable<expected<void>> encode(walpb::record& r);
+  asio::awaitable<expected<void>> encode(walpb::Record& r);
 
   asio::awaitable<expected<void>> flush();
+
+  auto crc32() const { return static_cast<std::uint32_t>(crc_); }
 
 #ifdef LEPTON_TEST
  public:
 #else
  private:
 #endif
-  asio::awaitable<expected<void>> write_record_frame(const walpb::record& r, const std::uint64_t bytes_size_long,
+  asio::awaitable<expected<void>> write_record_frame(const walpb::Record& r, const std::uint64_t bytes_size_long,
                                                      const uint64_t len_field, const std::size_t pad_bytes,
                                                      ioutil::fixed_byte_buffer& write_buf);
 

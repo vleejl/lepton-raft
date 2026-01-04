@@ -38,7 +38,7 @@ enum class event_type { tick, ready, recv, stop, pause };
 
 struct event {
   event_type type;
-  std::variant<std::monostate, lepton::core::ready_handle, raftpb::message, bool> payload;
+  std::variant<std::monostate, lepton::core::ready_handle, raftpb::Message, bool> payload;
 };
 
 struct node_adapter;
@@ -145,7 +145,7 @@ struct node_adapter {
     co_return co_await node_handle_->propose(std::move(data));
   }
 
-  asio::awaitable<lepton::expected<void>> step(raftpb::message &&msg) {
+  asio::awaitable<lepton::expected<void>> step(raftpb::Message &&msg) {
     co_return co_await node_handle_->step(std::move(msg));
   }
 
@@ -162,7 +162,7 @@ struct node_adapter {
     co_return;
   }
 
-  asio::awaitable<lepton::expected<raftpb::conf_state>> apply_conf_change(raftpb::conf_change_v2 &&cc) {
+  asio::awaitable<lepton::expected<raftpb::ConfState>> apply_conf_change(raftpb::ConfChangeV2 &&cc) {
     co_return co_await node_handle_->apply_conf_change(std::move(cc));
   }
 
@@ -194,7 +194,7 @@ struct node_adapter {
 
   asio::awaitable<void> start_impl() {
     auto send_msg = [](asio::any_io_executor executor, std::weak_ptr<rafttest::iface> iface_handle, std::size_t id,
-                       raftpb::message msg, int wait_ms) -> asio::awaitable<void> {
+                       raftpb::Message msg, int wait_ms) -> asio::awaitable<void> {
       asio::steady_timer timer(executor, asio::chrono::milliseconds(wait_ms));
       co_await timer.async_wait(asio::use_awaitable);
       LOG_TRACE("node {} sending msg: {}", id, msg.DebugString());
@@ -249,7 +249,7 @@ struct node_adapter {
           break;
         }
         case event_type::recv:
-          co_spawn(executor_, node_handle_->step(std::move(std::get<raftpb::message>(ev.payload))), asio::detached);
+          co_spawn(executor_, node_handle_->step(std::move(std::get<raftpb::Message>(ev.payload))), asio::detached);
           break;
         case event_type::stop:
           co_return;
@@ -358,7 +358,7 @@ struct node_adapter {
   std::unique_ptr<lepton::core::memory_storage> storage_;
 
   std::mutex mu;
-  raftpb::hard_state state;
+  raftpb::HardState state;
 };
 
 inline std::unique_ptr<node_adapter> start_node(asio::any_io_executor executor, std::uint64_t id,

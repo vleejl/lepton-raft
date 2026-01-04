@@ -36,7 +36,7 @@ void set_randomized_election_timeout_for_raw_node(lepton::core::raw_node &r, int
 
 std::vector<std::uint64_t> ids_by_size(std::size_t size);
 struct black_hole {
-  lepton::leaf::result<void> step(raftpb::message &&) { return {}; }
+  lepton::leaf::result<void> step(raftpb::Message &&) { return {}; }
 
   lepton::core::pb::repeated_message read_messages() { return {}; }
 
@@ -89,8 +89,8 @@ struct network {
   NOT_COPYABLE(network)
   network(std::map<std::uint64_t, state_machine_builer_pair> &&peers,
           std::map<std::uint64_t, std::unique_ptr<lepton::core::memory_storage>> &&storage,
-          std::map<connem, double> &&dropm, std::map<raftpb::message_type, bool> &&ignorem,
-          std::function<bool(const raftpb::message &)> msg_hook)
+          std::map<connem, double> &&dropm, std::map<raftpb::MessageType, bool> &&ignorem,
+          std::function<bool(const raftpb::Message &)> msg_hook)
       : peers(std::move(peers)),
         storage(std::move(storage)),
         dropm(std::move(dropm)),
@@ -102,13 +102,13 @@ struct network {
   std::map<std::uint64_t, state_machine_builer_pair> peers;
   std::map<std::uint64_t, std::unique_ptr<lepton::core::memory_storage>> storage;
   std::map<connem, double> dropm;
-  std::map<raftpb::message_type, bool> ignorem;
+  std::map<raftpb::MessageType, bool> ignorem;
 
   // msgHook is called for each message sent. It may inspect the
   // message and return true to send it or false to drop it.
-  std::function<bool(const raftpb::message &)> msg_hook;
+  std::function<bool(const raftpb::Message &)> msg_hook;
 
-  void send(std::vector<raftpb::message> &&msgs);
+  void send(std::vector<raftpb::Message> &&msgs);
 
   void drop(std::uint64_t from, std::uint64_t to, double perc) { dropm[connem{.from = from, .to = to}] = perc; }
 
@@ -127,14 +127,14 @@ struct network {
     }
   }
 
-  void ignore(raftpb::message_type t) { ignorem.insert({t, true}); }
+  void ignore(raftpb::MessageType t) { ignorem.insert({t, true}); }
 
   void recover() {
     dropm.clear();
     ignorem.clear();
   }
 
-  std::vector<raftpb::message> filter(const lepton::core::pb::repeated_message &msgs);
+  std::vector<raftpb::Message> filter(const lepton::core::pb::repeated_message &msgs);
 };
 
 // newNetworkWithConfig is like newNetwork but calls the given func to
@@ -176,10 +176,10 @@ lepton::core::raft new_test_learner_raft(std::uint64_t id, int election_tick, in
                                          pro::proxy<lepton::core::storage_builer> &&storage);
 
 // 消息构造
-raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type);
-raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, std::uint64_t term, raftpb::message_type type);
-raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type, std::string data);
-raftpb::message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::message_type type,
+raftpb::Message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::MessageType type);
+raftpb::Message new_pb_message(std::uint64_t from, std::uint64_t to, std::uint64_t term, raftpb::MessageType type);
+raftpb::Message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::MessageType type, std::string data);
+raftpb::Message new_pb_message(std::uint64_t from, std::uint64_t to, raftpb::MessageType type,
                                lepton::core::pb::repeated_entry &&entries);
 
 // 特殊状态构造

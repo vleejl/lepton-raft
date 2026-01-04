@@ -234,7 +234,7 @@ TEST_F(memory_storage_test_suit, test_storage_compact) {
 TEST_F(memory_storage_test_suit, test_storage_create_snapshot) {
   auto ents = create_entries({{3, 3}, {4, 4}, {5, 5}});
 
-  raftpb::conf_state cs;
+  raftpb::ConfState cs;
   cs.add_voters(1);
   cs.add_voters(2);
   cs.add_voters(3);
@@ -245,7 +245,7 @@ TEST_F(memory_storage_test_suit, test_storage_create_snapshot) {
     std::uint64_t i;
 
     std::error_code werr;
-    raftpb::snapshot wsnap;
+    raftpb::Snapshot wsnap;
   };
 
   std::vector<test_case> tests = {
@@ -256,11 +256,11 @@ TEST_F(memory_storage_test_suit, test_storage_create_snapshot) {
     auto has_called_error = false;
     lepton::core::memory_storage mm_storage{ents};
     auto result = leaf::try_handle_some(
-        [&]() -> leaf::result<raftpb::snapshot> {
+        [&]() -> leaf::result<raftpb::Snapshot> {
           BOOST_LEAF_AUTO(v, mm_storage.create_snapshot(iter_test.i, cs, "data"));
           return v;
         },
-        [&](const lepton::lepton_error &err) -> leaf::result<raftpb::snapshot> {
+        [&](const lepton::lepton_error &err) -> leaf::result<raftpb::Snapshot> {
           has_called_error = true;
           if (err != iter_test.werr) {
             assert(false);
@@ -336,14 +336,14 @@ TEST_F(memory_storage_test_suit, test_storage_append) {
 }
 
 TEST_F(memory_storage_test_suit, test_storage_apply_snapshot) {
-  raftpb::conf_state cs;
+  raftpb::ConfState cs;
   cs.add_voters(1);
   cs.add_voters(2);
   cs.add_voters(3);
 
   std::string data = "data";
   struct test_case {
-    raftpb::snapshot snap;
+    raftpb::Snapshot snap;
 
     std::error_code werr;
   };

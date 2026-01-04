@@ -50,15 +50,15 @@ class raw_node {
 
   // Campaign causes this RawNode to transition to candidate state.
   leaf::result<void> campaign() {
-    raftpb::message m;
-    m.set_type(raftpb::message_type::MSG_HUP);
+    raftpb::Message m;
+    m.set_type(raftpb::MessageType::MSG_HUP);
     return raft_.step(std::move(m));
   }
 
   // Propose proposes data be appended to the raft log.
   leaf::result<void> propose(std::string &&data) {
-    raftpb::message m;
-    m.set_type(raftpb::message_type::MSG_PROP);
+    raftpb::Message m;
+    m.set_type(raftpb::MessageType::MSG_PROP);
     *m.add_entries()->mutable_data() = std::move(data);
     return raft_.step(std::move(m));
   }
@@ -73,10 +73,10 @@ class raw_node {
   // ApplyConfChange applies a config change to the local node. The app must call
   // this when it applies a configuration change, except when it decides to reject
   // the configuration change, in which case no call must take place.
-  raftpb::conf_state apply_conf_change(raftpb::conf_change_v2 &&cc) { return raft_.apply_conf_change(std::move(cc)); }
+  raftpb::ConfState apply_conf_change(raftpb::ConfChangeV2 &&cc) { return raft_.apply_conf_change(std::move(cc)); }
 
   // Step advances the state machine using the given message.
-  leaf::result<void> step(raftpb::message &&m) {
+  leaf::result<void> step(raftpb::Message &&m) {
     // Ignore unexpected local messages receiving over network.
     if (pb::is_local_msg(m.type()) && !pb::is_local_msg_target(m.from())) {
       return new_error(raft_error::STEP_LOCAL_MSG);
@@ -146,8 +146,8 @@ class raw_node {
 
   // ReportUnreachable reports the given node is not reachable for the last send.
   void report_unreachable(std::uint64_t id) {
-    raftpb::message msg;
-    msg.set_type(::raftpb::message_type::MSG_UNREACHABLE);
+    raftpb::Message msg;
+    msg.set_type(::raftpb::MessageType::MSG_UNREACHABLE);
     msg.set_from(id);
     discard(raft_.step(std::move(msg)));
   }
@@ -155,8 +155,8 @@ class raw_node {
   // ReportSnapshot reports the status of the sent snapshot.
   void report_snapshot(std::uint64_t id, snapshot_status status) {
     auto rej = status == snapshot_status::SNAPSHOT_FAILURE;
-    raftpb::message msg;
-    msg.set_type(raftpb::message_type::MSG_SNAP_STATUS);
+    raftpb::Message msg;
+    msg.set_type(raftpb::MessageType::MSG_SNAP_STATUS);
     msg.set_from(id);
     msg.set_reject(rej);
     discard(raft_.step(std::move(msg)));
@@ -164,8 +164,8 @@ class raw_node {
 
   // TransferLeader tries to transfer leadership to the given transferee.
   void transfer_leadership(std::uint64_t transferee) {
-    raftpb::message msg;
-    msg.set_type(raftpb::message_type::MSG_TRANSFER_LEADER);
+    raftpb::Message msg;
+    msg.set_type(raftpb::MessageType::MSG_TRANSFER_LEADER);
     msg.set_from(transferee);
     discard(raft_.step(std::move(msg)));
   }
@@ -173,8 +173,8 @@ class raw_node {
   // ForgetLeader forgets a follower's current leader, changing it to None.
   // See (Node).ForgetLeader for details.
   void forget_leader() {
-    raftpb::message msg;
-    msg.set_type(raftpb::message_type::MSG_FORGET_LEADER);
+    raftpb::Message msg;
+    msg.set_type(raftpb::MessageType::MSG_FORGET_LEADER);
     discard(raft_.step(std::move(msg)));
   }
 
@@ -183,8 +183,8 @@ class raw_node {
   // index, any linearizable read requests issued before the read request can be
   // processed safely. The read state will have the same rctx attached.
   void read_index(std::string &&rctx) {
-    raftpb::message msg;
-    msg.set_type(raftpb::message_type::MSG_READ_INDEX);
+    raftpb::Message msg;
+    msg.set_type(raftpb::MessageType::MSG_READ_INDEX);
     *msg.mutable_entries()->Add()->mutable_data() = std::move(rctx);
     discard(raft_.step(std::move(msg)));
   }
@@ -209,7 +209,7 @@ class raw_node {
 
   // Mutable fields.
   soft_state prev_soft_state_;
-  raftpb::hard_state prev_hard_state_;
+  raftpb::HardState prev_hard_state_;
   lepton::core::pb::repeated_message steps_on_advance_;
 };
 
@@ -221,6 +221,8 @@ class raw_node {
 // state manually by setting up a Storage that has a first index > 1 and which
 // stores the desired ConfState as its InitialState.
 leaf::result<raw_node> new_raw_node(config &&c);
+
+bool must_sync(const raftpb::HardState &st, const raftpb::HardState &prev_st, int ents_num);
 
 }  // namespace lepton::core
 

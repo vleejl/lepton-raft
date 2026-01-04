@@ -9,7 +9,7 @@
 #include "raft_core/pb/types.h"
 namespace lepton::core {
 
-bool operator==(const raftpb::hard_state& lhs, const raftpb::hard_state& rhs);
+bool operator==(const raftpb::HardState& lhs, const raftpb::HardState& rhs);
 
 namespace pb {
 
@@ -23,12 +23,12 @@ entry_encoding_size ent_size(const pb::span_entry& entries);
 entry_encoding_size ent_size(const pb::entry_view& entries);
 
 // payloadsSize is the size of the payloads of the provided entries.
-entry_payload_size payloads_size(const raftpb::entry& entry);
+entry_payload_size payloads_size(const raftpb::Entry& entry);
 entry_payload_size payloads_size(const repeated_entry& entries);
 
-entry_id pb_entry_id(const raftpb::entry* const entry_ptr);
+entry_id pb_entry_id(const raftpb::Entry* const entry_ptr);
 
-bool is_empty_snap(const raftpb::snapshot& snap);
+bool is_empty_snap(const raftpb::Snapshot& snap);
 
 repeated_entry extract_range_without_copy(repeated_entry& src, int start, int end);
 
@@ -46,16 +46,16 @@ repeated_entry limit_entry_size(repeated_entry& entries, entry_encoding_size max
 // append to dst, so there is no sense in allocating more than needed.
 repeated_entry extend(repeated_entry& dst, pb::span_entry vals);
 
-void assert_conf_states_equivalent(const raftpb::conf_state& lhs, const raftpb::conf_state& rhs);
+void assert_conf_states_equivalent(const raftpb::ConfState& lhs, const raftpb::ConfState& rhs);
 
-bool is_empty_hard_state(const raftpb::hard_state& hs);
+bool is_empty_hard_state(const raftpb::HardState& hs);
 
 // voteResponseType maps vote and prevote message types to their corresponding responses.
-raftpb::message_type vote_resp_msg_type(raftpb::message_type type);
+raftpb::MessageType vote_resp_msg_type(raftpb::MessageType type);
 
-constexpr bool is_local_msg(raftpb::message_type type);
+constexpr bool is_local_msg(raftpb::MessageType type);
 
-constexpr bool is_response_msg(raftpb::message_type type);
+constexpr bool is_response_msg(raftpb::MessageType type);
 
 // 辅助函数：创建并显式初始化的数组
 template <size_t N>
@@ -81,7 +81,7 @@ inline constexpr auto __is_local_msg = []() {
   return arr;
 }();
 
-constexpr bool is_local_msg(raftpb::message_type type) {
+constexpr bool is_local_msg(raftpb::MessageType type) {
   if (type < 0 || type >= RAFTPB_MESSAGE_COUNT) {
     LEPTON_CRITICAL("invalid message type: {}", enum_name(type));
   }
@@ -102,7 +102,7 @@ inline constexpr auto __is_response_msg = []() {
   return arr;
 }();
 
-constexpr bool is_response_msg(raftpb::message_type type) {
+constexpr bool is_response_msg(raftpb::MessageType type) {
   if (type < 0 || type >= RAFTPB_MESSAGE_COUNT) {
     LEPTON_CRITICAL("invalid message type: {}", magic_enum::enum_name(type));
   }

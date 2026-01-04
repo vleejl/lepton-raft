@@ -30,10 +30,10 @@ class unstable_test_suit : public testing::Test {
 };
 
 lepton::core::pb::snapshot_ptr create_snapshot_ptr(std::uint64_t index, std::uint64_t term) {
-  auto snapshot_metadata = new raftpb::snapshot_metadata();
+  auto snapshot_metadata = new raftpb::SnapshotMetadata();
   snapshot_metadata->set_index(index);
   snapshot_metadata->set_term(term);
-  auto snapshot = std::make_unique<raftpb::snapshot>();
+  auto snapshot = std::make_unique<raftpb::Snapshot>();
   snapshot->set_allocated_metadata(snapshot_metadata);
   return snapshot;
 }
@@ -294,10 +294,10 @@ TEST_F(unstable_test_suit, next_entries) {
 TEST_F(unstable_test_suit, next_snapshot) {
   auto s = create_snapshot(4, 1);
   struct test_case {
-    std::optional<raftpb::snapshot> snapshot;
+    std::optional<raftpb::Snapshot> snapshot;
     bool snapshot_in_progress;
 
-    std::optional<raftpb::snapshot> wsnapshot;
+    std::optional<raftpb::Snapshot> wsnapshot;
   };
   std::vector<test_case> tests{
       // snapshot not unstable
@@ -322,7 +322,7 @@ TEST_F(unstable_test_suit, next_snapshot) {
 TEST_F(unstable_test_suit, accept_in_progress) {
   struct test_case {
     lepton::core::pb::repeated_entry entries;
-    std::optional<raftpb::snapshot> snapshot;
+    std::optional<raftpb::Snapshot> snapshot;
     std::uint64_t offset_in_progress;
     bool snapshot_in_progress;
 
@@ -657,7 +657,7 @@ TEST_F(unstable_test_suit, truncate_and_append) {
 TEST_F(unstable_test_suit, convert_protobuf_2_vector) {
   std::vector<lepton::core::pb::entry_ptr> entries;
   {
-    raftpb::message m;
+    raftpb::Message m;
     auto entry1 = m.add_entries();
     entry1->set_index(5);
     entry1->set_term(6);
@@ -666,7 +666,7 @@ TEST_F(unstable_test_suit, convert_protobuf_2_vector) {
     entry2->set_term(7);
     auto mutable_entries = std::move(*m.mutable_entries());
     for (auto &entry : mutable_entries) {
-      entries.emplace_back(std::make_unique<raftpb::entry>(std::move(entry)));
+      entries.emplace_back(std::make_unique<raftpb::Entry>(std::move(entry)));
     }
   }
   for (const auto &entry_ptr : entries) {

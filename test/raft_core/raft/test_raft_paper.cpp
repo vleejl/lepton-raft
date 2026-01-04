@@ -33,9 +33,9 @@
 using namespace lepton;
 using namespace lepton::core;
 
-static raftpb::message accept_and_reply(const raftpb::message& m) {
+static raftpb::Message accept_and_reply(const raftpb::Message& m) {
   assert(m.type() == raftpb::MSG_APP);
-  auto resp = new_pb_message(m.to(), m.from(), m.term(), raftpb::message_type::MSG_APP_RESP);
+  auto resp = new_pb_message(m.to(), m.from(), m.term(), raftpb::MessageType::MSG_APP_RESP);
   resp.set_index(m.index() + static_cast<std::uint64_t>(m.entries_size()));
   return resp;
 }
@@ -48,7 +48,7 @@ static void commit_noop_entry(lepton::core::raft& r, lepton::core::memory_storag
   auto msgs = r.read_messages();
   for (auto& msg : msgs) {
     auto unexpected_msg = "not a message to append noop entry";
-    ASSERT_EQ(raftpb::message_type::MSG_APP, msg.type()) << unexpected_msg;
+    ASSERT_EQ(raftpb::MessageType::MSG_APP, msg.type()) << unexpected_msg;
     ASSERT_EQ(1, msg.entries_size()) << unexpected_msg;
     ASSERT_FALSE(msg.entries(0).has_data()) << unexpected_msg;
     r.step(accept_and_reply(msg));
@@ -96,8 +96,8 @@ static void test_update_term_from_message(lepton::core::state_type state_type) {
     case state_type::PRE_CANDIDATE:
       break;
   }
-  raftpb::message m;
-  m.set_type(::raftpb::message_type::MSG_APP);
+  raftpb::Message m;
+  m.set_type(::raftpb::MessageType::MSG_APP);
   m.set_term(2);
   r.step(std::move(m));
   ASSERT_EQ(2, r.term_);
@@ -124,17 +124,17 @@ TEST_F(raft_paper_test_suit, test_leader_update_term_from_message) {
 // current term, it rejects that message
 TEST_F(raft_paper_test_suit, test_reject_stale_term_message) {
   auto called = false;
-  auto fake_step = [&](lepton::core::raft& r, raftpb::message&& m) -> lepton::leaf::result<void> {
+  auto fake_step = [&](lepton::core::raft& r, raftpb::Message&& m) -> lepton::leaf::result<void> {
     called = true;
     return {};
   };
   auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   r.step_func_ = fake_step;
-  raftpb::hard_state hs;
+  raftpb::HardState hs;
   hs.set_term(2);
   r.load_state(hs);
-  raftpb::message m;
-  m.set_type(::raftpb::message_type::MSG_APP);
+  raftpb::Message m;
+  m.set_type(::raftpb::MessageType::MSG_APP);
   m.set_term(r.term_ - 1);
   r.step(std::move(m));
   ASSERT_FALSE(called);
@@ -171,7 +171,7 @@ TEST_F(raft_paper_test_suit, test_leader_bcast_beat) {
   }
 
   auto msgs = r.read_messages();
-  auto msg_heartbeat = new_pb_message(1, 2, 1, raftpb::message_type::MSG_HEARTBEAT);
+  auto msg_heartbeat = new_pb_message(1, 2, 1, raftpb::MessageType::MSG_HEARTBEAT);
   msg_heartbeat.set_commit(0);
   lepton::core::pb::repeated_message expected_msgs;
   expected_msgs.Add()->CopyFrom(msg_heartbeat);
@@ -220,7 +220,7 @@ static void test_nonleader_start_election(lepton::core::state_type state_type) {
   ASSERT_TRUE(r.trk_.votes_view().at(r.id_));
 
   auto msgs = r.read_messages();
-  auto msg_vote = new_pb_message(1, 2, 2, raftpb::message_type::MSG_VOTE);
+  auto msg_vote = new_pb_message(1, 2, 2, raftpb::MessageType::MSG_VOTE);
   msg_vote.set_log_term(0);
   msg_vote.set_index(0);
   lepton::core::pb::repeated_message expected_msgs;
@@ -284,7 +284,7 @@ TEST_F(raft_paper_test_suit, test_leader_election_in_one_round_rpc) {
     r.step(new_pb_message(1, 1, raftpb::MSG_HUP));
     r.advance_messages_after_append();
     for (auto& [id, vote] : tt.votes) {
-      auto vote_resp = new_pb_message(id, 1, r.term_, raftpb::message_type::MSG_VOTE_RESP);
+      auto vote_resp = new_pb_message(id, 1, r.term_, raftpb::MessageType::MSG_VOTE_RESP);
       vote_resp.set_reject(!vote);
       r.step(std::move(vote_resp));
     }
@@ -318,12 +318,12 @@ TEST_F(raft_paper_test_suit, test_follower_vote) {
     auto& tt = tests[i];
     auto r =
         new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     hs.set_term(1);
     hs.set_vote(tt.vote);
     r.load_state(hs);
-    r.step(new_pb_message(tt.nvote, 1, 1, raftpb::message_type::MSG_VOTE));
-    auto msg_vote_resp = new_pb_message(1, tt.nvote, 1, raftpb::message_type::MSG_VOTE_RESP);
+    r.step(new_pb_message(tt.nvote, 1, 1, raftpb::MessageType::MSG_VOTE));
+    auto msg_vote_resp = new_pb_message(1, tt.nvote, 1, raftpb::MessageType::MSG_VOTE_RESP);
     if (tt.wreject) {
       msg_vote_resp.set_reject(tt.wreject);
     }
@@ -340,17 +340,17 @@ TEST_F(raft_paper_test_suit, test_follower_vote) {
 // Reference: section 5.2
 TEST_F(raft_paper_test_suit, test_candidate_fallback) {
   lepton::core::pb::repeated_message tests;
-  tests.Add(new_pb_message(2, 1, 1, raftpb::message_type::MSG_APP));
-  tests.Add(new_pb_message(2, 1, 2, raftpb::message_type::MSG_APP));
+  tests.Add(new_pb_message(2, 1, 1, raftpb::MessageType::MSG_APP));
+  tests.Add(new_pb_message(2, 1, 2, raftpb::MessageType::MSG_APP));
   for (auto i = 0; i < tests.size(); ++i) {
     auto& tt = tests[i];
 
     auto r =
         new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
-    r.step(new_pb_message(1, 1, raftpb::message_type::MSG_HUP));
+    r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_HUP));
     ASSERT_EQ(lepton::core::state_type::CANDIDATE, r.state_type_);
 
-    r.step(raftpb::message{tt});
+    r.step(raftpb::Message{tt});
 
     ASSERT_EQ(lepton::core::state_type::FOLLOWER, r.state_type_);
     ASSERT_EQ(tt.term(), r.term_);
@@ -492,7 +492,7 @@ TEST_F(raft_paper_test_suit, test_leader_start_replication) {
   r.become_leader();
   commit_noop_entry(r, mm_storage);
   auto li = r.raft_log_handle_.last_index();
-  r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data"));
+  r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "some data"));
 
   auto msgs = r.read_messages();
   for (auto& msg : msgs) {
@@ -509,13 +509,13 @@ TEST_F(raft_paper_test_suit, test_leader_start_replication) {
   ASSERT_TRUE(compare_repeated_entry(expected_ents, ents));
 
   msgs = r.read_messages();
-  std::sort(msgs.begin(), msgs.end(), [](const raftpb::message& lhs, const raftpb::message& rhs) {
+  std::sort(msgs.begin(), msgs.end(), [](const raftpb::Message& lhs, const raftpb::Message& rhs) {
     return lhs.DebugString() < rhs.DebugString();
   });
   for (auto i = 0; i < msgs.size(); ++i) {
     auto& msg = msgs[i];
     ASSERT_EQ(i + 2, msg.to());
-    ASSERT_EQ(raftpb::message_type::MSG_APP, msg.type());
+    ASSERT_EQ(raftpb::MessageType::MSG_APP, msg.type());
     ASSERT_EQ(li + 1, msg.commit());
   }
 }
@@ -559,7 +559,7 @@ TEST_F(raft_paper_test_suit, test_leader_acknowledge_commit) {
     r.become_leader();
     commit_noop_entry(r, mm_storage);
     auto li = r.raft_log_handle_.last_index();
-    r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data"));
+    r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "some data"));
     r.advance_messages_after_append();
     auto msgs = r.read_messages();
     for (auto& msg : msgs) {
@@ -609,13 +609,13 @@ TEST_F(raft_paper_test_suit, test_leader_commit_preceding_entries) {
     mm_storage.append(std::move(tt));
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
     auto r = new_test_raft(1, 10, 1, std::move(storage_proxy));
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     hs.set_term(2);
     r.load_state(hs);
 
     r.become_candidate();
     r.become_leader();
-    r.step(new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data"));
+    r.step(new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "some data"));
     auto msgs = r.read_messages();
     for (auto& msg : msgs) {
       r.step(accept_and_reply(msg));
@@ -661,7 +661,7 @@ TEST_F(raft_paper_test_suit, test_follower_commit_entry) {
     auto r =
         new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
     r.become_follower(1, 2);
-    auto msg = new_pb_message(2, 1, raftpb::message_type::MSG_APP);
+    auto msg = new_pb_message(2, 1, raftpb::MessageType::MSG_APP);
     for (auto& entry : tt.ents) {
       msg.add_entries()->CopyFrom(entry);
     }
@@ -714,13 +714,13 @@ TEST_F(raft_paper_test_suit, test_follower_check_msg_app) {
     mm_storage.append(create_entries(1, {1, 2}));
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
     auto r = new_test_raft(1, 10, 1, std::move(storage_proxy));
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     hs.set_commit(1);
     r.load_state(hs);
     r.become_follower(2, 2);
 
     r.step(convert_test_pb_message({
-        .msg_type = raftpb::message_type::MSG_APP,
+        .msg_type = raftpb::MessageType::MSG_APP,
         .from = 2,
         .to = 1,
         .term = 2,
@@ -729,7 +729,7 @@ TEST_F(raft_paper_test_suit, test_follower_check_msg_app) {
     }));
 
     auto expected_msg = convert_test_pb_message({
-        .msg_type = raftpb::message_type::MSG_APP_RESP,
+        .msg_type = raftpb::MessageType::MSG_APP_RESP,
         .from = 1,
         .to = 2,
         .term = 2,
@@ -808,7 +808,7 @@ TEST_F(raft_paper_test_suit, test_follower_append_entries) {
     r.become_follower(2, 2);
 
     auto msg = convert_test_pb_message({
-        .msg_type = raftpb::message_type::MSG_APP,
+        .msg_type = raftpb::MessageType::MSG_APP,
         .from = 2,
         .to = 1,
         .term = 2,
@@ -879,7 +879,7 @@ TEST_F(raft_paper_test_suit, test_leader_sync_follower_log) {
     leader_mm_storage.append(create_entries(0, {0, 1, 1, 1, 4, 4, 5, 5, 6, 6, 6}));
     pro::proxy<storage_builer> leader_storage_proxy = leader_mm_storage_ptr.get();
     auto lead = new_test_raft(1, 10, 1, std::move(leader_storage_proxy));
-    raftpb::hard_state lead_state;
+    raftpb::HardState lead_state;
     lead_state.set_commit(lead.raft_log_handle_.last_index());
     lead_state.set_term(term);
     lead.load_state(lead_state);
@@ -889,7 +889,7 @@ TEST_F(raft_paper_test_suit, test_leader_sync_follower_log) {
     follower_mm_storage.append(std::move(tt));
     pro::proxy<storage_builer> follower_storage_proxy = follower_mm_storage_ptr.get();
     auto follower = new_test_raft(2, 10, 1, std::move(follower_storage_proxy));
-    raftpb::hard_state follower_state;
+    raftpb::HardState follower_state;
     follower_state.set_term(term - 1);
     follower.load_state(follower_state);
 
@@ -901,17 +901,17 @@ TEST_F(raft_paper_test_suit, test_leader_sync_follower_log) {
     peers.emplace_back(state_machine_builer_pair{follower});
     emplace_nop_stepper(peers);
     auto nt = new_network(std::move(peers));
-    nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+    nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
 
     // The election occurs in the term after the one we loaded with
     // lead.loadState above.
-    nt.send({new_pb_message(3, 1, term + 1, raftpb::message_type::MSG_VOTE_RESP)});
+    nt.send({new_pb_message(3, 1, term + 1, raftpb::MessageType::MSG_VOTE_RESP)});
 
     // 强制触发领导者日志复制
     // 确保所有未提交日志被同步
     // 测试跨任期的日志合并
     nt.send(
-        {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+        {convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
     ASSERT_TRUE(diffu(ltoa(lead.raft_log_handle_), ltoa(follower.raft_log_handle_)).empty());
   }
 }
@@ -935,7 +935,7 @@ TEST_F(raft_paper_test_suit, test_vote_request) {
     auto r =
         new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
     auto msg = convert_test_pb_message({
-        .msg_type = raftpb::message_type::MSG_APP,
+        .msg_type = raftpb::MessageType::MSG_APP,
         .from = 2,
         .to = 1,
         .term = tt.wterm - 1,
@@ -953,14 +953,14 @@ TEST_F(raft_paper_test_suit, test_vote_request) {
     }
 
     auto msgs = r.read_messages();
-    std::sort(msgs.begin(), msgs.end(), [](const raftpb::message& lhs, const raftpb::message& rhs) {
+    std::sort(msgs.begin(), msgs.end(), [](const raftpb::Message& lhs, const raftpb::Message& rhs) {
       return lhs.DebugString() < rhs.DebugString();
     });
     ASSERT_EQ(2, msgs.size()) << fmt::format("#{}: expected 2 messages, got {}", j, msgs.size());
     for (auto i = 0; i < msgs.size(); ++i) {
       auto& msg = msgs[i];
       ASSERT_EQ(i + 2, msg.to());
-      ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_VOTE), magic_enum::enum_name(msg.type()));
+      ASSERT_EQ(magic_enum::enum_name(raftpb::MessageType::MSG_VOTE), magic_enum::enum_name(msg.type()));
       ASSERT_EQ(tt.wterm, msg.term());
 
       ASSERT_EQ(tt.ents[tt.ents.size() - 1].index(), msg.index());
@@ -1018,7 +1018,7 @@ TEST_F(raft_paper_test_suit, test_voter) {
     auto r = new_test_raft(1, 10, 1, std::move(storage_proxy));
 
     r.step(convert_test_pb_message({
-        .msg_type = raftpb::message_type::MSG_VOTE,
+        .msg_type = raftpb::MessageType::MSG_VOTE,
         .from = 2,
         .to = 1,
         .term = 3,
@@ -1028,7 +1028,7 @@ TEST_F(raft_paper_test_suit, test_voter) {
 
     auto msgs = r.read_messages();
     ASSERT_EQ(1, msgs.size());
-    ASSERT_EQ(raftpb::message_type::MSG_VOTE_RESP, msgs[0].type());
+    ASSERT_EQ(raftpb::MessageType::MSG_VOTE_RESP, msgs[0].type());
     ASSERT_EQ(tt.wreject, msgs[0].reject()) << fmt::format("#{}", i);
   }
 }
@@ -1059,7 +1059,7 @@ TEST_F(raft_paper_test_suit, test_leader_only_commits_log_from_current_term) {
     mm_storage.append(create_entries(1, {1, 2}));
     pro::proxy<storage_builer> storage_proxy = mm_storage_ptr.get();
     auto r = new_test_raft(1, 10, 1, std::move(storage_proxy));
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     hs.set_term(2);
     r.load_state(hs);
     // become leader at term 3
@@ -1067,10 +1067,10 @@ TEST_F(raft_paper_test_suit, test_leader_only_commits_log_from_current_term) {
     r.become_leader();
     r.read_messages();
     // propose a entry to current term
-    r.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}}));
+    r.step(convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}}));
 
     r.step(convert_test_pb_message(
-        {.msg_type = raftpb::message_type::MSG_APP_RESP, .from = 2, .to = 1, .term = r.term_, .index = tt.index}));
+        {.msg_type = raftpb::MessageType::MSG_APP_RESP, .from = 2, .to = 1, .term = r.term_, .index = tt.index}));
     r.advance_messages_after_append();
     ASSERT_EQ(tt.wcommit, r.raft_log_handle_.committed()) << fmt::format("#{}", i);
   }

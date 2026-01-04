@@ -7,24 +7,29 @@
 #include "v4/proxy.h"
 namespace lepton::storage::ioutil {
 
+// TODO: (vleejl) 避免使用 memcpy
 asio::awaitable<expected<std::size_t>> page_writer::async_write(byte_span data) {
+  if (data.empty()) {
+    co_return 0;
+  }
+
   size_t n = 0;
   auto len = data.size();
   auto p = data.data();
 
   // Case 1: fits in buffer
-  if (len + buffered_bytes_ <= buf_watermark_bytes_) {
+  if (len + buffered_bytes_ <= flush_buf_watermark_bytes) {
     std::memcpy(buf_.get() + buffered_bytes_, p, len);
     buffered_bytes_ += len;
     co_return len;
   }
 
   // slack = bytes remaining to complete a page
-  size_t mod = (page_offset_ + buffered_bytes_) % page_bytes_;
-  size_t slack = (mod == 0) ? page_bytes_ : (page_bytes_ - mod);
+  size_t mod = (page_offset_ + buffered_bytes_) % page_size_bytes;
+  size_t slack = (mod == 0) ? page_size_bytes : (page_size_bytes - mod);
 
   // If slack < page_bytes_, buffer currently ends in unaligned page
-  if (slack != page_bytes_) {
+  if (slack != page_size_bytes) {
     bool partial = slack > len;
     size_t copy_bytes = partial ? len : slack;
 
@@ -47,9 +52,9 @@ asio::awaitable<expected<std::size_t>> page_writer::async_write(byte_span data) 
   }
 
   // Write full pages directly
-  if (len > page_bytes_) {
-    size_t pages = len / page_bytes_;
-    size_t bytes = pages * page_bytes_;
+  if (len > page_size_bytes) {
+    size_t pages = len / page_size_bytes;
+    size_t bytes = pages * page_size_bytes;
 
     auto result = co_await w_->async_write(byte_span{p, bytes});
     if (!result) {

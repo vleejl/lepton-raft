@@ -14,7 +14,7 @@ namespace confchange {
 // the Changer only needs a ProgressMap (not a whole Tracker) at which point
 // this can just take LastIndex and MaxInflight directly instead and cook up
 // the results from that alone.
-changer::result restor(const raftpb::conf_state &cs, changer &&chg);
+changer::result restor(const raftpb::ConfState &cs, changer &&chg);
 }  // namespace confchange
 }  // namespace lepton::core
 

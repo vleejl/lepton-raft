@@ -56,11 +56,11 @@ TEST_F(raft_test_suit, progress_leader) {
   r.trk_.progress_map_mutable_view().mutable_view().at(2).become_replicate();
 
   // Send proposals to r1. The first 5 entries should be queued in the unstable log.
-  raftpb::message prop_msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  raftpb::Message prop_msg = new_pb_message(1, 1, raftpb::MessageType::MSG_PROP);
   auto entry = prop_msg.add_entries();
   entry->set_data("foo");
   for (std::size_t i = 0; i < 5; ++i) {
-    raftpb::message new_prop_msg{prop_msg};
+    raftpb::Message new_prop_msg{prop_msg};
     r.step(std::move(new_prop_msg));
   }
   ASSERT_EQ(0, r.trk_.progress_map_mutable_view().mutable_view().at(1).match());
@@ -101,9 +101,9 @@ TEST_F(raft_test_suit, progress_paused) {
   r.become_leader();
   auto prop_msg = new_pb_message(1, 1, raftpb::MSG_PROP);
   prop_msg.add_entries()->set_data("somedata");
-  r.step(raftpb::message(prop_msg));
-  r.step(raftpb::message(prop_msg));
-  r.step(raftpb::message(prop_msg));
+  r.step(raftpb::Message(prop_msg));
+  r.step(raftpb::Message(prop_msg));
+  r.step(raftpb::Message(prop_msg));
 
   auto msgs = r.read_messages();
   ASSERT_EQ(1, msgs.size());
@@ -143,7 +143,7 @@ TEST_F(raft_test_suit, progress_flow_control) {
   // election, and the first proposal (only one proposal gets sent
   // because we're in probe state).
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(raftpb::message_type::MSG_APP, msgs[0].type());
+  ASSERT_EQ(raftpb::MessageType::MSG_APP, msgs[0].type());
   ASSERT_EQ(2, msgs[0].entries_size());
   ASSERT_TRUE(msgs[0].entries().at(0).data().empty());
   ASSERT_EQ(1000, msgs[0].entries().at(1).data().size());
@@ -157,7 +157,7 @@ TEST_F(raft_test_suit, progress_flow_control) {
     auto exp_entries_size = static_cast<int>(exp_entries.size());
     assert(msgs_size == exp_entries_size);
     for (int i = 0; i < msgs.size(); ++i) {
-      assert(raftpb::message_type::MSG_APP == msgs[i].type());
+      assert(raftpb::MessageType::MSG_APP == msgs[i].type());
       const auto entries_size = msgs[i].entries_size();
       assert(exp_entries[static_cast<std::size_t>(i)] == entries_size);
     }
@@ -190,11 +190,11 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
   // expect them, or because the final tally ends up nonzero. (At the time of
   // writing, the former).
   constexpr auto max_entries = 1024;
-  raftpb::entry test_entry;
+  raftpb::Entry test_entry;
   test_entry.set_data("testdata");
   auto max_entry_size = max_entries * lepton::core::pb::payloads_size(test_entry);
 
-  ASSERT_EQ(0, lepton::core::pb::payloads_size(raftpb::entry{}));
+  ASSERT_EQ(0, lepton::core::pb::payloads_size(raftpb::Entry{}));
 
   auto storage = pro::make_proxy<storage_builer>(new_test_memory_storage({with_peers({1, 2, 3})}));
   auto cfg = new_test_config(1, 5, 1, std::move(storage));
@@ -214,12 +214,12 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
   r.uncommitted_size_ = 0;
 
   // Send proposals to r1. The first 5 entries should be appended to the log.
-  auto prop_msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  auto prop_msg = new_pb_message(1, 1, raftpb::MessageType::MSG_PROP);
   prop_msg.mutable_entries()->Add()->CopyFrom(test_entry);
   lepton::core::pb::repeated_entry prop_ents;
   prop_ents.Reserve(max_entries);
   for (std::size_t i = 0; i < max_entries; ++i) {
-    auto result = r.step(raftpb::message{prop_msg});
+    auto result = r.step(raftpb::Message{prop_msg});
     ASSERT_TRUE(result);
     prop_ents.Add()->CopyFrom(test_entry);
   }
@@ -229,7 +229,7 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
   auto has_called_error = false;
   auto step_resilt = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        LEPTON_LEAF_CHECK(r.step(raftpb::message{prop_msg}));
+        LEPTON_LEAF_CHECK(r.step(raftpb::Message{prop_msg}));
         return {};
       },
       [&](const lepton_error &e) -> leaf::result<void> {
@@ -254,9 +254,9 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
   for (std::size_t i = 0; i < 2 * max_entries; ++i) {
     prop_ents.Add()->CopyFrom(test_entry);
   }
-  auto prop_msg_large = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  auto prop_msg_large = new_pb_message(1, 1, raftpb::MessageType::MSG_PROP);
   prop_msg_large.mutable_entries()->Add(prop_ents.begin(), prop_ents.end());
-  auto result = r.step(raftpb::message{prop_msg_large});
+  auto result = r.step(raftpb::Message{prop_msg_large});
   ASSERT_TRUE(result);
 
   // Send one more proposal to r1. It should be rejected, again.
@@ -264,7 +264,7 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
   has_called_error = false;
   step_resilt = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        LEPTON_LEAF_CHECK(r.step(raftpb::message{prop_msg}));
+        LEPTON_LEAF_CHECK(r.step(raftpb::Message{prop_msg}));
         return {};
       },
       [&](const lepton_error &e) -> leaf::result<void> {
@@ -278,9 +278,9 @@ TEST_F(raft_test_suit, uncommitted_entry_limit) {
   // But we can always append an entry with no Data. This is used both for the
   // leader's first empty entry and for auto-transitioning out of joint config
   // states.
-  raftpb::message empty_msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  raftpb::Message empty_msg = new_pb_message(1, 1, raftpb::MessageType::MSG_PROP);
   empty_msg.add_entries();
-  result = r.step(raftpb::message{empty_msg});
+  result = r.step(raftpb::Message{empty_msg});
   ASSERT_TRUE(result);
 
   // Read messages and reduce the uncommitted size as if we had committed
@@ -356,7 +356,7 @@ static void test_leader_election(bool pre_vote) {
   }
 
   for (auto &test_case : test_cases) {
-    test_case.nw.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+    test_case.nw.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
     auto &iter = test_case.nw.peers.at(1);
     // ASSERT_NE(iter, test_case.nw.peers.end());
     ASSERT_NE(nullptr, iter.raft_handle);
@@ -418,12 +418,12 @@ TEST_F(raft_test_suit, test_learner_promotion) {
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER), magic_enum::enum_name(n1.state_type_));
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER), magic_enum::enum_name(n2.state_type_));
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_BEAT)});
 
   n1.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE)));
   n2.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE)));
   ASSERT_FALSE(n2.is_learner_);
 
   // n2 start election, should become leader
@@ -432,7 +432,7 @@ TEST_F(raft_test_suit, test_learner_promotion) {
     n2.tick();
   }
   n2.advance_messages_after_append();
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_BEAT)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_BEAT)});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER), magic_enum::enum_name(n1.state_type_));
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER), magic_enum::enum_name(n2.state_type_));
 }
@@ -446,7 +446,7 @@ TEST_F(raft_test_suit, test_learner_can_vote) {
   n2.become_follower(1, NONE);
 
   // Send a vote request to n2.
-  raftpb::message vote_req = new_pb_message(1, 2, raftpb::message_type::MSG_VOTE);
+  raftpb::Message vote_req = new_pb_message(1, 2, raftpb::MessageType::MSG_VOTE);
   vote_req.set_term(2);
   vote_req.set_log_term(11);
   vote_req.set_index(11);
@@ -455,7 +455,7 @@ TEST_F(raft_test_suit, test_learner_can_vote) {
 
   auto msgs = n2.read_messages();
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(raftpb::message_type::MSG_VOTE_RESP, msgs[0].type());
+  ASSERT_EQ(raftpb::MessageType::MSG_VOTE_RESP, msgs[0].type());
   ASSERT_FALSE(msgs[0].reject());
 }
 
@@ -474,7 +474,7 @@ void leader_cycle(bool pre_vote) {
   emplace_nil_peer(peers);
   auto n = new_network_with_config(config_func, std::move(peers));
   for (std::uint64_t campaigner_id = 1; campaigner_id <= 3; ++campaigner_id) {
-    n.send({new_pb_message(campaigner_id, campaigner_id, raftpb::message_type::MSG_HUP)});
+    n.send({new_pb_message(campaigner_id, campaigner_id, raftpb::MessageType::MSG_HUP)});
 
     for (auto &iter : n.peers) {
       auto &raft_handle = *iter.second.raft_handle;
@@ -521,13 +521,13 @@ static void test_leader_election_overwrite_newer_logs(bool pre_vote) {
   // Node 1 campaigns. The election fails because a quorum of nodes
   // know about the election that already happened at term 2. Node 1's
   // term is pushed ahead to 2.
-  n.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  n.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   auto &raft_handle = *n.peers.at(1).raft_handle;
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER), magic_enum::enum_name(raft_handle.state_type_));
   ASSERT_EQ(2, raft_handle.term_);
 
   // Node 1 campaigns again with a higher term. This time it succeeds.
-  n.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  n.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER), magic_enum::enum_name(raft_handle.state_type_));
   ASSERT_EQ(3, raft_handle.term_);
 
@@ -552,7 +552,7 @@ TEST_F(raft_test_suit, test_leader_election_overwrite_newer_logs_pre_vote) {
   test_leader_election_overwrite_newer_logs(true);
 }
 
-static void test_state_from_any_state(raftpb::message_type vt) {
+static void test_state_from_any_state(raftpb::MessageType vt) {
   for (auto st_idx = static_cast<std::uint64_t>(lepton::core::state_type::FOLLOWER);
        st_idx <= static_cast<std::uint64_t>(lepton::core::state_type::PRE_CANDIDATE); ++st_idx) {
     auto st = static_cast<lepton::core::state_type>(st_idx);
@@ -597,7 +597,7 @@ static void test_state_from_any_state(raftpb::message_type vt) {
     ASSERT_FALSE(resp.reject());
 
     // If this was a real vote, we reset our state and term.
-    if (vt == raftpb::message_type::MSG_VOTE) {
+    if (vt == raftpb::MessageType::MSG_VOTE) {
       ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER), magic_enum::enum_name(r.state_type_));
       ASSERT_EQ(new_term, r.term_);
       ASSERT_EQ(2, r.vote_id_);
@@ -612,14 +612,14 @@ static void test_state_from_any_state(raftpb::message_type vt) {
   }
 }
 
-TEST_F(raft_test_suit, vote_from_any_state) { test_state_from_any_state(raftpb::message_type::MSG_VOTE); }
+TEST_F(raft_test_suit, vote_from_any_state) { test_state_from_any_state(raftpb::MessageType::MSG_VOTE); }
 
-TEST_F(raft_test_suit, pre_vote_from_any_state) { test_state_from_any_state(raftpb::message_type::MSG_PRE_VOTE); }
+TEST_F(raft_test_suit, pre_vote_from_any_state) { test_state_from_any_state(raftpb::MessageType::MSG_PRE_VOTE); }
 
 TEST_F(raft_test_suit, log_replication) {
   struct test_case {
     network nw;
-    std::vector<raftpb::message> msgs;
+    std::vector<raftpb::Message> msgs;
     std::uint64_t wcommitted;
   };
   std::vector<test_case> test_cases;
@@ -633,7 +633,7 @@ TEST_F(raft_test_suit, log_replication) {
         .nw = std::move(nt),
         .msgs =
             {
-                new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"),
+                new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"),
             },
         .wcommitted = 2,
     });
@@ -648,16 +648,16 @@ TEST_F(raft_test_suit, log_replication) {
         .nw = std::move(nt),
         .msgs =
             {
-                new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata"),
-                new_pb_message(1, 2, raftpb::message_type::MSG_HUP),
-                new_pb_message(1, 2, raftpb::message_type::MSG_PROP, "somedata"),
+                new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata"),
+                new_pb_message(1, 2, raftpb::MessageType::MSG_HUP),
+                new_pb_message(1, 2, raftpb::MessageType::MSG_PROP, "somedata"),
             },
         .wcommitted = 4,
     });
   }
   for (auto &test_case : test_cases) {
     auto &nw = test_case.nw;
-    nw.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+    nw.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
     {
       auto &raft_handle = *nw.peers.at(1).raft_handle;
       ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER),
@@ -683,7 +683,7 @@ TEST_F(raft_test_suit, log_replication) {
 
       lepton::core::pb::repeated_message msgs;
       for (auto &msg : test_case.msgs) {
-        if (msg.type() == raftpb::message_type::MSG_PROP) {
+        if (msg.type() == raftpb::MessageType::MSG_PROP) {
           // Only add proposal messages to the output.
           msgs.Add()->CopyFrom(msg);
         }
@@ -726,7 +726,7 @@ TEST_F(raft_test_suit, learner_log_replication) {
   ASSERT_EQ(0, n2.raft_log_handle_.committed());
 
   // 发送心跳消息以后，learner 与 leader 的 commit 保持一致
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_BEAT)});
   ASSERT_EQ(n1.raft_log_handle_.committed(), n2.raft_log_handle_.committed());
 
   // n1 is leader and n2 is learner
@@ -734,7 +734,7 @@ TEST_F(raft_test_suit, learner_log_replication) {
   ASSERT_TRUE(n2.is_learner_);
   // 有leader以后，向leader发送数据，learner应该与leader保持一致
   std::uint64_t next_committed = 2;
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "sometestdata")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "sometestdata")});
 
   ASSERT_EQ(next_committed, n1.raft_log_handle_.committed());
   ASSERT_EQ(n1.raft_log_handle_.committed(), n2.raft_log_handle_.committed());
@@ -746,9 +746,9 @@ TEST_F(raft_test_suit, test_single_node_commit) {
   std::vector<state_machine_builer_pair> peers;
   peers.emplace_back(state_machine_builer_pair{r});
   auto nt = new_network(std::move(peers));
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data")});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "some data")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "some data")});
 
   auto &sm = *nt.peers.at(1).raft_handle;
   ASSERT_EQ(3, sm.raft_log_handle_.committed());
@@ -765,7 +765,7 @@ TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
   emplace_nil_peer(peers);
   emplace_nil_peer(peers);
   auto nt = new_network(std::move(peers));
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER),
             magic_enum::enum_name(nt.peers.at(1).raft_handle->state_type_));
   for (auto &[id, pr] : nt.peers) {
@@ -777,17 +777,17 @@ TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
   nt.cut(1, 4);
   nt.cut(1, 5);
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data")});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "some data")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "some data")});
   ASSERT_EQ(1, nt.peers.at(1).raft_handle->raft_log_handle_.committed());
 
   // network recovery
   nt.recover();
   // avoid committing ChangeTerm proposal
-  nt.ignore(raftpb::message_type::MSG_APP);
+  nt.ignore(raftpb::MessageType::MSG_APP);
 
   // elect 2 as the new leader with term 2
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER),
             magic_enum::enum_name(nt.peers.at(2).raft_handle->state_type_));
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER),
@@ -801,13 +801,13 @@ TEST_F(raft_test_suit, cannot_commit_without_new_term_entry) {
   // leader 在收到follower MSG_HEARTBEAT_RESP 以后，会给 follower 发送 MSG_APPEND
   // follower 受到 MSG_APPEND 以后，如果当前 leader log index 与本地一致，则会返回成功，并更新本地commit；
   // 否则返回拒绝，返回拒绝时会反馈给follower丢失的log index 位置，方便leader选择正确的位置发送MSG_APP
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_BEAT)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_BEAT)});
   // node 1 选举为 leader 的 empty entry
   // node 2 选举为 leader 的 empty entry
   // 发给 node 1 的两条 PROP Message
   ASSERT_EQ(4, nt.peers.at(2).raft_handle->raft_log_handle_.committed());
   // append an entry at current term
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_PROP, "some data")});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_PROP, "some data")});
   // expect the committed to be advanced
   ASSERT_EQ(5, nt.peers.at(2).raft_handle->raft_log_handle_.committed());
 }
@@ -823,8 +823,8 @@ TEST_F(raft_test_suit, dueling_candidates) {
   auto nt = new_network(std::move(peers));
 
   nt.cut(1, 3);
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
 
   // 1 becomes leader since it receives votes from 1 and 2
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER),
@@ -847,7 +847,7 @@ TEST_F(raft_test_suit, dueling_candidates) {
   // candidate 3 now increases its term and tries to vote again
   // we expect it to disrupt the leader 1 since it has a higher term
   // 3 will be follower again since both 1 and 2 rejects its vote request since 3 does not have a long enough log
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER),
             magic_enum::enum_name(nt.peers.at(3).raft_handle->state_type_));
   {
@@ -895,8 +895,8 @@ TEST_F(raft_test_suit, dueling_pre_candidates) {
   auto nt = new_network(std::move(peers));
 
   nt.cut(1, 3);
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
 
   // 1 becomes leader since it receives votes from 1 and 2
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER),
@@ -918,7 +918,7 @@ TEST_F(raft_test_suit, dueling_pre_candidates) {
 
   // Candidate 3 now increases its term and tries to vote again.
   // With PreVote, it does not disrupt the leader.
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
 
   {
     std::vector<test_expected_raft_status> tests{
@@ -939,8 +939,8 @@ TEST_F(raft_test_suit, candidates_concede) {
 
   nt.isolate(1);
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::CANDIDATE, 1, 0},
@@ -953,7 +953,7 @@ TEST_F(raft_test_suit, candidates_concede) {
   // heal the partition
   nt.recover();
   // send heartbeat; reset wait
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_BEAT)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_BEAT)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 1, 1},
@@ -965,9 +965,9 @@ TEST_F(raft_test_suit, candidates_concede) {
 
   std::string data{"force follower"};
   // send a proposal to 3 to flush out a MsgApp to 1
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_PROP, data)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_PROP, data)});
   // send heartbeat; flush out commit
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_BEAT)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_BEAT)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 1, 2},
@@ -1007,7 +1007,7 @@ TEST_F(raft_test_suit, single_node_candidate) {
   emplace_nil_peer(peers);
   auto nt = new_network(std::move(peers));
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER),
             magic_enum::enum_name(nt.peers.at(1).raft_handle->state_type_));
 }
@@ -1017,7 +1017,7 @@ TEST_F(raft_test_suit, single_node_pre_candidate) {
   emplace_nil_peer(peers);
   auto nt = new_network_with_config(pre_vote_config, std::move(peers));
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER),
             magic_enum::enum_name(nt.peers.at(1).raft_handle->state_type_));
 }
@@ -1030,7 +1030,7 @@ TEST_F(raft_test_suit, old_messages) {
   auto nt = new_network(std::move(peers));
 
   // make 0 leader @ term 3
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -1039,7 +1039,7 @@ TEST_F(raft_test_suit, old_messages) {
     };
     check_raft_node_after_send_msg(tests);
   }
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -1048,7 +1048,7 @@ TEST_F(raft_test_suit, old_messages) {
     };
     check_raft_node_after_send_msg(tests);
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 3, 3},
@@ -1058,7 +1058,7 @@ TEST_F(raft_test_suit, old_messages) {
     check_raft_node_after_send_msg(tests);
   }
   // pretend we're an old leader trying to make progress; this entry is expected to be ignored.
-  auto msg1 = new_pb_message(2, 1, raftpb::message_type::MSG_APP);
+  auto msg1 = new_pb_message(2, 1, raftpb::MessageType::MSG_APP);
   msg1.set_term(2);
   auto entries1 = create_entries(3, {2});
   msg1.mutable_entries()->Swap(&entries1);
@@ -1072,7 +1072,7 @@ TEST_F(raft_test_suit, old_messages) {
     check_raft_node_after_send_msg(tests);
   }
   // commit a new entry
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata")});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 3, 4},
@@ -1148,8 +1148,8 @@ TEST_F(raft_test_suit, proposal) {
 
     std::string data{"somedata"};
     // promote 1 to become leader
-    tt.nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
-    tt.nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, data)});
+    tt.nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
+    tt.nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, data)});
     auto mm_storage_ptr = std::make_unique<lepton::core::memory_storage>();
     if (tt.success) {
       auto &mm_storage = *mm_storage_ptr;
@@ -1211,9 +1211,9 @@ TEST_F(raft_test_suit, proposal_by_proxy) {
 
     std::string data{"somedata"};
     // promote 1 to become leader
-    tt.nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+    tt.nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
     // propose via follower
-    tt.nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_PROP, data)});
+    tt.nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_PROP, data)});
     auto mm_storage_ptr = std::make_unique<lepton::core::memory_storage>();
     auto &mm_storage = *mm_storage_ptr;
     lepton::core::pb::repeated_entry entries;
@@ -1353,7 +1353,7 @@ TEST_F(raft_test_suit, commit) {
     ++test_case_idx;
     auto mm_storage = new_test_memory_storage({with_peers({1})});
     mm_storage.append(std::move(iter.logs));
-    raftpb::hard_state hs;
+    raftpb::HardState hs;
     hs.set_term(iter.sm_term);
     mm_storage.set_hard_state(std::move(hs));
 
@@ -1362,7 +1362,7 @@ TEST_F(raft_test_suit, commit) {
       auto id = j + 1;
       if (id > 1) {
         sm.apply_conf_change(lepton::core::pb::conf_change_as_v2(
-            create_conf_change_v1(id, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+            create_conf_change_v1(id, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE)));
       }
       auto &pr = sm.trk_.progress_map_mutable_view().mutable_view().at(id);
       pr.set_match(iter.matches[j]);
@@ -1415,13 +1415,13 @@ TEST_F(raft_test_suit, step_ignore_old_term_msg) {
   auto called = false;
   auto sm =
       new_test_learner_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
-  sm.step_func_ = [&](lepton::core::raft &_, raftpb::message &&msg) -> leaf::result<void> {
+  sm.step_func_ = [&](lepton::core::raft &_, raftpb::Message &&msg) -> leaf::result<void> {
     called = true;
     return {};
   };
   sm.term_ = 2;
-  raftpb::message msg;
-  msg.set_type(raftpb::message_type::MSG_APP);
+  raftpb::Message msg;
+  msg.set_type(raftpb::MessageType::MSG_APP);
   msg.set_term(sm.term_ - 1);
   sm.step(std::move(msg));
   ASSERT_FALSE(called);
@@ -1434,7 +1434,7 @@ TEST_F(raft_test_suit, step_ignore_old_term_msg) {
 //  3. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry).
 TEST_F(raft_test_suit, handle_msg_app) {
   struct test_case {
-    raftpb::message m;
+    raftpb::Message m;
     std::uint64_t w_index;
     std::uint64_t w_commit;
     bool w_reject;
@@ -1444,7 +1444,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
       // 确保1: 日志不匹配的情况
       {.m = convert_test_pb_message({
            // previous log mismatch
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 3,
            .index = 2,
@@ -1457,7 +1457,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
 
       {.m = convert_test_pb_message({
            // previous log non-exist
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 3,
            .index = 3,
@@ -1470,7 +1470,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
 
       // 确保2: 各种日志追加场景
       {.m = convert_test_pb_message({
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 1,
            .index = 1,
@@ -1482,7 +1482,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
        .w_reject = false},
 
       {.m = convert_test_pb_message({
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 0,
            .index = 0,
@@ -1494,7 +1494,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
        .w_reject = false},
 
       {.m = convert_test_pb_message({
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 2,
            .index = 2,
@@ -1506,7 +1506,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
        .w_reject = false},
 
       {.m = convert_test_pb_message({
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 2,
            .index = 2,
@@ -1518,7 +1518,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
        .w_reject = false},
 
       {.m = convert_test_pb_message({
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 1,
            .index = 1,
@@ -1532,7 +1532,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
       // 确保3: 提交索引的处理
       {.m = convert_test_pb_message({
            // match entry 1, commit up to last new entry 1
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 1,
            .log_term = 1,
            .index = 1,
@@ -1545,7 +1545,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
 
       {.m = convert_test_pb_message({
            // match entry 1, commit up to last new entry 2
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 1,
            .log_term = 1,
            .index = 1,
@@ -1558,7 +1558,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
 
       {.m = convert_test_pb_message({
            // match entry 2, commit up to last new entry 2
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 2,
            .index = 2,
@@ -1571,7 +1571,7 @@ TEST_F(raft_test_suit, handle_msg_app) {
 
       {.m = convert_test_pb_message({
            // commit up to log.last()
-           .msg_type = raftpb::message_type::MSG_APP,
+           .msg_type = raftpb::MessageType::MSG_APP,
            .term = 2,
            .log_term = 2,
            .index = 2,
@@ -1602,14 +1602,14 @@ TEST_F(raft_test_suit, handle_msg_app) {
 TEST_F(raft_test_suit, handle_heartbeat) {
   constexpr std::uint64_t commit = 2;
   struct test_case {
-    raftpb::message m;
+    raftpb::Message m;
     std::uint64_t w_commit;
   };
 
   std::vector<test_case> tests{
       {
           .m = convert_test_pb_message({
-              .msg_type = raftpb::message_type::MSG_HEARTBEAT,
+              .msg_type = raftpb::MessageType::MSG_HEARTBEAT,
               .from = 2,
               .to = 1,
               .term = 2,
@@ -1620,7 +1620,7 @@ TEST_F(raft_test_suit, handle_heartbeat) {
       {
           // do not decrease commit
           .m = convert_test_pb_message({
-              .msg_type = raftpb::message_type::MSG_HEARTBEAT,
+              .msg_type = raftpb::MessageType::MSG_HEARTBEAT,
               .from = 2,
               .to = 1,
               .term = 2,
@@ -1640,7 +1640,7 @@ TEST_F(raft_test_suit, handle_heartbeat) {
     ASSERT_EQ(tt.w_commit, sm.raft_log_handle_.committed());
     auto m = sm.read_messages();
     ASSERT_EQ(1, m.size());
-    ASSERT_EQ(raftpb::message_type::MSG_HEARTBEAT_RESP, m[0].type());
+    ASSERT_EQ(raftpb::MessageType::MSG_HEARTBEAT_RESP, m[0].type());
   }
 }
 
@@ -1654,20 +1654,20 @@ TEST_F(raft_test_suit, handle_heartbeat_resp) {
   sm.raft_log_handle_.commit_to(sm.raft_log_handle_.last_index());
 
   // A heartbeat response from a node that is behind; re-send MsgApp
-  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2}));
+  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::MessageType::MSG_HEARTBEAT_RESP, .from = 2}));
   auto msgs = sm.read_messages();
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(raftpb::MessageType::MSG_APP), magic_enum::enum_name(msgs[0].type()));
 
   // A second heartbeat response generates another MsgApp re-send
-  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2}));
+  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::MessageType::MSG_HEARTBEAT_RESP, .from = 2}));
   msgs = sm.read_messages();
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(raftpb::MessageType::MSG_APP), magic_enum::enum_name(msgs[0].type()));
 
   // Once we have an MsgAppResp, heartbeats no longer send MsgApp.
   sm.step(convert_test_pb_message(
-      test_pb::message{.msg_type = raftpb::message_type::MSG_APP_RESP,
+      test_pb::message{.msg_type = raftpb::MessageType::MSG_APP_RESP,
                        .from = 2,
                        .index = msgs[0].index() + static_cast<std::uint64_t>(msgs[0].entries_size())}));
   // Consume the message sent in response to MsgAppResp
@@ -1675,7 +1675,7 @@ TEST_F(raft_test_suit, handle_heartbeat_resp) {
   ASSERT_EQ(0, msgs.size());
 
   // 伪造 MSG_HEARTBEAT_APP index 已确认，不会再发 MSG_APP 补齐 entry
-  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2}));
+  sm.step(convert_test_pb_message(test_pb::message{.msg_type = raftpb::MessageType::MSG_HEARTBEAT_RESP, .from = 2}));
   msgs = sm.read_messages();
   ASSERT_EQ(0, msgs.size());
 }
@@ -1696,10 +1696,10 @@ TEST_F(raft_test_suit, raft_frees_read_only_mem) {
   // leader starts linearizable read request.
   // more info: raft dissertation 6.4, step 2.
   sm.step(convert_test_pb_message(
-      test_pb::message{.msg_type = raftpb::message_type::MSG_READ_INDEX, .from = 2, .entries = {{.data = ctx}}}));
+      test_pb::message{.msg_type = raftpb::MessageType::MSG_READ_INDEX, .from = 2, .entries = {{.data = ctx}}}));
   auto msgs = sm.read_messages();
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_HEARTBEAT), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(raftpb::MessageType::MSG_HEARTBEAT), magic_enum::enum_name(msgs[0].type()));
   ASSERT_EQ(ctx, msgs[0].context());
   ASSERT_EQ(1, sm.read_only_.read_index_queue().size());
   ASSERT_EQ(1, sm.read_only_.pending_read_index().size());
@@ -1709,7 +1709,7 @@ TEST_F(raft_test_suit, raft_frees_read_only_mem) {
   // acknowledge the authority of the leader.
   // more info: raft dissertation 6.4, step 3.
   sm.step(convert_test_pb_message(
-      test_pb::message{.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2, .ctx = ctx}));
+      test_pb::message{.msg_type = raftpb::MessageType::MSG_HEARTBEAT_RESP, .from = 2, .ctx = ctx}));
   ASSERT_EQ(0, sm.read_only_.read_index_queue().size());
   ASSERT_EQ(0, sm.read_only_.pending_read_index().size());
   ASSERT_FALSE(sm.read_only_.pending_read_index().contains(ctx));
@@ -1733,14 +1733,14 @@ TEST_F(raft_test_suit, msg_app_resp_wait_reset) {
 
   // Node 2 acks the first entry, making it committed.
   // ACK Leader 选举触发的 EMPTY Entry
-  sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_APP_RESP, .from = 2, .index = 1}));
+  sm.step(convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_APP_RESP, .from = 2, .index = 1}));
   ASSERT_EQ(1, sm.raft_log_handle_.committed());
 
   // Also consume the MsgApp messages that update Commit on the followers.
   sm.read_messages();
 
   // A new command is now proposed on node 1.
-  sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .entries = {{}}}));
+  sm.step(convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .entries = {{}}}));
   // 没有收到 MSG_APP_RESP 消息,commit 没有变化
   ASSERT_EQ(1, sm.raft_log_handle_.committed());
 
@@ -1749,7 +1749,7 @@ TEST_F(raft_test_suit, msg_app_resp_wait_reset) {
   // 虽然有了新的 MSG_PROP 消息, 但这里 leader 并没有向 Node 3 发送 MSG_APP 消息, 因为 Node 3 没有回复 MSG_APP_RESP
   auto msgs = sm.read_messages();
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(raftpb::MessageType::MSG_APP), magic_enum::enum_name(msgs[0].type()));
   ASSERT_EQ(2, msgs[0].to());
   // 各个成员节点状态没有变化, term 也不会变化
   ASSERT_EQ(1, msgs[0].term());
@@ -1759,11 +1759,11 @@ TEST_F(raft_test_suit, msg_app_resp_wait_reset) {
   ASSERT_EQ(1, sm.raft_log_handle_.committed());
 
   // Now Node 3 acks the first entry. This releases the wait and entry 2 is sent.
-  sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_APP_RESP, .from = 3, .index = 1}));
+  sm.step(convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_APP_RESP, .from = 3, .index = 1}));
   // Node 3 确认以后, leader 向 Node 3 发送了新的 MSG_APP 消息
   msgs = sm.read_messages();
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(magic_enum::enum_name(raftpb::message_type::MSG_APP), magic_enum::enum_name(msgs[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(raftpb::MessageType::MSG_APP), magic_enum::enum_name(msgs[0].type()));
   ASSERT_EQ(3, msgs[0].to());
   // 各个成员节点状态没有变化, term 也不会变化
   ASSERT_EQ(1, msgs[0].term());
@@ -1773,7 +1773,7 @@ TEST_F(raft_test_suit, msg_app_resp_wait_reset) {
   ASSERT_EQ(1, sm.raft_log_handle_.committed());
 }
 
-static void test_recv_msg_vote(raftpb::message_type msg_type) {
+static void test_recv_msg_vote(raftpb::MessageType msg_type) {
   // 测试用例结构体 - 明确指定字段顺序
   struct test_case {
     state_type state;
@@ -1856,9 +1856,9 @@ static void test_recv_msg_vote(raftpb::message_type msg_type) {
   }
 }
 
-TEST_F(raft_test_suit, recv_msg_vote) { test_recv_msg_vote(raftpb::message_type::MSG_VOTE); }
+TEST_F(raft_test_suit, recv_msg_vote) { test_recv_msg_vote(raftpb::MessageType::MSG_VOTE); }
 
-TEST_F(raft_test_suit, recv_msg_pre_vote) { test_recv_msg_vote(raftpb::message_type::MSG_PRE_VOTE); }
+TEST_F(raft_test_suit, recv_msg_pre_vote) { test_recv_msg_vote(raftpb::MessageType::MSG_PRE_VOTE); }
 
 TEST_F(raft_test_suit, state_transition) {
   struct test_case {
@@ -1974,7 +1974,7 @@ TEST_F(raft_test_suit, all_server_stepdown) {
       {.state = state_type::CANDIDATE, .wstate = state_type::FOLLOWER, .wterm = 3, .windex = 0},
       {.state = state_type::LEADER, .wstate = state_type::FOLLOWER, .wterm = 3, .windex = 1},
   };
-  std::vector<raftpb::message_type> tmsg_types{raftpb::message_type::MSG_VOTE, raftpb::message_type::MSG_APP};
+  std::vector<raftpb::MessageType> tmsg_types{raftpb::MessageType::MSG_VOTE, raftpb::MessageType::MSG_APP};
   std::uint64_t tterm = 3;
   for (std::size_t i = 0; i < tests.size(); ++i) {
     auto &tt = tests[i];
@@ -2006,7 +2006,7 @@ TEST_F(raft_test_suit, all_server_stepdown) {
       ASSERT_EQ(tt.windex, sm.raft_log_handle_.all_entries().size()) << fmt::format("#{}.{}", i, j);
 
       std::uint64_t wlead = 2;
-      if (msg_type == raftpb::message_type::MSG_VOTE) {
+      if (msg_type == raftpb::MessageType::MSG_VOTE) {
         wlead = NONE;
       }
       ASSERT_EQ(wlead, sm.lead_) << fmt::format("#{}.{}", i, j);
@@ -2017,7 +2017,7 @@ TEST_F(raft_test_suit, all_server_stepdown) {
 // testCandidateResetTerm tests when a candidate receives a
 // MsgHeartbeat or MsgApp from leader, "Step" resets the term
 // with leader's and reverts back to follower.
-static void test_candidate_reset_term(raftpb::message_type mt) {
+static void test_candidate_reset_term(raftpb::MessageType mt) {
   auto a = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   auto b = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
   auto c = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2, 3})}})));
@@ -2027,7 +2027,7 @@ static void test_candidate_reset_term(raftpb::message_type mt) {
   peers.emplace_back(state_machine_builer_pair{c});
   auto nt = new_network(std::move(peers));
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2039,7 +2039,7 @@ static void test_candidate_reset_term(raftpb::message_type mt) {
 
   // isolate 3 and increase term in rest
   nt.isolate(3);
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -2048,7 +2048,7 @@ static void test_candidate_reset_term(raftpb::message_type mt) {
     };
     check_raft_node_after_send_msg(tests);
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 3, 3},
@@ -2090,10 +2090,10 @@ static void test_candidate_reset_term(raftpb::message_type mt) {
 }
 
 TEST_F(raft_test_suit, candidate_reset_term_msg_heartbeat) {
-  test_candidate_reset_term(raftpb::message_type::MSG_HEARTBEAT);
+  test_candidate_reset_term(raftpb::MessageType::MSG_HEARTBEAT);
 }
 
-TEST_F(raft_test_suit, candidate_reset_term_msg_app) { test_candidate_reset_term(raftpb::message_type::MSG_APP); }
+TEST_F(raft_test_suit, candidate_reset_term_msg_app) { test_candidate_reset_term(raftpb::MessageType::MSG_APP); }
 
 // The following three tests exercise the behavior of a (pre-)candidate when its
 // own self-vote is delivered back to itself after the peer has already learned
@@ -2109,7 +2109,7 @@ static void test_candidate_self_vote_after_lost_election(bool pre_vote) {
   ASSERT_EQ(0, sm.trk_.votes_size());
 
   // n1 calls an election.
-  sm.step({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  sm.step({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   ASSERT_EQ(0, sm.trk_.votes_size());
   auto steps = sm.take_messages_after_append();
   ASSERT_EQ(1, steps.size());
@@ -2125,7 +2125,7 @@ static void test_candidate_self_vote_after_lost_election(bool pre_vote) {
   // change to sync its vote to disk and account for its self-vote.
   // Becomes a follower.
   sm.step({convert_test_pb_message(
-      {.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 2, .to = 1, .term = sm.term_})});
+      {.msg_type = raftpb::MessageType::MSG_HEARTBEAT, .from = 2, .to = 1, .term = sm.term_})});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER), magic_enum::enum_name(sm.state_type_));
   ASSERT_EQ(0, sm.trk_.votes_size());
 
@@ -2157,7 +2157,7 @@ TEST_F(raft_test_suit, candidate_delivers_pre_candidate_self_vote_after_becoming
   ASSERT_EQ(true, sm.pre_vote_);
 
   // n1 calls an election.
-  sm.step({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  sm.step({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   auto steps = sm.take_messages_after_append();
   ASSERT_EQ(1, steps.size());
   ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_PRE_VOTE_RESP), magic_enum::enum_name(steps[0].type()));
@@ -2167,10 +2167,10 @@ TEST_F(raft_test_suit, candidate_delivers_pre_candidate_self_vote_after_becoming
   // voting for itself. n1 becomes a candidate.
   // NB: pre-vote messages carry the local term + 1.
   sm.step({convert_test_pb_message(
-      {.msg_type = raftpb::message_type::MSG_PRE_VOTE_RESP, .from = 2, .to = 1, .term = sm.term_ + 1})});
+      {.msg_type = raftpb::MessageType::MSG_PRE_VOTE_RESP, .from = 2, .to = 1, .term = sm.term_ + 1})});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::PRE_CANDIDATE), magic_enum::enum_name(sm.state_type_));
   sm.step({convert_test_pb_message(
-      {.msg_type = raftpb::message_type::MSG_PRE_VOTE_RESP, .from = 3, .to = 1, .term = sm.term_ + 1})});
+      {.msg_type = raftpb::MessageType::MSG_PRE_VOTE_RESP, .from = 3, .to = 1, .term = sm.term_ + 1})});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::CANDIDATE), magic_enum::enum_name(sm.state_type_));
   ASSERT_EQ(0, sm.trk_.votes_size());
 
@@ -2187,7 +2187,7 @@ TEST_F(raft_test_suit, candidate_delivers_pre_candidate_self_vote_after_becoming
 
   // A single vote from n2 does not move n1 to the leader.
   sm.step({convert_test_pb_message(
-      {.msg_type = raftpb::message_type::MSG_VOTE_RESP, .from = 2, .to = 1, .term = sm.term_})});
+      {.msg_type = raftpb::MessageType::MSG_VOTE_RESP, .from = 2, .to = 1, .term = sm.term_})});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::CANDIDATE), magic_enum::enum_name(sm.state_type_));
 
   // n1 becomes the leader once its self-vote is received because now
@@ -2215,7 +2215,7 @@ TEST_F(raft_test_suit, leader_msg_app_self_ack_after_term_change) {
   // n1 hears that n2 is the new leader.
   // 收到更高任期的心跳，退位为 Follower
   sm.step({convert_test_pb_message(
-      {.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 2, .to = 1, .term = sm.term_ + 1})});
+      {.msg_type = raftpb::MessageType::MSG_HEARTBEAT, .from = 2, .to = 1, .term = sm.term_ + 1})});
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER), magic_enum::enum_name(sm.state_type_));
   ASSERT_EQ(0, sm.raft_log_handle_.committed());
 
@@ -2240,7 +2240,7 @@ TEST_F(raft_test_suit, leader_stepdown_when_quorum_active) {
 
   for (int i = 0; i < sm.election_timeout_ + 1; ++i) {
     sm.step(
-        {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT_RESP, .from = 2, .term = sm.term_})});
+        {convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_HEARTBEAT_RESP, .from = 2, .term = sm.term_})});
     sm.tick();
   }
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER), magic_enum::enum_name(sm.state_type_));
@@ -2277,7 +2277,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum) {
     ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
     nt.peers.at(2).raft_handle->tick();
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2287,7 +2287,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   // Peer b rejected c's vote since its electionElapsed had not reached to electionTimeout
   // ​​节点 b 拒绝投票​​：因为 b 的选举计时器 (electionElapsed) 尚未达到超时（10 <
   // 11）。b 认为当前领导者 a 仍可能活跃（checkQuorum 机制）。
@@ -2316,7 +2316,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum) {
     check_raft_node_after_send_msg(tests);
   }
   // 由于node 2进入candidate状态以后，没有leader；所以再次收到node3的投票消息时，会投票给node3
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 3, 2},
@@ -2338,7 +2338,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum_and_pre_vote) {
     ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
     nt.peers.at(2).raft_handle->tick();
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2348,7 +2348,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum_and_pre_vote) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   // Peer b rejected c's vote since its electionElapsed had not reached to electionTimeout
   // ​​节点 b 拒绝投票​​：因为 b 的选举计时器 (electionElapsed) 尚未达到超时（10 <
   // 11）。b 认为当前领导者 a 仍可能活跃（checkQuorum 机制）。
@@ -2377,7 +2377,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum_and_pre_vote) {
     check_raft_node_after_send_msg(tests);
   }
   // 由于 node 2 和 node 3 收到来自对方的pre_vote小时时，msg_term都比当前term高，导致都能进入candidate状态
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2386,7 +2386,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum_and_pre_vote) {
     };
     check_raft_node_after_send_msg(tests);
   }
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 3, 2},
@@ -2406,7 +2406,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum_and_pre_vote_2) {
     ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
     nt.peers.at(2).raft_handle->tick();
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2416,7 +2416,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum_and_pre_vote_2) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   // Peer b rejected c's vote since its electionElapsed had not reached to electionTimeout
   // ​​节点 b 拒绝投票​​：因为 b 的选举计时器 (electionElapsed) 尚未达到超时（10 <
   // 11）。b 认为当前领导者 a 仍可能活跃（checkQuorum 机制）。
@@ -2445,7 +2445,7 @@ TEST_F(raft_test_suit, leader_superseding_with_check_quorum_and_pre_vote_2) {
     check_raft_node_after_send_msg(tests);
   }
   // 再次触发选举, 由于node3 term高所以选举为leader
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -2464,7 +2464,7 @@ TEST_F(raft_test_suit, leader_election_with_check_quorum) {
 
   // Immediately after creation, votes are cast regardless of the
   // election timeout.
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2488,7 +2488,7 @@ TEST_F(raft_test_suit, leader_election_with_check_quorum) {
     nt.peers.at(2).raft_handle->tick();
   }
   // 由于 node 1 和 node 2 超时，所以 node 3 的选举会成功，term 和 log index 会变为2
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -2509,7 +2509,7 @@ TEST_F(raft_test_suit, leader_election_with_check_quorum_and_pre_vote) {
 
   // Immediately after creation, votes are cast regardless of the
   // election timeout.
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2532,7 +2532,7 @@ TEST_F(raft_test_suit, leader_election_with_check_quorum_and_pre_vote) {
     nt.peers.at(2).raft_handle->tick();
   }
   // 因为也触发了 node 1的超时，node 1给 node 2 和 node 3 发送了heartbeat消息，所以node 3停止选举
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2561,7 +2561,7 @@ TEST_F(raft_test_suit, free_stuck_candidate_with_check_quorum) {
   //   ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
   //   nt.peers.at(2).raft_handle->tick();
   // }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2575,7 +2575,7 @@ TEST_F(raft_test_suit, free_stuck_candidate_with_check_quorum) {
   nt.isolate(1);
 
   // 由于 node 2 election_elapsed_ 为 0，所以忽略了来自 node 3 的投票消息
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2587,7 +2587,7 @@ TEST_F(raft_test_suit, free_stuck_candidate_with_check_quorum) {
 
   // Vote again for safety
   // 由于 node 2 election_elapsed_ 为 0，所以再一次忽略了来自 node 3 的投票消息
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2598,7 +2598,7 @@ TEST_F(raft_test_suit, free_stuck_candidate_with_check_quorum) {
   }
 
   nt.recover();
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 1})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 1})});
   // Disrupt the leader so that the stuck peer is freed
   // 由于发现在发送了heartbeat心跳消息以后，term比当前leader的大，所以当前leader要降级
   {
@@ -2610,7 +2610,7 @@ TEST_F(raft_test_suit, free_stuck_candidate_with_check_quorum) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 4, 2},
@@ -2640,9 +2640,9 @@ TEST_F(raft_test_suit, non_promotable_voter_with_check_quorum) {
   auto nt = new_network(std::move(peers));
   set_randomized_election_timeout(*nt.peers.at(2).raft_handle, nt.peers.at(2).raft_handle->election_timeout_ + 1);
   // Need to remove 2 again to make it a non-promotable node since newNetwork overwritten some internal states
-  raftpb::conf_change cc1;
+  raftpb::ConfChange cc1;
   cc1.set_node_id(2);
-  cc1.set_type(raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE);
+  cc1.set_type(raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE);
   nt.peers.at(2).raft_handle->apply_conf_change(lepton::core::pb::conf_change_as_v2(std::move(cc1)));
   ASSERT_FALSE(nt.peers.at(2).raft_handle->promotable());
 
@@ -2652,7 +2652,7 @@ TEST_F(raft_test_suit, non_promotable_voter_with_check_quorum) {
   }
   // 虽然已经从node 2 中移除了这个节点本身，但是由于没有真正的从网络中移除该节点，且node 1视角下 node 2
   // 仍然参与投票，所以此时node 2 任然会参与选举
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2671,7 +2671,7 @@ TEST_F(raft_test_suit, non_promotable_voter_with_check_quorum) {
 TEST_F(raft_test_suit, disruptive_follower) {
   auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook}, {raft_quorum_hook, raft_become_follower_hook});
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -2713,7 +2713,7 @@ TEST_F(raft_test_suit, disruptive_follower) {
   // leader heartbeat finally arrives at candidate n3
   // however, due to delayed network from leader, leader
   // heartbeat was sent with lower term than candidate's
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 2})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 2})});
 
   // then candidate n3 responds with "pb.MsgAppResp" of higher term
   // and leader steps down from a message with higher term
@@ -2737,7 +2737,7 @@ TEST_F(raft_test_suit, disruptive_follower) {
 TEST_F(raft_test_suit, disruptive_follower_pre_vote) {
   auto nt = init_network({1, 2, 3}, {raft_config_quorum_hook}, {raft_quorum_hook, raft_become_follower_hook});
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -2748,9 +2748,9 @@ TEST_F(raft_test_suit, disruptive_follower_pre_vote) {
   }
 
   nt.isolate(3);
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "somedata")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "somedata")});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 4},
@@ -2769,7 +2769,7 @@ TEST_F(raft_test_suit, disruptive_follower_pre_vote) {
   modify_pre_vote_func(2);
   modify_pre_vote_func(3);
   nt.recover();
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 4},
@@ -2780,7 +2780,7 @@ TEST_F(raft_test_suit, disruptive_follower_pre_vote) {
   }
 
   // delayed leader heartbeat does not force current leader to step down
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 2})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_HEARTBEAT, .from = 1, .to = 3, .term = 2})});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 4},
@@ -2798,7 +2798,7 @@ TEST_F(raft_test_suit, read_only_option_safe) {
     ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
     nt.peers.at(2).raft_handle->tick();
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2823,9 +2823,9 @@ TEST_F(raft_test_suit, read_only_option_safe) {
     auto &tt = test_cases[i];
     for (int j = 0; j < tt.proposals; ++j) {
       nt.send(
-          {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+          {convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
     }
-    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::message_type::MSG_READ_INDEX, tt.wctx)});
+    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::MessageType::MSG_READ_INDEX, tt.wctx)});
 
     auto &r = *tt.raft_handle;
     ASSERT_FALSE(r.read_states_.empty());
@@ -2853,7 +2853,7 @@ TEST_F(raft_test_suit, read_only_with_learner) {
     ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
     nt.peers.at(2).raft_handle->tick();
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2878,10 +2878,10 @@ TEST_F(raft_test_suit, read_only_with_learner) {
     auto &tt = test_cases[i];
     for (int j = 0; j < tt.proposals; ++j) {
       nt.send(
-          {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+          {convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
       next_ents(*nt.peers.at(1).raft_handle, mm_storage);
     }
-    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::message_type::MSG_READ_INDEX, tt.wctx)});
+    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::MessageType::MSG_READ_INDEX, tt.wctx)});
 
     auto &r = *tt.raft_handle;
     ASSERT_FALSE(r.read_states_.empty());
@@ -2900,7 +2900,7 @@ TEST_F(raft_test_suit, read_only_option_lease) {
     ASSERT_NE(nullptr, nt.peers.at(2).raft_handle);
     nt.peers.at(2).raft_handle->tick();
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -2925,9 +2925,9 @@ TEST_F(raft_test_suit, read_only_option_lease) {
     auto &tt = test_cases[i];
     for (int j = 0; j < tt.proposals; ++j) {
       nt.send(
-          {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+          {convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
     }
-    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::message_type::MSG_READ_INDEX, tt.wctx)});
+    nt.send({new_pb_message(tt.raft_handle->id_, tt.raft_handle->id_, raftpb::MessageType::MSG_READ_INDEX, tt.wctx)});
 
     auto &r = *tt.raft_handle;
     ASSERT_FALSE(r.read_states_.empty());
@@ -2954,7 +2954,7 @@ TEST_F(raft_test_suit, read_only_for_new_leader) {
   for (const auto &c : node_configs) {
     auto ms = new_test_memory_storage({with_peers({1, 2, 3})});
     ASSERT_TRUE(ms.append(create_entries(1, {1, 1})));
-    raftpb::hard_state hard_state;
+    raftpb::HardState hard_state;
     hard_state.set_term(1);
     hard_state.set_commit(c.committed);
     ms.set_hard_state(std::move(hard_state));
@@ -2970,9 +2970,9 @@ TEST_F(raft_test_suit, read_only_for_new_leader) {
   auto nt = new_network(std::move(peers));
 
   // Drop MsgApp to forbid peer a to commit any log entry at its term after it becomes leader.
-  nt.ignore(raftpb::message_type::MSG_APP);
+  nt.ignore(raftpb::MessageType::MSG_APP);
   // Force peer a to become leader.
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     // 只 有leader 自己收到了选举成功后生成的 Empty MSG_APP
     std::vector<test_expected_raft_status> tests{
@@ -2987,7 +2987,7 @@ TEST_F(raft_test_suit, read_only_for_new_leader) {
   std::uint64_t windex = 4;
   std::string wctx{"ctx"};
   auto &sm = *nt.peers.at(1).raft_handle;
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_READ_INDEX, wctx)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_READ_INDEX, wctx)});
   ASSERT_TRUE(sm.read_states_.empty());
 
   nt.recover();
@@ -2996,7 +2996,7 @@ TEST_F(raft_test_suit, read_only_for_new_leader) {
   for (int i = 0; i < sm.heartbeat_timeout_; ++i) {
     sm.tick();
   }
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 4},
@@ -3015,7 +3015,7 @@ TEST_F(raft_test_suit, read_only_for_new_leader) {
   ASSERT_EQ(wctx, rs1.request_ctx);
 
   // Ensure peer a accepts read only request after it committed an entry at its term.
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_READ_INDEX, wctx)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_READ_INDEX, wctx)});
   ASSERT_EQ(2, sm.read_states_.size());
   const auto &rs2 = sm.read_states_[1];
   ASSERT_EQ(windex, rs2.index);
@@ -3074,7 +3074,7 @@ TEST_F(raft_test_suit, leader_app_resp) {
     sm.become_leader();
     sm.read_messages();
     auto msg = convert_test_pb_message(
-        {.msg_type = raftpb::message_type::MSG_APP_RESP, .from = 2, .term = sm.term_, .index = tt.index});
+        {.msg_type = raftpb::MessageType::MSG_APP_RESP, .from = 2, .term = sm.term_, .index = tt.index});
     msg.set_reject(tt.reject);
     msg.set_reject_hint(tt.index);
     ASSERT_TRUE(sm.step(std::move(msg)));
@@ -3097,7 +3097,7 @@ TEST_F(raft_test_suit, leader_app_resp) {
 TEST_F(raft_test_suit, bcast_beat) {
   constexpr std::uint64_t offset = 1000;
   // make a state machine with log.offset = 1000
-  raftpb::snapshot s = create_snapshot(offset, 1, {1, 2, 3});
+  raftpb::Snapshot s = create_snapshot(offset, 1, {1, 2, 3});
   lepton::core::memory_storage ms;
   ms.apply_snapshot(std::move(s));
   auto storage = pro::make_proxy<storage_builer, memory_storage>(std::move(ms));
@@ -3121,7 +3121,7 @@ TEST_F(raft_test_suit, bcast_beat) {
   sm.trk_.progress_map_mutable_view().mutable_view().at(3).set_match(sm.raft_log_handle_.last_index());
   sm.trk_.progress_map_mutable_view().mutable_view().at(3).set_next(sm.raft_log_handle_.last_index() + 1);
 
-  sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_BEAT}));
+  sm.step(convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_BEAT}));
   auto msgs = sm.read_messages();
   ASSERT_EQ(2, msgs.size());
 
@@ -3130,7 +3130,7 @@ TEST_F(raft_test_suit, bcast_beat) {
       {3, std::min(sm.raft_log_handle_.committed(), sm.trk_.progress_map_view().view().at(3).match())},
   };
   for (auto &iter_msg : msgs) {
-    ASSERT_EQ(raftpb::message_type::MSG_HEARTBEAT, iter_msg.type());
+    ASSERT_EQ(raftpb::MessageType::MSG_HEARTBEAT, iter_msg.type());
     ASSERT_EQ(0, iter_msg.index());
     ASSERT_EQ(0, iter_msg.log_term());
 
@@ -3175,11 +3175,11 @@ TEST_F(raft_test_suit, recv_msg_beat) {
         break;
     }
 
-    sm.step(convert_test_pb_message({.msg_type = raftpb::message_type::MSG_BEAT, .from = 1, .to = 1}));
+    sm.step(convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_BEAT, .from = 1, .to = 1}));
     auto msgs = sm.read_messages();
     ASSERT_EQ(tt.wmsg, msgs.size());
     for (auto &iter_msg : msgs) {
-      ASSERT_EQ(raftpb::message_type::MSG_HEARTBEAT, iter_msg.type());
+      ASSERT_EQ(raftpb::MessageType::MSG_HEARTBEAT, iter_msg.type());
       ASSERT_EQ(0, iter_msg.index());
       ASSERT_EQ(0, iter_msg.log_term());
     }
@@ -3269,18 +3269,18 @@ TEST_F(raft_test_suit, send_append_for_progress_probe) {
 
     // do a heartbeat
     for (auto j = 0; j < sm.heartbeat_timeout_; ++j) {
-      sm.step(new_pb_message(1, 1, raftpb::message_type::MSG_BEAT));
+      sm.step(new_pb_message(1, 1, raftpb::MessageType::MSG_BEAT));
     }
     ASSERT_TRUE(sm.trk_.progress_map_view().view().at(2).is_paused());
 
     // consume the heartbeat
     auto msgs = sm.read_messages();
     ASSERT_EQ(1, msgs.size());
-    ASSERT_EQ(raftpb::message_type::MSG_HEARTBEAT, msgs[0].type());
+    ASSERT_EQ(raftpb::MessageType::MSG_HEARTBEAT, msgs[0].type());
   }
 
   // a heartbeat response will allow another message to be sent
-  sm.step(new_pb_message(2, 1, raftpb::message_type::MSG_HEARTBEAT_RESP));
+  sm.step(new_pb_message(2, 1, raftpb::MessageType::MSG_HEARTBEAT_RESP));
   auto msgs = sm.read_messages();
   ASSERT_EQ(1, msgs.size());
   ASSERT_EQ(0, msgs[0].index());
@@ -3334,7 +3334,7 @@ TEST_F(raft_test_suit, recv_msg_unreachable) {
   pr.become_replicate();
   pr.set_next(6);
 
-  sm.step(new_pb_message(2, 1, raftpb::message_type::MSG_UNREACHABLE));
+  sm.step(new_pb_message(2, 1, raftpb::MessageType::MSG_UNREACHABLE));
   ASSERT_EQ(lepton::core::tracker::state_type::STATE_PROBE, pr.state());
   ASSERT_EQ(pr.match() + 1, pr.next());
 }
@@ -3370,7 +3370,7 @@ TEST_F(raft_test_suit, test_restore_with_learner) {
   const std::vector<std::uint64_t> learner_nodes = {3};
   auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
   s.mutable_metadata()->mutable_conf_state()->add_learners(learner_nodes[0]);
-  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_TRUE(sm.restore(raftpb::Snapshot{s}));
 
   ASSERT_EQ(snapshot_index, sm.raft_log_handle_.last_index());
   auto term = sm.raft_log_handle_.term(snapshot_index);
@@ -3384,7 +3384,7 @@ TEST_F(raft_test_suit, test_restore_with_learner) {
   for (auto learner : learner_nodes) {
     ASSERT_TRUE(sm.trk_.progress_map_view().view().at(learner).is_learner());
   }
-  ASSERT_FALSE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_FALSE(sm.restore(raftpb::Snapshot{s}));
 }
 
 // TestRestoreWithVotersOutgoing tests if outgoing voter can receive and apply snapshot correctly.
@@ -3398,7 +3398,7 @@ TEST_F(raft_test_suit, test_restore_with_voters_outgoing) {
   for (auto voter : voter_outgoing_nodes) {
     s.mutable_metadata()->mutable_conf_state()->add_voters_outgoing(voter);
   }
-  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_TRUE(sm.restore(raftpb::Snapshot{s}));
 
   ASSERT_EQ(snapshot_index, sm.raft_log_handle_.last_index());
   auto term = sm.raft_log_handle_.term(snapshot_index);
@@ -3431,7 +3431,7 @@ TEST_F(raft_test_suit, test_restore_voter_to_learner) {
   auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
   s.mutable_metadata()->mutable_conf_state()->add_learners(learner_nodes[0]);
   ASSERT_FALSE(sm.is_learner_);
-  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_TRUE(sm.restore(raftpb::Snapshot{s}));
   ASSERT_TRUE(sm.is_learner_);
 }
 
@@ -3445,7 +3445,7 @@ TEST_F(raft_test_suit, test_restore_learner_promotion) {
   const std::vector<std::uint64_t> voter_nodes = {1, 2, 3};
   auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
   ASSERT_TRUE(sm.is_learner_);
-  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_TRUE(sm.restore(raftpb::Snapshot{s}));
   ASSERT_FALSE(sm.is_learner_);
 }
 
@@ -3465,7 +3465,7 @@ TEST_F(raft_test_suit, test_learner_receive_snapshot) {
   auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
   s.mutable_metadata()->mutable_conf_state()->add_learners(learner_nodes[0]);
 
-  ASSERT_TRUE(n1.restore(raftpb::snapshot{s}));
+  ASSERT_TRUE(n1.restore(raftpb::Snapshot{s}));
   ASSERT_EQ(snapshot_index, n1.raft_log_handle_.last_index());
   ASSERT_EQ(snapshot_index, n1.raft_log_handle_.committed());
   auto term = n1.raft_log_handle_.term(snapshot_index);
@@ -3474,7 +3474,7 @@ TEST_F(raft_test_suit, test_learner_receive_snapshot) {
 
   auto snap = n1.raft_log_handle_.next_unstable_snapshot();
   ASSERT_TRUE(snap);
-  ASSERT_TRUE(mm_storage.apply_snapshot(raftpb::snapshot{*snap}));
+  ASSERT_TRUE(mm_storage.apply_snapshot(raftpb::Snapshot{*snap}));
   n1.applied_snap(*snap);
 
   std::vector<state_machine_builer_pair> peers;
@@ -3486,7 +3486,7 @@ TEST_F(raft_test_suit, test_learner_receive_snapshot) {
   for (int i = 0; i < n1.election_timeout_; ++i) {
     n1.tick();
   }
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_BEAT)});
   ASSERT_EQ(n1.raft_log_handle_.committed(), n2.raft_log_handle_.committed());
 }
 
@@ -3501,12 +3501,12 @@ TEST_F(raft_test_suit, test_restore_ignore_snapshot) {
   auto s = create_snapshot(commit, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
 
   // ignore snapshot
-  ASSERT_FALSE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_FALSE(sm.restore(raftpb::Snapshot{s}));
   ASSERT_EQ(commit, sm.raft_log_handle_.committed());
 
   // ignore snapshot and fast forward commit
   s.mutable_metadata()->set_index(commit + 1);
-  ASSERT_FALSE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_FALSE(sm.restore(raftpb::Snapshot{s}));
   ASSERT_EQ(commit + 1, sm.raft_log_handle_.committed());
 }
 
@@ -3518,14 +3518,14 @@ TEST_F(raft_test_suit, test_provide_snap) {
   auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
 
   auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
-  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_TRUE(sm.restore(raftpb::Snapshot{s}));
 
   sm.become_candidate();
   sm.become_leader();
 
   // force set the next of node 2, so that node 2 needs a snapshot
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(sm.raft_log_handle_.first_index());
-  auto msg = convert_test_pb_message({.msg_type = raftpb::message_type::MSG_APP_RESP,
+  auto msg = convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_APP_RESP,
                                       .from = 2,
                                       .to = 1,
                                       .index = sm.trk_.progress_map_view().view().at(2).next() - 1});
@@ -3534,7 +3534,7 @@ TEST_F(raft_test_suit, test_provide_snap) {
 
   auto msgs = sm.read_messages();
   ASSERT_EQ(1, msgs.size());
-  ASSERT_EQ(raftpb::message_type::MSG_SNAP, msgs[0].type());
+  ASSERT_EQ(raftpb::MessageType::MSG_SNAP, msgs[0].type());
 }
 
 TEST_F(raft_test_suit, test_ignore_provide_snap) {
@@ -3545,7 +3545,7 @@ TEST_F(raft_test_suit, test_ignore_provide_snap) {
   auto s = create_snapshot(snapshot_index, snapshot_term, std::vector<std::uint64_t>{voter_nodes});
 
   auto sm = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
-  ASSERT_TRUE(sm.restore(raftpb::snapshot{s}));
+  ASSERT_TRUE(sm.restore(raftpb::Snapshot{s}));
 
   sm.become_candidate();
   sm.become_leader();
@@ -3555,7 +3555,7 @@ TEST_F(raft_test_suit, test_ignore_provide_snap) {
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_next(sm.raft_log_handle_.first_index() - 1);
   sm.trk_.progress_map_mutable_view().mutable_view().at(2).set_recent_active(false);
   auto msg = convert_test_pb_message(
-      {.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{.data = "somedata"}}});
+      {.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{.data = "somedata"}}});
   sm.step(std::move(msg));
 
   auto msgs = sm.read_messages();
@@ -3572,7 +3572,7 @@ TEST_F(raft_test_suit, test_slow_node_restore) {
   emplace_nil_peer(peers);
   emplace_nil_peer(peers);
   auto nt = new_network(std::move(peers));
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -3585,7 +3585,7 @@ TEST_F(raft_test_suit, test_slow_node_restore) {
   nt.isolate(3);
   for (auto j = 0; j < 100; ++j) {
     nt.send(
-        {convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+        {convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
   }
   {
     std::vector<test_expected_raft_status> tests{
@@ -3597,7 +3597,7 @@ TEST_F(raft_test_suit, test_slow_node_restore) {
   }
   auto &lead = *nt.peers.at(1).raft_handle;
   next_ents(lead, *nt.storage.at(1).get());
-  raftpb::conf_state cs;
+  raftpb::ConfState cs;
   auto voter_nodes = lead.trk_.voter_nodes();
   for (auto voter : voter_nodes) {
     cs.add_voters(voter);
@@ -3609,12 +3609,12 @@ TEST_F(raft_test_suit, test_slow_node_restore) {
   // send heartbeats so that the leader can learn everyone is active.
   // node 3 will only be considered as active when node 1 receives a reply from it.
   do {
-    nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_BEAT)});
+    nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_BEAT)});
   } while (!lead.trk_.progress_map_view().view().at(3).recent_active());
   ASSERT_TRUE(lead.trk_.progress_map_view().view().at(3).recent_active());
 
   // trigger a snapshot
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_SNAP, .from = 1, .to = 1, .entries = {{}}})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_SNAP, .from = 1, .to = 1, .entries = {{}}})});
   auto &follower = *nt.peers.at(3).raft_handle;
 
   // trigger a commit
@@ -3629,9 +3629,9 @@ TEST_F(raft_test_suit, test_step_config) {
   r.become_candidate();
   r.become_leader();
   auto index = r.raft_log_handle_.last_index();
-  auto msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  auto msg = new_pb_message(1, 1, raftpb::MessageType::MSG_PROP);
   auto entry = msg.add_entries();
-  entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
+  entry->set_type(raftpb::EntryType::ENTRY_CONF_CHANGE);
   r.step(std::move(msg));
   ASSERT_EQ(index + 1, r.raft_log_handle_.last_index());
   ASSERT_EQ(index + 1, r.pending_conf_index_);
@@ -3645,17 +3645,17 @@ TEST_F(raft_test_suit, test_step_ignore_config) {
   auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2})}})));
   r.become_candidate();
   r.become_leader();
-  auto msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  auto msg = new_pb_message(1, 1, raftpb::MessageType::MSG_PROP);
   auto entry = msg.add_entries();
-  entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
-  r.step(raftpb::message{msg});
+  entry->set_type(raftpb::EntryType::ENTRY_CONF_CHANGE);
+  r.step(raftpb::Message{msg});
   auto index = r.raft_log_handle_.last_index();
   auto pending_conf_index = r.pending_conf_index_;
-  r.step(raftpb::message{msg});
+  r.step(raftpb::Message{msg});
 
   lepton::core::pb::repeated_entry wents;
   auto new_entry = wents.Add();
-  new_entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+  new_entry->set_type(raftpb::EntryType::ENTRY_NORMAL);
   new_entry->set_term(1);
   new_entry->set_index(3);
 
@@ -3681,7 +3681,7 @@ TEST_F(raft_test_suit, test_new_leader_pending_config) {
     if (tt.add_entry) {
       lepton::core::pb::repeated_entry ents;
       auto new_entry = ents.Add();
-      new_entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+      new_entry->set_type(raftpb::EntryType::ENTRY_NORMAL);
       must_append_entry(r, std::move(ents));
       r.become_candidate();
       r.become_leader();
@@ -3694,7 +3694,7 @@ TEST_F(raft_test_suit, test_new_leader_pending_config) {
 TEST_F(raft_test_suit, test_add_node) {
   auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
   r.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE)));
   auto nodes = r.trk_.voter_nodes();
   std::vector<std::uint64_t> expect_voter_nodes{1, 2};
   ASSERT_EQ(expect_voter_nodes, nodes);
@@ -3705,25 +3705,25 @@ TEST_F(raft_test_suit, test_add_learner) {
   auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1})}})));
   // Add new learner peer.
   r.apply_conf_change(lepton::core::pb::conf_change_as_v2(
-      create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE)));
+      create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE)));
   ASSERT_FALSE(r.is_learner_);
   ASSERT_TRUE(r.trk_.progress_map_view().view().at(2).is_learner());
 
   // Promote peer to voter.
   r.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE)));
   ASSERT_FALSE(r.is_learner_);
   ASSERT_FALSE(r.trk_.progress_map_view().view().at(2).is_learner());
 
   // Demote r.
   r.apply_conf_change(lepton::core::pb::conf_change_as_v2(
-      create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE)));
+      create_conf_change_v1(1, raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE)));
   ASSERT_TRUE(r.is_learner_);
   ASSERT_TRUE(r.trk_.progress_map_view().view().at(1).is_learner());
 
   // Promote r again.
   r.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(1, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE)));
   ASSERT_FALSE(r.is_learner_);
   ASSERT_FALSE(r.trk_.progress_map_view().view().at(1).is_learner());
 }
@@ -3746,7 +3746,7 @@ TEST_F(raft_test_suit, test_add_node_check_quorum) {
   }
 
   r.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_ADD_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_ADD_NODE)));
 
   // This tick will reach electionTimeout, which triggers a quorum check.
   r.tick();
@@ -3769,14 +3769,14 @@ TEST_F(raft_test_suit, test_remove_node) {
   auto r = new_test_raft(1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1, 2})}})));
   // Add new learner peer.
   r.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE)));
   auto nodes = r.trk_.voter_nodes();
   std::vector<std::uint64_t> expect_voter_nodes{1};
   ASSERT_EQ(expect_voter_nodes, nodes);
 
   // Removing the remaining voter will panic.
   ASSERT_DEATH(r.apply_conf_change(lepton::core::pb::conf_change_as_v2(
-                   create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE))),
+                   create_conf_change_v1(1, raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE))),
                "");
 }
 
@@ -3787,14 +3787,14 @@ TEST_F(raft_test_suit, test_remove_learner) {
       1, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1}), with_learners({2})}})));
 
   r.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE)));
   auto nodes = r.trk_.voter_nodes();
   std::vector<std::uint64_t> expect_voter_nodes{1};
   ASSERT_EQ(expect_voter_nodes, nodes);
 
   // Removing the remaining voter will panic.
   ASSERT_DEATH(r.apply_conf_change(lepton::core::pb::conf_change_as_v2(
-                   create_conf_change_v1(1, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE))),
+                   create_conf_change_v1(1, raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE))),
                "");
 }
 
@@ -3845,12 +3845,12 @@ static void test_campaign_while_leader(bool pre_vote) {
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::FOLLOWER), magic_enum::enum_name(r.state_type_));
   // We don't call campaign() directly because it comes after the check
   // for our current state.
-  r.step({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  r.step({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   r.advance_messages_after_append();
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER), magic_enum::enum_name(r.state_type_));
 
   auto term = r.term_;
-  r.step({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  r.step({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   r.advance_messages_after_append();
   ASSERT_EQ(magic_enum::enum_name(lepton::core::state_type::LEADER), magic_enum::enum_name(r.state_type_));
   ASSERT_EQ(term, r.term_);
@@ -3874,12 +3874,12 @@ TEST_F(raft_test_suit, test_commit_after_remove_node) {
   r.become_leader();
 
   // Begin to remove the second node.
-  auto cc = create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE);
+  auto cc = create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE);
   {
-    raftpb::message prop_msg;
-    prop_msg.set_type(raftpb::message_type::MSG_PROP);
+    raftpb::Message prop_msg;
+    prop_msg.set_type(raftpb::MessageType::MSG_PROP);
     auto entry = prop_msg.add_entries();
-    entry->set_type(raftpb::entry_type::ENTRY_CONF_CHANGE);
+    entry->set_type(raftpb::EntryType::ENTRY_CONF_CHANGE);
     entry->set_data(cc.SerializeAsString());
     r.step(std::move(prop_msg));
     // Stabilize the log and make sure nothing is committed yet.
@@ -3890,10 +3890,10 @@ TEST_F(raft_test_suit, test_commit_after_remove_node) {
 
   // While the config change is pending, make another proposal.
   {
-    raftpb::message prop_msg;
-    prop_msg.set_type(raftpb::message_type::MSG_PROP);
+    raftpb::Message prop_msg;
+    prop_msg.set_type(raftpb::MessageType::MSG_PROP);
     auto entry = prop_msg.add_entries();
-    entry->set_type(raftpb::entry_type::ENTRY_NORMAL);
+    entry->set_type(raftpb::EntryType::ENTRY_NORMAL);
     entry->set_data("hello");
     r.step(std::move(prop_msg));
     ASSERT_TRUE(next_ents(r, mm_storage).empty());
@@ -3901,24 +3901,24 @@ TEST_F(raft_test_suit, test_commit_after_remove_node) {
 
   // Node 2 acknowledges the config change, committing it.
   {
-    raftpb::message msg;
+    raftpb::Message msg;
     msg.set_from(2);
-    msg.set_type(raftpb::message_type::MSG_APP_RESP);
+    msg.set_type(raftpb::MessageType::MSG_APP_RESP);
     msg.set_index(cc_index);
     r.step(std::move(msg));
     auto ents = next_ents(r, mm_storage);
     ASSERT_EQ(2, ents.size());
-    ASSERT_EQ(magic_enum::enum_name(raftpb::entry_type::ENTRY_NORMAL), magic_enum::enum_name(ents[0].type()));
+    ASSERT_EQ(magic_enum::enum_name(raftpb::EntryType::ENTRY_NORMAL), magic_enum::enum_name(ents[0].type()));
     ASSERT_TRUE(ents[0].data().empty());
-    ASSERT_EQ(magic_enum::enum_name(raftpb::entry_type::ENTRY_CONF_CHANGE), magic_enum::enum_name(ents[1].type()));
+    ASSERT_EQ(magic_enum::enum_name(raftpb::EntryType::ENTRY_CONF_CHANGE), magic_enum::enum_name(ents[1].type()));
   }
 
   // Apply the config change. This reduces quorum requirements so the
   // pending command can now commit.
-  r.apply_conf_change(lepton::core::pb::conf_change_as_v2(raftpb::conf_change{cc}));
+  r.apply_conf_change(lepton::core::pb::conf_change_as_v2(raftpb::ConfChange{cc}));
   auto ents = next_ents(r, mm_storage);
   ASSERT_EQ(1, ents.size());
-  ASSERT_EQ(magic_enum::enum_name(raftpb::entry_type::ENTRY_NORMAL), magic_enum::enum_name(ents[0].type()));
+  ASSERT_EQ(magic_enum::enum_name(raftpb::EntryType::ENTRY_NORMAL), magic_enum::enum_name(ents[0].type()));
   ASSERT_EQ("hello", ents[0].data());
 }
 
@@ -3935,7 +3935,7 @@ static void check_leader_transfer_state(lepton::core::raft &r, lepton::core::sta
 // if the transferee has the most up-to-date log entries when transfer starts.
 TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -3947,7 +3947,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node) {
   ASSERT_EQ(1, nt.peers.at(1).raft_handle->lead_);
 
   // Transfer leadership to 2.
-  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(2, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -3959,7 +3959,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node) {
   check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2);
 
   // After some log replication, transfer leadership back to 1.
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 3},
@@ -3968,7 +3968,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node) {
     };
     check_raft_node_after_send_msg(tests);
   }
-  nt.send({new_pb_message(1, 2, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(1, 2, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 3, 4},
@@ -3987,7 +3987,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node) {
 // to the follower.
 TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node_from_follower) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -3999,7 +3999,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node_from_follower) {
   ASSERT_EQ(1, nt.peers.at(1).raft_handle->lead_);
 
   // Transfer leadership to 2.
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -4011,7 +4011,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node_from_follower) {
   check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2);
 
   // After some log replication, transfer leadership back to 1.
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 3},
@@ -4020,7 +4020,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_up_to_date_node_from_follower) {
     };
     check_raft_node_after_send_msg(tests);
   }
-  nt.send({new_pb_message(1, 2, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(1, 2, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 3, 4},
@@ -4047,7 +4047,7 @@ TEST_F(raft_test_suit, test_leader_transfer_with_check_quorum) {
     r2.tick();
   }
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4058,7 +4058,7 @@ TEST_F(raft_test_suit, test_leader_transfer_with_check_quorum) {
   }
 
   // Transfer leadership to 2.
-  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(2, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -4070,7 +4070,7 @@ TEST_F(raft_test_suit, test_leader_transfer_with_check_quorum) {
   check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2);
 
   // After some log replication, transfer leadership back to 1.
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 3},
@@ -4079,7 +4079,7 @@ TEST_F(raft_test_suit, test_leader_transfer_with_check_quorum) {
     };
     check_raft_node_after_send_msg(tests);
   }
-  nt.send({new_pb_message(1, 2, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(1, 2, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 3, 4},
@@ -4093,7 +4093,7 @@ TEST_F(raft_test_suit, test_leader_transfer_with_check_quorum) {
 
 TEST_F(raft_test_suit, test_leader_transfer_to_slow_follower) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4104,7 +4104,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_slow_follower) {
   }
 
   nt.isolate(3);
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 2},
@@ -4118,7 +4118,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_slow_follower) {
   ASSERT_EQ(1, nt.peers.at(1).raft_handle->trk_.progress_map_view().view().at(3).match());
 
   // Transfer leadership to 3 when node 3 is lack of log.
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 3},
@@ -4132,7 +4132,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_slow_follower) {
 
 TEST_F(raft_test_suit, test_leader_transfer_after_snapshot) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4144,7 +4144,7 @@ TEST_F(raft_test_suit, test_leader_transfer_after_snapshot) {
 
   nt.isolate(3);
 
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 2},
@@ -4155,7 +4155,7 @@ TEST_F(raft_test_suit, test_leader_transfer_after_snapshot) {
   }
   auto &lead = *nt.peers.at(1).raft_handle;
   next_ents(lead, *nt.storage.at(1));
-  raftpb::conf_state cs;
+  raftpb::ConfState cs;
   auto voter_nodes = lead.trk_.voter_nodes();
   for (auto voter : voter_nodes) {
     cs.add_voters(voter);
@@ -4166,10 +4166,10 @@ TEST_F(raft_test_suit, test_leader_transfer_after_snapshot) {
   nt.recover();
   ASSERT_EQ(1, nt.peers.at(1).raft_handle->trk_.progress_map_view().view().at(3).match());
 
-  raftpb::message filtered;
+  raftpb::Message filtered;
   // Snapshot needs to be applied before sending MsgAppResp
-  nt.msg_hook = [&](const raftpb::message &m) {
-    if (m.type() != raftpb::message_type::MSG_APP_RESP) {
+  nt.msg_hook = [&](const raftpb::Message &m) {
+    if (m.type() != raftpb::MessageType::MSG_APP_RESP) {
       return true;
     }
     if (m.from() != 3) {
@@ -4182,7 +4182,7 @@ TEST_F(raft_test_suit, test_leader_transfer_after_snapshot) {
     return false;
   };
   // Transfer leadership to 3 when node 3 is lack of snapshot.
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 2},
@@ -4191,13 +4191,13 @@ TEST_F(raft_test_suit, test_leader_transfer_after_snapshot) {
     };
     check_raft_node_after_send_msg(tests);
   }
-  ASSERT_NE(raftpb::message{}.DebugString(), filtered.DebugString());
+  ASSERT_NE(raftpb::Message{}.DebugString(), filtered.DebugString());
 
   // Apply snapshot and resume progress
   auto &follower = *nt.peers.at(3).raft_handle;
   auto snap = follower.raft_log_handle_.next_unstable_snapshot();
   ASSERT_TRUE(snap);
-  nt.storage.at(3)->apply_snapshot(raftpb::snapshot{*snap});
+  nt.storage.at(3)->apply_snapshot(raftpb::Snapshot{*snap});
   follower.applied_snap(*snap);
   nt.msg_hook = nullptr;
   nt.send({std::move(filtered)});
@@ -4214,7 +4214,7 @@ TEST_F(raft_test_suit, test_leader_transfer_after_snapshot) {
 
 TEST_F(raft_test_suit, test_leader_transfer_to_self) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4225,7 +4225,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_self) {
   }
 
   // Transfer leadership to self, there will be noop.
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4239,7 +4239,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_self) {
 
 TEST_F(raft_test_suit, test_leader_transfer_to_non_existing_node) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4250,7 +4250,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_non_existing_node) {
   }
 
   // Transfer leadership to self, there will be noop.
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4264,7 +4264,7 @@ TEST_F(raft_test_suit, test_leader_transfer_to_non_existing_node) {
 
 TEST_F(raft_test_suit, test_leader_transfer_timeout) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4279,7 +4279,7 @@ TEST_F(raft_test_suit, test_leader_transfer_timeout) {
   auto &lead = *nt.peers.at(1).raft_handle;
 
   // Transfer leadership to isolated node, wait for timeout.
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4314,7 +4314,7 @@ TEST_F(raft_test_suit, test_leader_transfer_ignore_proposal) {
   emplace_nil_peer(peers);
   emplace_nil_peer(peers);
   auto nt = new_network(std::move(peers));
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4330,7 +4330,7 @@ TEST_F(raft_test_suit, test_leader_transfer_ignore_proposal) {
   next_ents(r, mm_storage);  // handle empty entry
 
   // Transfer leadership to isolated node to let transfer pending, then send proposal.
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4340,7 +4340,7 @@ TEST_F(raft_test_suit, test_leader_transfer_ignore_proposal) {
     check_raft_node_after_send_msg(tests);
   }
   ASSERT_EQ(3, lead.leader_transferee_);
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4354,8 +4354,8 @@ TEST_F(raft_test_suit, test_leader_transfer_ignore_proposal) {
   auto has_called_error = false;
   auto step_resilt = leaf::try_handle_some(
       [&]() -> leaf::result<void> {
-        LEPTON_LEAF_CHECK(lead.step(convert_test_pb_message(
-            {.msg_type = raftpb::message_type::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})));
+        LEPTON_LEAF_CHECK(lead.step(
+            convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_PROP, .from = 1, .to = 1, .entries = {{}}})));
         return {};
       },
       [&](const lepton_error &e) -> leaf::result<void> {
@@ -4379,7 +4379,7 @@ TEST_F(raft_test_suit, test_leader_transfer_ignore_proposal) {
 
 TEST_F(raft_test_suit, test_leader_transfer_receive_higher_term_vote) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4394,7 +4394,7 @@ TEST_F(raft_test_suit, test_leader_transfer_receive_higher_term_vote) {
   auto &lead = *nt.peers.at(1).raft_handle;
 
   // Transfer leadership to isolated node to let transfer pending.
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4405,14 +4405,14 @@ TEST_F(raft_test_suit, test_leader_transfer_receive_higher_term_vote) {
   }
   ASSERT_EQ(3, lead.leader_transferee_);
 
-  nt.send({convert_test_pb_message(
-      {.msg_type = raftpb::message_type::MSG_HUP, .from = 2, .to = 2, .term = 2, .index = 1})});
+  nt.send(
+      {convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_HUP, .from = 2, .to = 2, .term = 2, .index = 1})});
   check_leader_transfer_state(*nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2);
 }
 
 TEST_F(raft_test_suit, test_leader_transfer_remove_node) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4422,12 +4422,12 @@ TEST_F(raft_test_suit, test_leader_transfer_remove_node) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.ignore(raftpb::message_type::MSG_TIMEOUT_NOW);
+  nt.ignore(raftpb::MessageType::MSG_TIMEOUT_NOW);
 
   auto &lead = *nt.peers.at(1).raft_handle;
 
   // The leadTransferee is removed when leadship transferring.
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4439,13 +4439,13 @@ TEST_F(raft_test_suit, test_leader_transfer_remove_node) {
   ASSERT_EQ(3, lead.leader_transferee_);
 
   lead.apply_conf_change(
-      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(3, raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE)));
+      lepton::core::pb::conf_change_as_v2(create_conf_change_v1(3, raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE)));
   check_leader_transfer_state(lead, lepton::core::state_type::LEADER, 1);
 }
 
 TEST_F(raft_test_suit, test_leader_transfer_demote_node) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4455,12 +4455,12 @@ TEST_F(raft_test_suit, test_leader_transfer_demote_node) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.ignore(raftpb::message_type::MSG_TIMEOUT_NOW);
+  nt.ignore(raftpb::MessageType::MSG_TIMEOUT_NOW);
 
   auto &lead = *nt.peers.at(1).raft_handle;
 
   // The leadTransferee is removed when leadship transferring.
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4471,24 +4471,24 @@ TEST_F(raft_test_suit, test_leader_transfer_demote_node) {
   }
   ASSERT_EQ(3, lead.leader_transferee_);
 
-  raftpb::conf_change_v2 cc;
+  raftpb::ConfChangeV2 cc;
   auto change1 = cc.add_changes();
   change1->set_node_id(3);
-  change1->set_type(raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE);
+  change1->set_type(raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE);
   auto change2 = cc.add_changes();
   change2->set_node_id(3);
-  change2->set_type(raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE);
+  change2->set_type(raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE);
   lead.apply_conf_change(std::move(cc));
 
   // Make the Raft group commit the LeaveJoint entry.
-  lead.apply_conf_change(raftpb::conf_change_v2{});
+  lead.apply_conf_change(raftpb::ConfChangeV2{});
   check_leader_transfer_state(lead, lepton::core::state_type::LEADER, 1);
 }
 
 // TestLeaderTransferBack verifies leadership can transfer back to self when last transfer is pending.
 TEST_F(raft_test_suit, test_leader_transfer_back) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4502,7 +4502,7 @@ TEST_F(raft_test_suit, test_leader_transfer_back) {
 
   auto &lead = *nt.peers.at(1).raft_handle;
 
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4514,7 +4514,7 @@ TEST_F(raft_test_suit, test_leader_transfer_back) {
   ASSERT_EQ(3, lead.leader_transferee_);
 
   // Transfer leadership back to self.
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4530,7 +4530,7 @@ TEST_F(raft_test_suit, test_leader_transfer_back) {
 // when last transfer is pending.
 TEST_F(raft_test_suit, test_leader_transfer_second_transfer_to_another_node) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4544,7 +4544,7 @@ TEST_F(raft_test_suit, test_leader_transfer_second_transfer_to_another_node) {
 
   auto &lead = *nt.peers.at(1).raft_handle;
 
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4556,7 +4556,7 @@ TEST_F(raft_test_suit, test_leader_transfer_second_transfer_to_another_node) {
   ASSERT_EQ(3, lead.leader_transferee_);
 
   // Transfer leadership to another node.
-  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(2, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 2},
@@ -4572,7 +4572,7 @@ TEST_F(raft_test_suit, test_leader_transfer_second_transfer_to_another_node) {
 // to the same node should not extend the timeout while the first one is pending.
 TEST_F(raft_test_suit, test_leader_transfer_second_transfer_to_same_node) {
   auto nt = init_empty_network({1, 2, 3});
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4586,7 +4586,7 @@ TEST_F(raft_test_suit, test_leader_transfer_second_transfer_to_same_node) {
 
   auto &lead = *nt.peers.at(1).raft_handle;
 
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4604,7 +4604,7 @@ TEST_F(raft_test_suit, test_leader_transfer_second_transfer_to_same_node) {
   ASSERT_EQ(3, lead.leader_transferee_);
 
   // Second transfer leadership request to the same node.
-  nt.send({new_pb_message(3, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(3, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4629,7 +4629,7 @@ TEST_F(raft_test_suit, test_leader_transfer_second_transfer_to_same_node) {
 // transitioned to StateLeader)
 TEST_F(raft_test_suit, test_transfer_non_member) {
   auto r = new_test_raft(1, 5, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({2, 3, 4})}})));
-  r.step({new_pb_message(2, 1, raftpb::message_type::MSG_TIMEOUT_NOW)});
+  r.step({new_pb_message(2, 1, raftpb::MessageType::MSG_TIMEOUT_NOW)});
   {
     std::vector<test_expected_raft_status> tests{
         {&r, lepton::core::state_type::FOLLOWER, 0, 0},
@@ -4637,7 +4637,7 @@ TEST_F(raft_test_suit, test_transfer_non_member) {
     check_raft_node_after_send_msg(tests);
   }
 
-  r.step({new_pb_message(2, 1, raftpb::message_type::MSG_VOTE_RESP)});
+  r.step({new_pb_message(2, 1, raftpb::MessageType::MSG_VOTE_RESP)});
   {
     std::vector<test_expected_raft_status> tests{
         {&r, lepton::core::state_type::FOLLOWER, 0, 0},
@@ -4645,7 +4645,7 @@ TEST_F(raft_test_suit, test_transfer_non_member) {
     check_raft_node_after_send_msg(tests);
   }
 
-  r.step({new_pb_message(3, 1, raftpb::message_type::MSG_VOTE_RESP)});
+  r.step({new_pb_message(3, 1, raftpb::MessageType::MSG_VOTE_RESP)});
   {
     std::vector<test_expected_raft_status> tests{
         {&r, lepton::core::state_type::FOLLOWER, 0, 0},
@@ -4669,7 +4669,7 @@ TEST_F(raft_test_suit, test_node_with_smaller_term_can_complete_election) {
   nt.cut(1, 3);
   nt.cut(2, 3);
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -4679,7 +4679,7 @@ TEST_F(raft_test_suit, test_node_with_smaller_term_can_complete_election) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -4689,7 +4689,7 @@ TEST_F(raft_test_suit, test_node_with_smaller_term_can_complete_election) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
   // check whether the term values are expected
   // check state
   {
@@ -4709,7 +4709,7 @@ TEST_F(raft_test_suit, test_node_with_smaller_term_can_complete_election) {
   nt.cut(2, 3);
 
   // call for election
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 3, 2},
@@ -4720,7 +4720,7 @@ TEST_F(raft_test_suit, test_node_with_smaller_term_can_complete_election) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 4, 3},
@@ -4739,7 +4739,7 @@ TEST_F(raft_test_suit, test_pre_vote_with_split_vote) {
   nt.peers.at(2).raft_handle->become_follower(1, NONE);
   nt.peers.at(3).raft_handle->become_follower(1, NONE);
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -4751,7 +4751,7 @@ TEST_F(raft_test_suit, test_pre_vote_with_split_vote) {
 
   // simulate leader down. followers start split vote.
   nt.isolate(1);
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP), new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP), new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   // check whether the term values are expected
   {
     std::vector<test_expected_raft_status> tests{
@@ -4763,7 +4763,7 @@ TEST_F(raft_test_suit, test_pre_vote_with_split_vote) {
   }
 
   // node 2 election timeout first
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
 
   // check whether the term values are expected
   {
@@ -4785,7 +4785,7 @@ TEST_F(raft_test_suit, test_pre_vote_with_check_quorum) {
   nt.peers.at(2).raft_handle->become_follower(1, NONE);
   nt.peers.at(3).raft_handle->become_follower(1, NONE);
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -4801,7 +4801,7 @@ TEST_F(raft_test_suit, test_pre_vote_with_check_quorum) {
   // node 2 will ignore node 3's PreVote
   // node 2 仍然有 leader，所以会忽略 node 3 pre_vote msg
   // 此时 node 3 的 leader 会设置为 NONE
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -4812,7 +4812,7 @@ TEST_F(raft_test_suit, test_pre_vote_with_check_quorum) {
   }
 
   //  由于 node 3 的 leader 已经为 NONE，所以此时收到 node 2 的 pre_vote msg 会赞成
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -4831,9 +4831,9 @@ TEST_F(raft_test_suit, test_learner_campaign) {
   auto n2 = new_test_learner_raft(
       2, 10, 1, pro::make_proxy<storage_builer>(new_test_memory_storage({{with_peers({1}), with_learners({2})}})));
   n1.apply_conf_change(lepton::core::pb::conf_change_as_v2(
-      create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE)));
+      create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE)));
   n2.apply_conf_change(lepton::core::pb::conf_change_as_v2(
-      create_conf_change_v1(2, raftpb::conf_change_type::CONF_CHANGE_ADD_LEARNER_NODE)));
+      create_conf_change_v1(2, raftpb::ConfChangeType::CONF_CHANGE_ADD_LEARNER_NODE)));
 
   std::vector<state_machine_builer_pair> peers;
   peers.emplace_back(state_machine_builer_pair{n1});
@@ -4842,7 +4842,7 @@ TEST_F(raft_test_suit, test_learner_campaign) {
   auto nt = new_network(std::move(peers));
   ASSERT_TRUE(nt.peers.at(2).raft_handle->is_learner_);
 
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
   ASSERT_TRUE(nt.peers.at(2).raft_handle->is_learner_);
   {
     std::vector<test_expected_raft_status> tests{
@@ -4852,7 +4852,7 @@ TEST_F(raft_test_suit, test_learner_campaign) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   ASSERT_EQ(1, nt.peers.at(1).raft_handle->lead_);
   ASSERT_TRUE(nt.peers.at(2).raft_handle->is_learner_);
   {
@@ -4867,7 +4867,7 @@ TEST_F(raft_test_suit, test_learner_campaign) {
   // the check could have happened by the time the recipient becomes a learner,
   // in which case it will receive MsgTimeoutNow as in this test case and we
   // verify that it's ignored.
-  nt.send({new_pb_message(1, 2, raftpb::message_type::MSG_TIMEOUT_NOW)});
+  nt.send({new_pb_message(1, 2, raftpb::MessageType::MSG_TIMEOUT_NOW)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -4900,7 +4900,7 @@ static network new_pre_vote_migration_cluster() {
   nt.peers.at(2).raft_handle->become_follower(1, NONE);
   nt.peers.at(3).raft_handle->become_follower(1, NONE);
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 1},
@@ -4912,7 +4912,7 @@ static network new_pre_vote_migration_cluster() {
 
   // Cause a network partition to isolate n3.
   nt.isolate(3);
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_PROP, "some data")});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_PROP, "some data")});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -4923,7 +4923,7 @@ static network new_pre_vote_migration_cluster() {
   }
   assert(2 == nt.peers.at(1).raft_handle->raft_log_handle_.committed());
 
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -4932,7 +4932,7 @@ static network new_pre_vote_migration_cluster() {
     };
     check_raft_node_after_send_msg(tests);
   }
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -4959,7 +4959,7 @@ TEST_F(raft_test_suit, test_pre_vote_migration_can_complete_election) {
   nt.isolate(1);
 
   // Call for elections from both n2 and n3.
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -4969,7 +4969,7 @@ TEST_F(raft_test_suit, test_pre_vote_migration_can_complete_election) {
     check_raft_node_after_send_msg(tests);
   }
   // node 2 收到来自 node 3 的 MSG_PRE_VOTE_RESP, term 比自己高会重置当前状态为follower ，并设置自己的 term 为 MSG的term
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -4979,7 +4979,7 @@ TEST_F(raft_test_suit, test_pre_vote_migration_can_complete_election) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -4989,7 +4989,7 @@ TEST_F(raft_test_suit, test_pre_vote_migration_can_complete_election) {
     check_raft_node_after_send_msg(tests);
   }
 
-  nt.send({new_pb_message(2, 2, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(2, 2, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -5007,7 +5007,7 @@ TEST_F(raft_test_suit, test_pre_vote_migration_with_free_stuck_pre_candidate) {
   // n2 is follower with term 2
   // n3 is pre-candidate with term 4, and less log
 
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -5018,7 +5018,7 @@ TEST_F(raft_test_suit, test_pre_vote_migration_with_free_stuck_pre_candidate) {
   }
 
   // Pre-Vote again for safety
-  nt.send({new_pb_message(3, 3, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(3, 3, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 2, 2},
@@ -5031,7 +5031,7 @@ TEST_F(raft_test_suit, test_pre_vote_migration_with_free_stuck_pre_candidate) {
   // Disrupt the leader so that the stuck peer is freed
   // node 1 收到来自 node 3 的 MSG_HEARTBEAT_RESP, term 比自己高会重置当前状态为follower ，并设置自己的 term 为
   // MSG的term
-  nt.send({convert_test_pb_message({.msg_type = raftpb::message_type::MSG_HEARTBEAT,
+  nt.send({convert_test_pb_message({.msg_type = raftpb::MessageType::MSG_HEARTBEAT,
                                     .from = 1,
                                     .to = 3,
                                     .term = nt.peers.at(1).raft_handle->term_})});
@@ -5050,7 +5050,7 @@ static void test_conf_change_check_before_campaign(bool v2) {
   auto &n1 = *nt.peers.at(1).raft_handle;
   auto &n2 = *nt.peers.at(2).raft_handle;
 
-  nt.send({new_pb_message(1, 1, raftpb::message_type::MSG_HUP)});
+  nt.send({new_pb_message(1, 1, raftpb::MessageType::MSG_HUP)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 1},
@@ -5061,22 +5061,22 @@ static void test_conf_change_check_before_campaign(bool v2) {
   }
 
   // Begin to remove the third node.
-  raftpb::conf_change cc;
-  cc.set_type(raftpb::conf_change_type::CONF_CHANGE_REMOVE_NODE);
+  raftpb::ConfChange cc;
+  cc.set_type(raftpb::ConfChangeType::CONF_CHANGE_REMOVE_NODE);
   cc.set_node_id(2);
   std::string cc_data;
-  raftpb::entry_type ty;
+  raftpb::EntryType ty;
   if (v2) {
     auto ccv2 = lepton::core::pb::conf_change_as_v2(std::move(cc));
     cc_data = ccv2.SerializeAsString();
-    ty = raftpb::entry_type::ENTRY_CONF_CHANGE_V2;
+    ty = raftpb::EntryType::ENTRY_CONF_CHANGE_V2;
   } else {
     cc_data = cc.SerializeAsString();
-    ty = raftpb::entry_type::ENTRY_CONF_CHANGE;
+    ty = raftpb::EntryType::ENTRY_CONF_CHANGE;
   }
 
   // 进行配置变更。注意：这里仅完成提交，但没有 apply conf change
-  raftpb::message prop_msg = new_pb_message(1, 1, raftpb::message_type::MSG_PROP);
+  raftpb::Message prop_msg = new_pb_message(1, 1, raftpb::MessageType::MSG_PROP);
   auto entry = prop_msg.add_entries();
   entry->set_type(ty);
   entry->set_data(cc_data);
@@ -5107,7 +5107,7 @@ static void test_conf_change_check_before_campaign(bool v2) {
 
   // 由于有未应用的配置变更，所以此时即使触发超时选举逻辑，node 2 也会选举失败
   // Transfer leadership to peer 2.
-  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(2, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::LEADER, 1, 2},
@@ -5128,7 +5128,7 @@ static void test_conf_change_check_before_campaign(bool v2) {
   next_ents(n2, *nt.storage.at(2));
 
   // Transfer leadership to peer 2 again.
-  nt.send({new_pb_message(2, 1, raftpb::message_type::MSG_TRANSFER_LEADER)});
+  nt.send({new_pb_message(2, 1, raftpb::MessageType::MSG_TRANSFER_LEADER)});
   {
     std::vector<test_expected_raft_status> tests{
         {nt.peers.at(1).raft_handle, lepton::core::state_type::FOLLOWER, 2, 3},
@@ -5304,7 +5304,7 @@ TEST_F(raft_test_suit, test_fast_log_rejection) {
     auto &s1 = *s1_ptr;
     pro::proxy<storage_builer> s1_proxy = s1_ptr.get();
     auto leader_last = tt.leader_log[tt.leader_log.size() - 1];
-    raftpb::hard_state leader_hs;
+    raftpb::HardState leader_hs;
     auto leader_last_term = leader_last.term();
     leader_hs.set_term(leader_last_term);
     leader_hs.set_commit(leader_last.index());
@@ -5316,7 +5316,7 @@ TEST_F(raft_test_suit, test_fast_log_rejection) {
     auto s2_ptr = new_test_memory_storage_ptr({with_peers({1, 2, 3})});
     auto &s2 = *s2_ptr;
     pro::proxy<storage_builer> s2_proxy = s2_ptr.get();
-    raftpb::hard_state follower_hs;
+    raftpb::HardState follower_hs;
     follower_hs.set_term(leader_last_term);
     follower_hs.set_vote(1);
     follower_hs.set_commit(0);  // 这里表示 s2 没有 commit 任何日志
@@ -5338,12 +5338,12 @@ TEST_F(raft_test_suit, test_fast_log_rejection) {
     ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_HEARTBEAT_RESP), magic_enum::enum_name(msgs[0].type()));
 
     // 由于 commit 为 0， leader 会给 follower 发送 MSG_APP
-    ASSERT_TRUE(n1.step(raftpb::message{msgs[0]}));
+    ASSERT_TRUE(n1.step(raftpb::Message{msgs[0]}));
     msgs = n1.read_messages();
     ASSERT_EQ(1, msgs.size());
     ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_APP), magic_enum::enum_name(msgs[0].type()));
 
-    ASSERT_TRUE(n2.step(raftpb::message{msgs[0]}));
+    ASSERT_TRUE(n2.step(raftpb::Message{msgs[0]}));
     msgs = n2.read_messages();
     ASSERT_EQ(1, msgs.size());
     ASSERT_EQ(magic_enum::enum_name(raftpb::MSG_APP_RESP), magic_enum::enum_name(msgs[0].type()));
@@ -5352,7 +5352,7 @@ TEST_F(raft_test_suit, test_fast_log_rejection) {
     ASSERT_EQ(tt.reject_hint_term, msgs[0].log_term());
     ASSERT_EQ(tt.reject_hint_index, msgs[0].reject_hint());
 
-    ASSERT_TRUE(n1.step(raftpb::message{msgs[0]}));
+    ASSERT_TRUE(n1.step(raftpb::Message{msgs[0]}));
     msgs = n1.read_messages();
     ASSERT_EQ(1, msgs.size());
     ASSERT_EQ(tt.next_append_term, msgs[0].log_term());

@@ -32,7 +32,7 @@ TEST_F(raft_network_test_suit, test_network_drop) {
   auto nt = rafttest::raft_network{io_context.get_executor(), {1, 2}};
   nt.drop(1, 2, droprate);
   for (auto i = 0; i < sent; ++i) {
-    nt.send(new_pb_message(1, 2, raftpb::message_type::MSG_APP));
+    nt.send(new_pb_message(1, 2, raftpb::MessageType::MSG_APP));
   }
 
   asio::co_spawn(
@@ -43,7 +43,7 @@ TEST_F(raft_network_test_suit, test_network_drop) {
         auto done = false;
         auto received = 0;
         while (!done) {
-          if (!c->raw_channel().try_receive([&](asio::error_code _, raftpb::message msg) { received++; })) {
+          if (!c->raw_channel().try_receive([&](asio::error_code _, raftpb::Message msg) { received++; })) {
             done = true;
           }
         }
@@ -68,7 +68,7 @@ TEST_F(raft_network_test_suit, test_network_delay) {
   std::chrono::nanoseconds total{0};
   for (auto i = 0; i < sent; ++i) {
     auto start = std::chrono::high_resolution_clock::now();
-    nt.send(new_pb_message(1, 2, raftpb::message_type::MSG_APP));
+    nt.send(new_pb_message(1, 2, raftpb::MessageType::MSG_APP));
     auto end = std::chrono::high_resolution_clock::now();
     total += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
   }

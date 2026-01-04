@@ -70,11 +70,11 @@ class file_buf_reader {
     }
 
     // copy as much as we can
-    std::size_t copy_size = static_cast<std::size_t>(buf_write_pos_ - buf_read_pos_);
-    assert(copy_size <= buf_.size());
-    std::memcpy(buffer.data(), buf_.data() + buf_read_pos_, static_cast<std::size_t>(buf_write_pos_ - buf_read_pos_));
-    buf_read_pos_ = buf_read_pos_ + copy_size;
-    co_return copy_size;
+    std::size_t available = static_cast<std::size_t>(buf_write_pos_ - buf_read_pos_);
+    asio::const_buffer src(buf_.data() + buf_read_pos_, available);
+    std::size_t copied = asio::buffer_copy(buffer, src);
+    buf_read_pos_ += copied;
+    co_return copied;
   }
 
  private:

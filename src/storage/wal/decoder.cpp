@@ -98,7 +98,7 @@ static std::pair<uint64_t, uint64_t> decode_frame_size(uint64_t len_field) {
   return {rec_bytes, pad_bytes};
 }
 
-asio::awaitable<expected<void>> decoder::decode_record(walpb::record& r) {
+asio::awaitable<expected<void>> decoder::decode_record(walpb::Record& r) {
   r.Clear();
   if (!strand_.running_in_this_thread()) {
     co_await asio::dispatch(strand_, asio::use_awaitable);
@@ -130,7 +130,7 @@ asio::awaitable<expected<void>> decoder::decode_record(walpb::record& r) {
 }
 
 asio::awaitable<expected<void>> decoder::decode_at_offset(pro::proxy_view<ioutil::reader> buf_reader,
-                                                          std::uint64_t offset, walpb::record& rec) {
+                                                          std::uint64_t offset, walpb::Record& rec) {
   auto [rec_bytes, pad_bytes] = decode_frame_size(offset);
   // The length of current WAL entry must be less than the remaining file size.
   auto file_size_result = leaf_to_expected([&]() -> leaf::result<std::size_t> {
@@ -168,7 +168,7 @@ asio::awaitable<expected<void>> decoder::decode_at_offset(pro::proxy_view<ioutil
     co_return tl::unexpected(protobuf_error::PROOBUF_PARSE_FAILED);
   }
   // skip crc checking if the record type is CrcType
-  if (rec.type() != walpb::record_type::CRC_TYPE) {
+  if (rec.type() != walpb::RecordType::CRC_TYPE) {
     crc_ = absl::ExtendCrc32c(crc_, rec.data());
 
     if (auto validate_crc_result = pb::validate_rec_crc(rec, crc_); !validate_crc_result) {

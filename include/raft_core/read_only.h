@@ -38,10 +38,10 @@ struct read_state {
 
 struct read_index_status {
   NOT_COPYABLE(read_index_status)
-  read_index_status(raftpb::message&& m, std::uint64_t index) : req(std::move(m)), index(index) {}
+  read_index_status(raftpb::Message&& m, std::uint64_t index) : req(std::move(m)), index(index) {}
   read_index_status(read_index_status&&) = default;
 
-  raftpb::message req;
+  raftpb::Message req;
   std::uint64_t index;
 
   // NB: this never records 'false', but it's more convenient to use this
@@ -68,7 +68,7 @@ class read_only {
   // `index` is the commit index of the raft state machine when it received
   // the read only request.
   // `m` is the original read only request message from the local or remote node.
-  void add_request(std::uint64_t index, raftpb::message&& m) {
+  void add_request(std::uint64_t index, raftpb::Message&& m) {
     assert(!m.entries().empty());
     const std::string& s = m.entries().rbegin()->data();
     if (pending_read_index_.contains(s)) {
@@ -105,7 +105,7 @@ class read_only {
   // It dequeues the requests until it finds the read only request that has
   // the same context as the given `m`.
   // 主要用于在只读请求队列中找到特定上下文对应的请求
-  std::vector<read_index_status> advance(raftpb::message&& m) {
+  std::vector<read_index_status> advance(raftpb::Message&& m) {
     int i = 0;
     auto found = false;
 

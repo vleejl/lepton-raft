@@ -20,7 +20,7 @@ struct entry {
   std::string data;
 };
 struct message {
-  raftpb::message_type msg_type;
+  raftpb::MessageType msg_type;
   std::uint64_t from = 0;
   std::uint64_t to = 0;
   std::uint64_t term = 0;
@@ -34,39 +34,39 @@ struct message {
 
 struct conf_change_v2_change {
   std::uint64_t node_id;
-  raftpb::conf_change_type type;
+  raftpb::ConfChangeType type;
 };
 
-raftpb::conf_change create_conf_change_v1(std::uint64_t node_id, raftpb::conf_change_type type);
-raftpb::conf_change_v2 create_conf_change_v2(std::uint64_t node_id, raftpb::conf_change_type type);
-raftpb::conf_change_v2 create_conf_change_v2(std::uint64_t node_id, raftpb::conf_change_type type,
-                                             raftpb::conf_change_transition transition);
-raftpb::conf_change_v2 create_conf_change_v2(std::vector<conf_change_v2_change> &&changes);
-raftpb::conf_change_v2 create_conf_change_v2(std::vector<conf_change_v2_change> &&changes,
-                                             raftpb::conf_change_transition transition);
-raftpb::conf_state create_conf_state(std::vector<std::uint64_t> &&voters, std::vector<std::uint64_t> &&voters_outgoing,
-                                     std::vector<std::uint64_t> &&learners, std::vector<std::uint64_t> &&learners_next,
-                                     bool auto_leave = false);
-lepton::leaf::result<raftpb::conf_change> test_conf_change_var_as_v1(const lepton::core::pb::conf_change_var &cc);
-raftpb::conf_change_v2 test_conf_change_var_as_v2(const lepton::core::pb::conf_change_var &cc);
-raftpb::message convert_test_pb_message(test_pb::message &&);
+raftpb::ConfChange create_conf_change_v1(std::uint64_t node_id, raftpb::ConfChangeType type);
+raftpb::ConfChangeV2 create_conf_change_v2(std::uint64_t node_id, raftpb::ConfChangeType type);
+raftpb::ConfChangeV2 create_conf_change_v2(std::uint64_t node_id, raftpb::ConfChangeType type,
+                                           raftpb::ConfChangeTransition transition);
+raftpb::ConfChangeV2 create_conf_change_v2(std::vector<conf_change_v2_change> &&changes);
+raftpb::ConfChangeV2 create_conf_change_v2(std::vector<conf_change_v2_change> &&changes,
+                                           raftpb::ConfChangeTransition transition);
+raftpb::ConfState create_conf_state(std::vector<std::uint64_t> &&voters, std::vector<std::uint64_t> &&voters_outgoing,
+                                    std::vector<std::uint64_t> &&learners, std::vector<std::uint64_t> &&learners_next,
+                                    bool auto_leave = false);
+lepton::leaf::result<raftpb::ConfChange> test_conf_change_var_as_v1(const lepton::core::pb::conf_change_var &cc);
+raftpb::ConfChangeV2 test_conf_change_var_as_v2(const lepton::core::pb::conf_change_var &cc);
+raftpb::Message convert_test_pb_message(test_pb::message &&);
 lepton::core::pb::entry_ptr create_entry(std::uint64_t index, std::uint64_t term);
-raftpb::entry create_entry(std::uint64_t index, std::uint64_t term, std::string &&data);
+raftpb::Entry create_entry(std::uint64_t index, std::uint64_t term, std::string &&data);
 lepton::core::pb::repeated_entry create_entries(std::uint64_t index, std::vector<std::uint64_t> terms);
 lepton::core::pb::repeated_entry create_entries(const std::vector<std::tuple<uint64_t, uint64_t>> &entrie_params);
 lepton::core::pb::repeated_entry create_entries_with_term_range(std::uint64_t index, std::uint64_t term_from,
                                                                 std::uint64_t term_to);
-lepton::core::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::entry> &&entries);
+lepton::core::pb::repeated_entry create_entries_with_entry_vec(std::vector<raftpb::Entry> &&entries);
 
 bool compare_status(const lepton::core::status &lhs, const lepton::core::status &rhs);
 bool compare_read_states(const std::vector<lepton::core::read_state> &lhs,
                          const std::vector<lepton::core::read_state> &rhs);
-bool operator==(const std::optional<raftpb::conf_state> &lhs, const std::optional<raftpb::conf_state> &rhs);
-bool compare_optional_conf_state(const std::optional<raftpb::conf_state> &lhs,
-                                 const std::optional<raftpb::conf_state> &rhs);
-bool operator==(const raftpb::entry &lhs, const raftpb::entry &rhs);
-bool operator==(const raftpb::entry &lhs, const raftpb::entry *const rhs);
-bool operator==(const raftpb::entry *const lhs, const raftpb::entry &rhs);
+bool operator==(const std::optional<raftpb::ConfState> &lhs, const std::optional<raftpb::ConfState> &rhs);
+bool compare_optional_conf_state(const std::optional<raftpb::ConfState> &lhs,
+                                 const std::optional<raftpb::ConfState> &rhs);
+bool operator==(const raftpb::Entry &lhs, const raftpb::Entry &rhs);
+bool operator==(const raftpb::Entry &lhs, const raftpb::Entry *const rhs);
+bool operator==(const raftpb::Entry *const lhs, const raftpb::Entry &rhs);
 bool operator==(const lepton::core::pb::repeated_entry &lhs, const lepton::core::pb::span_entry &rhs);
 bool operator==(const lepton::core::pb::span_entry &lhs, const lepton::core::pb::repeated_entry &rhs);
 bool compare_repeated_entry(const lepton::core::pb::span_entry &lhs, const lepton::core::pb::span_entry &rhs);
@@ -78,12 +78,12 @@ bool compare_repeated_message(const lepton::core::pb::repeated_message &lhs,
 bool operator==(const lepton::core::pb::repeated_message &lhs, const lepton::core::pb::repeated_message &rhs);
 bool compare_ready(const lepton::core::ready &lhs, const lepton::core::ready &rhs);
 
-raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term);
-raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, std::vector<std::uint64_t> &&voters);
-raftpb::snapshot create_snapshot(std::uint64_t index, std::uint64_t term, const std::string &data,
-                                 std::optional<raftpb::conf_state> state);
+raftpb::Snapshot create_snapshot(std::uint64_t index, std::uint64_t term);
+raftpb::Snapshot create_snapshot(std::uint64_t index, std::uint64_t term, std::vector<std::uint64_t> &&voters);
+raftpb::Snapshot create_snapshot(std::uint64_t index, std::uint64_t term, const std::string &data,
+                                 std::optional<raftpb::ConfState> state);
 
-inline constexpr std::array<raftpb::message_type, 24> all_raftpb_message_types = {
+inline constexpr std::array<raftpb::MessageType, 24> all_raftpb_message_types = {
     raftpb::MSG_HUP,
     raftpb::MSG_BEAT,
     raftpb::MSG_PROP,
@@ -110,7 +110,7 @@ inline constexpr std::array<raftpb::message_type, 24> all_raftpb_message_types =
     raftpb::MSG_FORGET_LEADER,
 };
 
-inline std::map<std::string, raftpb::message_type> message_str2enum_map = {
+inline std::map<std::string, raftpb::MessageType> message_str2enum_map = {
     {"MsgHup", raftpb::MSG_HUP},
     {"MsgBeat", raftpb::MSG_BEAT},
     {"MsgProp", raftpb::MSG_PROP},

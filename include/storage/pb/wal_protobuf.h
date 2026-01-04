@@ -5,11 +5,33 @@
 #include <raft.pb.h>
 #include <wal.pb.h>
 
+#include <concepts>
+#include <cstdint>
+
 #include "error/expected.h"
 #include "error/leaf.h"
+#include "error/wal_error.h"
 #include "types.h"
+
 namespace lepton::storage::pb {
-expected<void> validate_rec_crc(const walpb::record& rec, absl::crc32c_t expected_crc);
+
+template <typename T>
+concept crc_type = std::convertible_to<T, std::uint32_t> || requires(T t) { static_cast<std::uint32_t>(t); };
+
+/**
+ * @brief 校验 Record 的 CRC (C++20 Concept 版本)
+ */
+template <crc_type T>
+expected<void> validate_rec_crc(const walpb::Record& rec, T expected_crc) {
+  // 统一转换
+  const uint32_t target_crc = static_cast<uint32_t>(expected_crc);
+
+  if (!rec.has_crc() || rec.crc() != target_crc) {
+    return tl::unexpected(wal_error::ERR_CRC_MISMATCH);
+  }
+
+  return {};
+}
 
 // ValidateSnapshotForWrite ensures the Snapshot the newly written snapshot is valid.
 //
