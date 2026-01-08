@@ -1,6 +1,9 @@
 #pragma once
 #ifndef _LEPTON_TEST_RAFT_NETWORKING_H_
 #define _LEPTON_TEST_RAFT_NETWORKING_H_
+#include <proxy.h>
+#include <raft.pb.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -8,8 +11,6 @@
 #include <vector>
 
 #include "basic/utility_macros.h"
-#include "proxy.h"
-#include "raft.pb.h"
 #include "raft_core/config.h"
 #include "raft_core/memory_storage.h"
 #include "raft_core/pb/types.h"

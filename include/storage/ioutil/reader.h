@@ -10,8 +10,8 @@
 #include <ranges>
 #include <vector>
 
+#include "error/error.h"
 #include "error/expected.h"
-#include "error/lepton_error.h"
 
 namespace lepton::storage::ioutil {
 

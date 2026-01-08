@@ -1,3 +1,5 @@
+#include <raft.pb.h>
+
 #include <cassert>
 #include <cstddef>
 #include <memory>
@@ -6,7 +8,6 @@
 #include "basic/spdlog_logger.h"
 #include "error/leaf.h"
 #include "interaction_env.h"
-#include "raft.pb.h"
 #include "raft_core/memory_storage.h"
 #include "raft_core/raw_node.h"
 #include "v4/proxy.h"

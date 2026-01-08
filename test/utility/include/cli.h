@@ -13,8 +13,9 @@
 #include <type_traits>
 #include <vector>
 
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
+#include "error/logic_error.h"
 #include "fmt/format.h"
 
 lepton::leaf::result<void> handle_bool(const std::string& val, bool& dest);

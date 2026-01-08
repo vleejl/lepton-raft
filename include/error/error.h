@@ -6,38 +6,23 @@
 #include <source_location>
 #include <string>
 #include <system_error>
+#include <tl/expected.hpp>
 
-#include "error/coro_error.h"
-#include "error/io_error.h"
-#include "error/leaf.h"
-#include "error/logic_error.h"
-#include "error/protobuf_error.h"
-#include "error/raft_error.h"
-#include "error/storage_error.h"
-#include "error/wal_error.h"
-#include "tl/expected.hpp"
+#include "error/leaf.h"  // IWYU pragma: keep
 
-#ifdef LEPTON_STORAGE
-#include "error/rocksdb_err.h"
-#endif
 namespace lepton {
 
 template <typename T>
-inline constexpr bool is_lepton_error_v =
-    std::is_same_v<T, io_error> || std::is_same_v<T, logic_error> || std::is_same_v<T, raft_error> ||
-    std::is_same_v<T, storage_error> || std::is_same_v<T, protobuf_error> || std::is_same_v<T, coro_error> ||
-    std::is_same_v<T, wal_error>
-#ifdef LEPTON_STORAGE
-    || std::is_same_v<T, rocksdb::Status>
-#endif
-    ;
+concept can_make_error_code = requires(T t) {
+  // 关键：通过 ADL 找到自定义 std::error_code 里的 make_error_code 函数定义
+  { make_error_code(t) } -> std::same_as<std::error_code>;
+};
 
-template <typename error_code_type>
-concept lepton_err_types = is_lepton_error_v<error_code_type>;
+template <typename T>
+concept lepton_err_types = can_make_error_code<T> || std::is_error_code_enum_v<T>;
 
-template <typename error_code_type>
-concept err_types = is_lepton_error_v<error_code_type> || std::is_same_v<error_code_type, asio::error_code> ||
-                    std::is_same_v<error_code_type, std::error_code>;
+template <typename T>
+concept err_types = lepton_err_types<T> || std::is_same_v<T, std::error_code> || std::is_same_v<T, asio::error_code>;
 
 struct lepton_error {
   std::error_code err_code;
@@ -90,26 +75,27 @@ bool operator==(const err_type& code, const std::error_code& err_code) {
 
 template <err_types err_type>
 bool operator!=(const std::error_code& err_code, const err_type& code) {
-  return err_code == make_error_code(code);
+  return err_code != make_error_code(code);
 }
 
 template <err_types err_type>
 bool operator!=(const err_type& code, const std::error_code& err_code) {
-  return err_code == make_error_code(code);
+  return err_code != make_error_code(code);
 }
 
 template <err_types error_code_type, typename error_msg_type>
 auto new_error(error_code_type code, error_msg_type&& msg,
                std::source_location location = std::source_location::current()) {
-  return leaf::new_error(lepton_error{code, std::string(std::forward<error_msg_type>(msg)), std::move(location)});
+  return boost::leaf::new_error(
+      lepton_error{code, std::string(std::forward<error_msg_type>(msg)), std::move(location)});
 }
 
 template <err_types error_code_type>
 auto new_error(error_code_type code, std::source_location location = std::source_location::current()) {
-  return leaf::new_error(lepton_error{code, std::move(location)});
+  return boost::leaf::new_error(lepton_error{code, std::move(location)});
 }
 
-inline auto new_error(const lepton::lepton_error& err) { return leaf::new_error(err); }
+inline auto new_error(const lepton::lepton_error& err) { return boost::leaf::new_error(err); }
 
 template <err_types error_code_type>
 inline auto unexpected(error_code_type error_code) {

@@ -26,13 +26,14 @@
 #include "storage/wal/file_pipeline.h"
 namespace lepton::storage::wal {
 
-using wal_segment = std::variant<fileutil::file_reader_handle, fileutil::locked_file_endpoint_handle>;
-std::vector<pro::proxy_view<ioutil::reader>> to_reader_views(std::vector<wal_segment> &files);
 // SegmentSizeBytes is the preallocated size of each wal segment file.
 // The actual size might be larger than this. In general, the default
 // value should be used, but this is defined as an exported variable
 // so that tests can set a different segment size.
 constexpr std::size_t SEGMENT_SIZE_BYTES = 64 * 1024 * 1024;  // 64MB
+
+using wal_segment = std::variant<fileutil::file_reader_handle, fileutil::locked_file_endpoint_handle>;
+std::vector<pro::proxy_view<ioutil::reader>> to_reader_views(std::vector<wal_segment> &files);
 
 // WAL is a logical representation of the stable storage.
 // WAL is either in read mode or append mode but not both.
@@ -99,8 +100,6 @@ class wal : public std::enable_shared_from_this<wal> {
   // Do not apply entries that have index > state.commit, as they are subject to change.
   asio::awaitable<expected<read_result>> read_all();
 
-  asio::awaitable<expected<void>> save_crc(std::uint32_t prev_crc);
-
   asio::awaitable<expected<void>> encode(walpb::Record &r) {
     assert(encoder_);
     co_return co_await encoder_->encode(r);
@@ -108,29 +107,20 @@ class wal : public std::enable_shared_from_this<wal> {
 
   asio::awaitable<expected<void>> save_snapshot(const pb::snapshot &snapshot);
 
-  asio::awaitable<expected<void>> save_entry(const raftpb::Entry &entry);
-
-  asio::awaitable<expected<void>> save_state(raftpb::HardState &&state);
-
   asio::awaitable<expected<void>> save(const core::pb::repeated_entry &entries, raftpb::HardState &&state);
-
-  // cut closes current file written and creates a new one ready to append.
-  // cut first creates a temp wal file and writes necessary headers into it.
-  // Then cut atomically rename temp wal file to a wal file.
-  asio::awaitable<expected<void>> cut();
 
   asio::awaitable<expected<void>> sync();
 
-  leaf::result<void> rename_wal(const std::string &tmp_dir_path);
+  // ReleaseLockTo releases the locks, which has smaller index than the given index
+  // except the largest one among them.
+  // For example, if WAL is holding lock 1,2,3,4,5,6, ReleaseLockTo(4) will release
+  // lock 1,2 but keep 3. ReleaseLockTo(5) will release 1,2,3 but keep 4.
+  asio::awaitable<expected<void>> release_lock_to(std::uint64_t index);
 
   const std::string &dir() const { return dir_; }
 
-  void cleanup_wal();
-
   // Close closes the current WAL file and directory.
   asio::awaitable<expected<void>> close();
-
-  fileutil::locked_file_endpoint *tail();
 
   std::uint64_t seq();
 
@@ -139,7 +129,28 @@ class wal : public std::enable_shared_from_this<wal> {
 #else
  private:
 #endif
+  asio::awaitable<expected<void>> save_crc(std::uint32_t prev_crc);
 
+  asio::awaitable<expected<void>> save_entry(const raftpb::Entry &entry);
+
+  asio::awaitable<expected<void>> save_state(raftpb::HardState &&state);
+
+  // cut closes current file written and creates a new one ready to append.
+  // cut first creates a temp wal file and writes necessary headers into it.
+  // Then cut atomically rename temp wal file to a wal file.
+  asio::awaitable<expected<void>> cut();
+
+  leaf::result<void> rename_wal(const std::string &tmp_dir_path);
+
+  void cleanup_wal();
+
+  fileutil::locked_file_endpoint *tail();
+
+#ifdef LEPTON_TEST
+ public:
+#else
+ private:
+#endif
   asio::any_io_executor executor_;
   asio::strand<asio::any_io_executor> strand_;
 
@@ -153,7 +164,12 @@ class wal : public std::enable_shared_from_this<wal> {
   // metadata recorded at the head of each WAL
   std::string metadata_;
   // segment size in bytes
-  const std::size_t segment_size_bytes_;
+#ifdef LEPTON_TEST
+  std::size_t segment_size_bytes_ = SEGMENT_SIZE_BYTES;
+#else
+  const std::size_t segment_size_bytes_ = SEGMENT_SIZE_BYTES;
+#endif
+
   // hardstate recorded at the head of WAL
   raftpb::HardState state_;
   // snapshot to start reading
@@ -185,6 +201,8 @@ using wal_handle = std::shared_ptr<wal>;
 // Exist returns true if there are any files in a given directory.
 bool exist_wal(const std::string &dir);
 
+leaf::result<std::pair<std::vector<std::string>, uint64_t>> select_wal_files(const std::string &dir,
+                                                                             std::uint64_t snap_index);
 // Open opens the WAL at the given snap.
 // The snap SHOULD have been previously saved to the WAL, or the following
 // ReadAll will fail.
@@ -195,10 +213,27 @@ leaf::result<wal_handle> open(rocksdb::Env *env, asio::any_io_executor executor,
                               std::size_t segment_size_bytes, pb::snapshot &&snap,
                               std::shared_ptr<lepton::logger_interface> logger);
 
+// OpenForRead only opens the wal files for read.
+// Write on a read only wal panics.
+leaf::result<wal_handle> open_for_read(rocksdb::Env *env, asio::any_io_executor executor, const std::string &dir,
+                                       std::size_t segment_size_bytes, pb::snapshot &&snap,
+                                       std::shared_ptr<lepton::logger_interface> logger);
+
 asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env *env, asio::any_io_executor executor,
                                                  const std::string &dirpath, const std::string &metadata,
                                                  const std::size_t segment_size_bytes,
                                                  std::shared_ptr<lepton::logger_interface> logger);
+
+/**
+ * 解析 WAL 文件名
+ * 格式示例: 0000000000000001-0000000000000005.wal
+ */
+leaf::result<std::pair<std::uint64_t, std::uint64_t>> parse_wal_name(std::string_view str);
+
+// search_index returns the last array index of names whose raft index section is
+// equal to or smaller than the given index.
+// The given names MUST be sorted.
+leaf::result<int> search_index(const std::vector<std::string> &names, uint64_t index);
 
 // Verify reads through the given WAL and verifies that it is not corrupted.
 // It creates a new decoder to read through the records of the given WAL.
@@ -210,6 +245,11 @@ asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env *env, asio::any_io
 asio::awaitable<expected<raftpb::HardState>> verify(asio::any_io_executor executor, const std::string &dir,
                                                     const pb::snapshot &snap,
                                                     std::shared_ptr<lepton::logger_interface> logger);
+
+// ValidSnapshotEntries returns all the valid snapshot entries in the wal logs in the given directory.
+// Snapshot entries are valid if their index is less than or equal to the most recent committed hardstate.
+asio::awaitable<expected<pb::repeated_snapshot>> valid_snapshot_entries(
+    asio::any_io_executor executor, const std::string &wal_dir, std::shared_ptr<lepton::logger_interface> logger);
 }  // namespace lepton::storage::wal
 
 #endif  // _LEPTON_WAL_H_

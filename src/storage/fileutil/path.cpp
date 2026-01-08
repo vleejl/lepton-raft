@@ -8,7 +8,7 @@
 #ifndef _WIN32
 #include <unistd.h>  // POSIX 平台必须，用于 ftruncate
 #endif
-#include "error/lepton_error.h"
+#include "error/error.h"
 
 namespace fs = std::filesystem;
 
@@ -35,6 +35,24 @@ leaf::result<std::size_t> file_size(const std::string& path) {
     return new_error(ec, fmt::format("Failed to get file size of {}: {}", path, ec.message()));
   }
   return size;
+}
+
+leaf::result<void> remove(const std::string& path) {
+  std::error_code ec;
+
+  // 检查路径是否存在
+  if (!fs::exists(path, ec)) {
+    return {};
+  }
+
+  // 递归删除目录或文件
+  uintmax_t /*removed_count*/ _ = fs::remove_all(path, ec);
+
+  if (ec) {
+    return new_error(ec, fmt::format("Failed to remove path {}: {}", path, ec.message()));
+  }
+
+  return {};
 }
 
 leaf::result<void> remove_all(const std::string& path) {

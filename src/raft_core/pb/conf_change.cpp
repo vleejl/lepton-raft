@@ -3,6 +3,7 @@
 #include <absl/strings/str_join.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <raft.pb.h>
 
 #include <cassert>
 #include <string>
@@ -10,10 +11,9 @@
 
 #include "basic/enum_name.h"
 #include "basic/log.h"
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "error/logic_error.h"
-#include "raft.pb.h"
 namespace lepton::core {
 
 namespace pb {

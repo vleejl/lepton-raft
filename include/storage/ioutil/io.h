@@ -2,8 +2,9 @@
 #ifndef _LEPTON_IO_H_
 #define _LEPTON_IO_H_
 
+#include <proxy.h>
+
 #include "error/expected.h"
-#include "proxy.h"
 #include "storage/ioutil/reader.h"
 namespace lepton::storage::ioutil {
 

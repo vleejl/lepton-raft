@@ -2,12 +2,12 @@
 
 #include <absl/strings/str_join.h>
 #include <fmt/format.h>
+#include <raft.pb.h>
 
 #include <string>
 
 #include "basic/enum_name.h"
 #include "basic/log.h"
-#include "raft.pb.h"
 #include "raft_core/config.h"
 #include "raft_core/pb/conf_change.h"
 #include "raft_core/pb/protobuf.h"

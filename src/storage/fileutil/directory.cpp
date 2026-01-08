@@ -4,8 +4,9 @@
 
 #include <filesystem>
 
-#include "basic/spdlog_logger.h"
-#include "error/lepton_error.h"
+#include "basic/logger.h"
+#include "error/error.h"
+#include "error/rocksdb_err.h"  // IWYU pragma: keep
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/read_dir.h"
 

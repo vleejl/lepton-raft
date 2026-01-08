@@ -2,7 +2,6 @@
 #include <raft.pb.h>
 
 #include <cassert>
-#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <optional>
@@ -11,8 +10,9 @@
 #include <utility>
 #include <vector>
 
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
+#include "error/storage_error.h"
 #include "raft_core/config.h"
 #include "raft_core/memory_storage.h"
 #include "raft_core/pb/types.h"

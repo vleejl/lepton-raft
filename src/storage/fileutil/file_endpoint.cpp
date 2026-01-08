@@ -2,13 +2,13 @@
 
 #include <cassert>
 #include <system_error>
+#include <tl/expected.hpp>
 
 #include "basic/logger.h"
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/preallocate.h"
-#include "tl/expected.hpp"
 namespace lepton::storage::fileutil {
 
 leaf::result<void> file_endpoint::preallocate(std::uint64_t length, bool extend_file) {
@@ -30,7 +30,7 @@ leaf::result<void> file_endpoint::truncate(std::uintmax_t size) {
 leaf::result<void> file_endpoint::zero_to_end() {
   BOOST_LEAF_AUTO(offset, seek_curr());
   BOOST_LEAF_AUTO(lenf, seek_end());
-  assert(offset > 0);
+  assert(offset >= 0);
   LEPTON_LEAF_CHECK(truncate(static_cast<std::uintmax_t>(offset)));
   // make sure blocks remain allocated
   LEPTON_LEAF_CHECK(preallocate(static_cast<std::uint64_t>(lenf), true));
@@ -77,6 +77,18 @@ expected<void> file_endpoint::fdatasync() {
     return {};
   }
   return tl::unexpected(ec);
+}
+
+lepton::leaf::result<file_endpoint> create_file_endpoint(asio::any_io_executor executor, const std::string& filename,
+                                                         asio::file_base::flags flags) {
+  asio::stream_file stream_file(executor);
+  asio::error_code ec;
+  stream_file.open(filename, flags, ec);  // NOLINT(bugprone-unused-return-value)
+  if (ec) {
+    LOG_ERROR("Failed to create WAL file {}: {}", filename, ec.message());
+    return lepton::new_error(ec, fmt::format("Failed to create WAL file {}: {}", filename, ec.message()));
+  }
+  return file_endpoint{filename, std::move(stream_file)};
 }
 
 }  // namespace lepton::storage::fileutil

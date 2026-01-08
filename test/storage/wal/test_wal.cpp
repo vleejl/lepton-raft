@@ -1,12 +1,16 @@
 #include <fmt/core.h>
 #include <fmt/ranges.h>
 #include <gtest/gtest.h>
+#include <raft.pb.h>
 
+#include <algorithm>
+#include <asio/use_future.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <random>
 #include <regex>
 #include <string>
 #include <system_error>
@@ -15,15 +19,17 @@
 
 #include "asio/error.hpp"
 #include "asio/error_code.hpp"
-#include "asio/use_future.hpp"
 #include "basic/logger.h"
+#include "basic/pbutil.h"
 #include "basic/spdlog_logger.h"
+#include "error/io_error.h"
 #include "error/leaf_expected.h"
 #include "error/logic_error.h"
+#include "error/raft_error.h"
+#include "error/wal_error.h"
 #include "fmt/format.h"
-#include "leaf.hpp"
-#include "raft.pb.h"
 #include "raft_core/pb/types.h"
+#include "storage/fileutil/file_endpoint.h"
 #include "storage/fileutil/path.h"
 #include "storage/fileutil/read_dir.h"
 #include "storage/ioutil/byte_span.h"
@@ -33,11 +39,13 @@
 #include "storage/wal/encoder.h"
 #include "storage/wal/wal.h"
 #include "storage/wal/wal_file.h"
+#include "test_raft_protobuf.h"
 #include "test_utility_macros.h"
 #include "wal.pb.h"
 using namespace lepton::storage::fileutil;
 using namespace lepton::storage::wal;
 using namespace lepton::storage;
+using namespace std::string_literals;
 namespace fs = std::filesystem;
 
 constexpr int private_file_mode = 0'600;
@@ -78,7 +86,8 @@ static lepton::leaf::result<std::unique_ptr<file_endpoint>> create_readonly_file
     LOG_ERROR("Failed to create WAL file {}: {}", filename, ec.message());
     return lepton::new_error(ec, fmt::format("Failed to create WAL file {}: {}", filename, ec.message()));
   }
-  return std::make_unique<file_endpoint>(filename, std::move(stream_file));
+  BOOST_LEAF_AUTO(file_handle, fileutil::create_file_endpoint(executor, filename, open_flags));
+  return std::make_unique<file_endpoint>(std::move(file_handle));
 }
 
 static lepton::leaf::result<void> write_file(asio::any_io_executor executor, const std::string& filename,
@@ -184,6 +193,18 @@ static raftpb::ConfState create_conf_state() {
   return cs;
 }
 
+static std::string make_test_data(std::size_t size) {
+  std::string data(size, '\0');
+  uint32_t x = 0xdeadbeef;
+  for (auto& c : data) {
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    c = static_cast<char>(x & 0xff);
+  }
+  return data;
+}
+
 class wal_test_suit : public testing::Test {
  protected:
   static void SetUpTestSuite() { std::cout << "run before first case..." << std::endl; }
@@ -228,7 +249,8 @@ TEST_F(wal_test_suit, test_new_wal) {
         auto read_file_result = create_readonly_file(tail_file_path, io_context.get_executor());
         EXPECT_TRUE(read_file_result);
         auto& read_file = read_file_result.value();
-        std::vector<std::byte> buff(seek_value);
+        assert(seek_value > 0);
+        std::vector<std::byte> buff(static_cast<std::size_t>(seek_value));
         asio::mutable_buffer read_buffer = asio::buffer(buff);
         pro::proxy_view<ioutil::reader> r = read_file.get();
         auto read_full_result = co_await ioutil::read_full(r, read_buffer);
@@ -546,7 +568,6 @@ TEST_F(wal_test_suit, test_verify) {
 }
 
 // TestCut tests cut
-// TODO: split it into smaller tests for better readability
 TEST_F(wal_test_suit, test_cut) {
   rocksdb::Env* env = rocksdb::Env::Default();
   asio::io_context io_context;
@@ -610,6 +631,994 @@ TEST_F(wal_test_suit, test_cut) {
             << read_all_result->state.DebugString() << hs.DebugString();
 
         co_await wal_handle->close();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(wal_test_suit, test_save_with_cut) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "metadata",
+                                              SEGMENT_SIZE_BYTES, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+
+        raftpb::HardState hs;
+        hs.set_term(1);
+        AWAIT_EXPECT_OK(wal_handle->save(lepton::core::pb::repeated_entry{}, raftpb::HardState{hs}));
+
+        auto seek_curr_result = lepton::leaf_to_expected(
+            [&]() -> lepton::leaf::result<std::uint64_t> { return wal_handle->tail()->seek_curr(); });
+        EXPECT_TRUE(seek_curr_result);
+
+        std::string big_data(500, '\0');
+        std::string strdata = "Hello World!!";
+        // 从索引 0 开始，替换 strdata 长度的内容
+        big_data.replace(0, strdata.length(), strdata);
+        constexpr auto entry_size = 500uz + 8 + 8;
+        // set a lower value for SegmentSizeBytes, else the test takes too long to complete
+        std::size_t segment_size_bytes = 2 * 1024 + 300;  // 需要大于等于 4 个 entri size 大小
+        wal_handle->segment_size_bytes_ = segment_size_bytes;
+        auto index = 0uz;
+        for (auto total_size = 0uz; total_size < segment_size_bytes; total_size += entry_size) {
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          entry->set_index(index);
+          entry->set_term(1);
+          entry->set_data(big_data);
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+          ++index;
+        }
+        co_await wal_handle->close();
+
+        auto new_wal_handle_result = open(env, io_context.get_executor(), wal_test_dir, segment_size_bytes,
+                                          lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(new_wal_handle_result);
+        auto& new_wal_handle = new_wal_handle_result.value();
+        EXPECT_EQ(fileutil::base_name(new_wal_handle->tail()->name()), wal_file_name(1, index));
+        auto read_all_result = co_await new_wal_handle->read_all();
+        EXPECT_TRUE(read_all_result) << read_all_result.error().message();
+        EXPECT_EQ(std::error_code{}, read_all_result->ec);
+        EXPECT_EQ(read_all_result->state.DebugString(), hs.DebugString())
+            << read_all_result->state.DebugString() << hs.DebugString();
+        EXPECT_EQ(read_all_result->entries.size(), segment_size_bytes / entry_size);
+        for (const auto& entry : read_all_result->entries) {
+          EXPECT_EQ(entry.data(), big_data);
+        }
+
+        co_await new_wal_handle->close();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(wal_test_suit, test_recover) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+
+  struct test_case {
+    std::string name;
+    std::size_t size;
+  };
+  std::vector<test_case> cases = {
+      {"10MB", 10 * 1024 * 1024},
+      {"20MB", 20 * 1024 * 1024},
+      {"40MB", 40 * 1024 * 1024},
+  };
+  std::vector<std::string> test_payloads;
+  for (const auto& tc : cases) {
+    test_payloads.push_back(make_test_data(tc.size));
+  }
+
+  for (std::size_t i = 0; i < cases.size(); ++i) {
+    const auto& tc = cases[i];
+    asio::io_context io_context;
+    remove_all(wal_dir_path);
+    auto wal_root = wal_dir_path;
+    EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+    auto wal_test_dir = join_paths(wal_root, "wal_test");
+    EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+    asio::co_spawn(
+        io_context,
+        [&]() -> asio::awaitable<void> {
+          auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "metadata",
+                                                SEGMENT_SIZE_BYTES, std::make_shared<lepton::spdlog_logger>());
+          EXPECT_TRUE(wal_result);
+          auto wal_handle = wal_result.value();
+          AWAIT_EXPECT_OK(wal_handle->save_snapshot(lepton::storage::pb::snapshot{}));
+
+          const auto& data = test_payloads[i];
+          EXPECT_EQ(data.size(), tc.size) << "Case: " << tc.name;
+
+          lepton::core::pb::repeated_entry entries;
+          {
+            auto entry = entries.Add();
+            entry->set_index(1);
+            entry->set_term(1);
+            entry->set_data(data);
+          }
+          {
+            auto entry = entries.Add();
+            entry->set_index(2);
+            entry->set_term(2);
+            entry->set_data(data);
+          }
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+
+          {
+            raftpb::HardState hs;
+            hs.set_term(1);
+            hs.set_vote(1);
+            hs.set_commit(1);
+            AWAIT_EXPECT_OK(wal_handle->save(lepton::core::pb::repeated_entry{}, raftpb::HardState{hs}));
+          }
+          raftpb::HardState hs;
+          hs.set_term(2);
+          hs.set_vote(2);
+          hs.set_commit(2);
+          AWAIT_EXPECT_OK(wal_handle->save(lepton::core::pb::repeated_entry{}, raftpb::HardState{hs}));
+          co_await wal_handle->close();
+
+          auto new_wal_handle_result = open(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                            lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+          EXPECT_TRUE(new_wal_handle_result);
+          auto& new_wal_handle = new_wal_handle_result.value();
+
+          auto read_all_result = co_await new_wal_handle->read_all();
+          EXPECT_TRUE(read_all_result) << read_all_result.error().message();
+          EXPECT_EQ(std::error_code{}, read_all_result->ec);
+          EXPECT_EQ(read_all_result->metadata, "metadata");
+          EXPECT_TRUE(entries == read_all_result->entries);
+          // only the latest state is recorded
+          EXPECT_EQ(read_all_result->state.DebugString(), hs.DebugString())
+              << read_all_result->state.DebugString() << hs.DebugString();
+
+          co_await new_wal_handle->close();
+          co_return;
+        },
+        asio::use_future);
+    io_context.run();
+  }
+}
+
+TEST_F(wal_test_suit, search_index) {
+  struct test_case {
+    std::vector<std::string> names;
+    uint64_t index;
+    int widx;
+    bool wok;
+  };
+
+  std::vector<test_case> tests = {
+      {{"0000000000000000-0000000000000000.wal", "0000000000000001-0000000000001000.wal",
+        "0000000000000002-0000000000002000.wal"},
+       0x1000,
+       1,
+       true},
+      {{"0000000000000001-0000000000004000.wal", "0000000000000002-0000000000003000.wal",
+        "0000000000000003-0000000000005000.wal"},
+       0x4000,
+       1,
+       true},
+      {{"0000000000000001-0000000000002000.wal", "0000000000000002-0000000000003000.wal",
+        "0000000000000003-0000000000005000.wal"},
+       0x1000,
+       -1,
+       false},
+  };
+
+  // 3. 遍历执行测试
+  for (size_t i = 0; i < tests.size(); ++i) {
+    const auto& tt = tests[i];
+
+    auto search_result = lepton::leaf_to_expected([&]() { return search_index(tt.names, tt.index); });
+    if (tt.wok) {
+      ASSERT_TRUE(search_result);
+      ASSERT_EQ(*search_result, tt.widx);
+    } else {
+      ASSERT_FALSE(search_result);
+    }
+  }
+}
+
+TEST_F(wal_test_suit, test_scan_wal_name) {
+  struct test_case {
+    std::string str;
+    uint64_t wseq;
+    uint64_t windex;
+    bool wok;
+  };
+  std::vector<test_case> tests = {
+      {"0000000000000000-0000000000000000.wal", 0, 0, true},
+      {"0000000000000000.wal", 0, 0, false},
+      {"0000000000000000-0000000000000000.snap", 0, 0, false},
+      {"0000000000000001-0000000000001000.wal", 1, 0x1000, true},  // 额外增加一个 case 验证十六进制
+  };
+
+  for (size_t i = 0; i < tests.size(); ++i) {
+    const auto& tt = tests[i];
+    auto parse_result = lepton::leaf_to_expected([&]() { return parse_wal_name(tt.str); });
+    if (tt.wok) {
+      auto [seq, index] = *parse_result;
+      ASSERT_TRUE(parse_result);
+      ASSERT_EQ(tt.wseq, seq);
+      ASSERT_EQ(tt.windex, index);
+    } else {
+      ASSERT_FALSE(parse_result);
+    }
+  }
+}
+
+TEST_F(wal_test_suit, test_recover_after_cut) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "metadata",
+                                              SEGMENT_SIZE_BYTES, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+        for (std::size_t i = 0; i < 10; ++i) {
+          lepton::storage::pb::snapshot snap;
+          snap.set_index(i);
+          snap.set_term(1);
+          snap.mutable_conf_state()->CopyFrom(create_conf_state());
+          AWAIT_EXPECT_OK(wal_handle->save_snapshot(snap));
+
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          entry->set_index(i);
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+          AWAIT_EXPECT_OK(wal_handle->cut());
+        }
+        co_await wal_handle->close();
+
+        const auto wal_index4_file = join_paths(wal_test_dir, wal_file_name(4, 4));
+        EXPECT_TRUE(fileutil::path_exist(wal_index4_file));
+        remove_all(wal_index4_file);
+        EXPECT_FALSE(fileutil::path_exist(wal_index4_file));
+
+        for (std::size_t i = 0; i < 10; ++i) {
+          lepton::storage::pb::snapshot snap;
+          snap.set_index(i);
+          snap.set_term(1);
+          auto new_wal_handle_result = lepton::leaf_to_expected([&]() {
+            return open(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES, std::move(snap),
+                        std::make_shared<lepton::spdlog_logger>());
+          });
+          if (!new_wal_handle_result) {
+            if (i <= 4) {
+              EXPECT_EQ(new_wal_handle_result.error(),
+                        lepton::make_error_code(lepton::wal_error::ERR_INCONTINUOUS_SEQUENCE));
+            } else {
+              EXPECT_TRUE(false) << fmt::format("failed index: {}", i);
+            }
+            continue;
+          }
+          EXPECT_TRUE(new_wal_handle_result);
+          auto& new_wal_handle = new_wal_handle_result.value();
+          auto read_all_result = co_await new_wal_handle->read_all();
+          EXPECT_TRUE(read_all_result) << fmt::format("failed index: {}; ", i) << read_all_result.error().message();
+          EXPECT_EQ(std::error_code{}, read_all_result->ec);
+          EXPECT_EQ(read_all_result->metadata, "metadata");
+          for (auto [j, entry] : read_all_result->entries | std::views::enumerate) {
+            EXPECT_EQ(entry.index(), i + static_cast<std::uint64_t>(j) + 1);
+          }
+          co_await new_wal_handle->close();
+        }
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(wal_test_suit, test_open_at_uncommitted_index) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "", SEGMENT_SIZE_BYTES,
+                                              std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+        AWAIT_EXPECT_OK(wal_handle->save_snapshot(lepton::storage::pb::snapshot{}));
+        lepton::core::pb::repeated_entry entries;
+        auto entry = entries.Add();
+        entry->set_index(0);
+        AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+        co_await wal_handle->close();
+
+        auto new_wal_handle_result = lepton::leaf_to_expected([&]() {
+          return open(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES, lepton::storage::pb::snapshot{},
+                      std::make_shared<lepton::spdlog_logger>());
+        });
+        EXPECT_TRUE(new_wal_handle_result);
+        auto& new_wal_handle = new_wal_handle_result.value();
+        // commit up to index 0, try to read index 1
+        auto read_all_result = co_await new_wal_handle->read_all();
+        EXPECT_TRUE(read_all_result) << read_all_result.error().message();
+        EXPECT_EQ(std::error_code{}, read_all_result->ec);
+        co_await new_wal_handle->close();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+// TestOpenForRead tests that OpenForRead can load all files.
+// The tests creates WAL directory, and cut out multiple WAL files. Then
+// it releases the lock of part of data, and excepts that OpenForRead
+// can read out all files even if some are locked for write.
+TEST_F(wal_test_suit, test_open_for_read) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "", SEGMENT_SIZE_BYTES,
+                                              std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+
+        for (std::size_t i = 0; i < 5; ++i) {
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          entry->set_index(i);
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+          AWAIT_EXPECT_OK(wal_handle->cut());
+        }
+        // release the lock to 5
+        AWAIT_EXPECT_OK(wal_handle->release_lock_to(5));
+        // All are available for read
+        auto wal_result2 = open_for_read(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                         lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result2);
+        auto wal_handle2 = wal_result2.value();
+        auto read_all_result = co_await wal_handle2->read_all();
+        EXPECT_TRUE(read_all_result);
+        EXPECT_EQ(std::error_code{}, read_all_result->ec);
+        EXPECT_FALSE(read_all_result->entries.empty());
+        EXPECT_NE(9, read_all_result->entries.at(read_all_result->entries.size() - 1).index());
+
+        co_await wal_handle2->close();
+        co_await wal_handle->close();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(wal_test_suit, test_open_with_max_index) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+
+  SECTION("uint64_t_max_index") {
+    auto wal_root = wal_dir_path;
+    EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+    auto wal_test_dir = join_paths(wal_root, "wal_test");
+    EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+    asio::co_spawn(
+        io_context,
+        [&]() -> asio::awaitable<void> {
+          auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "", SEGMENT_SIZE_BYTES,
+                                                std::make_shared<lepton::spdlog_logger>());
+          EXPECT_TRUE(wal_result);
+          auto wal_handle = wal_result.value();
+
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          entry->set_index(std::numeric_limits<uint64_t>::max());
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+          co_await wal_handle->close();
+
+          // release the lock to 5
+          AWAIT_EXPECT_OK(wal_handle->release_lock_to(5));
+          // All are available for read
+          auto wal_result2 = open(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                  lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+          EXPECT_TRUE(wal_result2);
+          auto wal_handle2 = wal_result2.value();
+          auto read_all_result = co_await wal_handle2->read_all();
+          EXPECT_FALSE(read_all_result);
+          EXPECT_EQ(lepton::make_error_code(lepton::wal_error::ERR_SLICE_OUT_OF_RANGE), read_all_result.error());
+          co_await wal_handle2->close();
+          co_return;
+        },
+        asio::use_future);
+    io_context.run();
+  }
+
+  SECTION("bigger_than_entries_index") {
+    remove_all(wal_dir_path);
+    auto wal_root = wal_dir_path;
+    EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+    auto wal_test_dir = join_paths(wal_root, "wal_test");
+    EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+    asio::co_spawn(
+        io_context,
+        [&]() -> asio::awaitable<void> {
+          auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "", SEGMENT_SIZE_BYTES,
+                                                std::make_shared<lepton::spdlog_logger>());
+          EXPECT_TRUE(wal_result);
+          auto wal_handle = wal_result.value();
+
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          // 只要大于当前 entry size 的 index 即可
+          entry->set_index(10);
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+          co_await wal_handle->close();
+
+          // release the lock to 5
+          AWAIT_EXPECT_OK(wal_handle->release_lock_to(5));
+          // All are available for read
+          auto wal_result2 = open(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                  lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+          EXPECT_TRUE(wal_result2);
+          auto wal_handle2 = wal_result2.value();
+          auto read_all_result = co_await wal_handle2->read_all();
+          EXPECT_FALSE(read_all_result);
+          EXPECT_EQ(lepton::make_error_code(lepton::wal_error::ERR_SLICE_OUT_OF_RANGE), read_all_result.error());
+          co_await wal_handle2->close();
+          co_return;
+        },
+        asio::use_future);
+    io_context.run();
+  }
+}
+
+TEST_F(wal_test_suit, test_save_empty) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  auto wal_handle = std::make_shared<lepton::storage::wal::wal>(io_context.get_executor(), env, SEGMENT_SIZE_BYTES,
+                                                                std::make_shared<lepton::spdlog_logger>());
+  write_buf wb;
+  pro::proxy_view<ioutil::writer> w = &wb;
+  wal_handle->encoder_ = std::make_unique<encoder>(wal_handle->executor_, w, 0, 0, wal_handle->logger_);
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        co_await wal_handle->save_state(raftpb::HardState{});
+        EXPECT_TRUE(wb.buf.empty());
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(wal_test_suit, test_release_lock_to) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "", SEGMENT_SIZE_BYTES,
+                                              std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+
+        // release nothing if no files
+        AWAIT_EXPECT_OK(wal_handle->release_lock_to(10));
+
+        for (std::size_t i = 0; i < 10; ++i) {
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          entry->set_index(i);
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+          AWAIT_EXPECT_OK(wal_handle->cut());
+        }
+        // release the lock to 5
+        AWAIT_EXPECT_OK(wal_handle->release_lock_to(5));
+        // expected remaining are 4,5,6,7,8,9,10
+        EXPECT_EQ(7, wal_handle->segments_.size());
+        for (auto [i, file_handle] : wal_handle->segments_ | std::views::enumerate) {
+          auto result = std::visit(
+              [](auto& handle) {
+                return lepton::leaf_to_expected([&]() { return parse_wal_name(fileutil::base_name(handle->name())); });
+              },
+              file_handle);
+          EXPECT_TRUE(result);
+          auto [_, lock_index] = *result;
+          EXPECT_EQ(i + 4, lock_index);
+        }
+
+        // release the lock to 15
+        AWAIT_EXPECT_OK(wal_handle->release_lock_to(15));
+        // expected remaining is 10
+        EXPECT_EQ(1, wal_handle->segments_.size());
+        auto result = std::visit(
+            [](auto& handle) {
+              return lepton::leaf_to_expected([&]() { return parse_wal_name(fileutil::base_name(handle->name())); });
+            },
+            wal_handle->segments_[0]);
+        EXPECT_TRUE(result) << result.error().message();
+        auto [_, lock_index] = *result;
+        EXPECT_EQ(10, lock_index);
+
+        co_await wal_handle->close();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+// TestTailWriteNoSlackSpace ensures that tail writes append if there's no preallocated space.
+TEST_F(wal_test_suit, test_tail_write_no_slack_space) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "metadata",
+                                              SEGMENT_SIZE_BYTES, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+
+        for (std::size_t i = 0; i <= 5; ++i) {
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          entry->set_index(i);
+          entry->set_term(1);
+          entry->set_data(fmt::format("{}", i));
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+        }
+        // get rid of slack space by truncating file
+        auto seek_result = lepton::leaf_to_expected([&]() { return wal_handle->tail()->seek_curr(); });
+        EXPECT_TRUE(seek_result);
+        auto offset = *seek_result;
+        EXPECT_NE(offset, 0);
+        auto trunc_result = lepton::leaf_to_expected(
+            [&]() { return wal_handle->tail()->truncate(static_cast<std::uintmax_t>(offset)); });
+        EXPECT_TRUE(trunc_result);
+        co_await wal_handle->close();
+
+        {
+          auto wal_result2 = open(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                  lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+          EXPECT_TRUE(wal_result2);
+          auto wal_handle2 = wal_result2.value();
+          auto read_all_result = co_await wal_handle2->read_all();
+          EXPECT_TRUE(read_all_result);
+          EXPECT_EQ(5, read_all_result->entries.size());
+          for (std::size_t i = 6; i <= 10; ++i) {
+            lepton::core::pb::repeated_entry entries;
+            auto entry = entries.Add();
+            entry->set_index(i);
+            entry->set_term(1);
+            entry->set_data(fmt::format("{}", i));
+            AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+          }
+          co_await wal_handle2->close();
+        }
+
+        {
+          auto wal_result2 = open(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                  lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+          EXPECT_TRUE(wal_result2);
+          auto wal_handle2 = wal_result2.value();
+          auto read_all_result = co_await wal_handle2->read_all();
+          EXPECT_TRUE(read_all_result);
+          EXPECT_EQ(10, read_all_result->entries.size());
+          co_await wal_handle2->close();
+        }
+
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+// TestRestartCreateWal ensures that an interrupted WAL initialization is clobbered on restart
+TEST_F(wal_test_suit, test_restart_create_wal) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  // make temporary directory so it looks like initialization is interrupted
+  auto wal_tmp_dir = join_paths(wal_root, "wal_test.tmp");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_tmp_dir));
+  EXPECT_TRUE(fileutil::path_exist(wal_tmp_dir));
+
+  create_with_fstream(join_paths(wal_tmp_dir, "test"));
+  EXPECT_TRUE(fileutil::path_exist(join_paths(wal_tmp_dir, "test")));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "abc", SEGMENT_SIZE_BYTES,
+                                              std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+        co_await wal_handle->close();
+        EXPECT_FALSE(fileutil::path_exist(wal_tmp_dir));
+
+        auto wal_result2 = open_for_read(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                         lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result2);
+        auto wal_handle2 = wal_result2.value();
+        auto read_all_result = co_await wal_handle2->read_all();
+        EXPECT_TRUE(read_all_result);
+        EXPECT_EQ(std::error_code{}, read_all_result->ec);
+        EXPECT_EQ("abc", read_all_result->metadata);
+        co_await wal_handle2->close();
+
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(wal_test_suit, test_open_on_torn_write) {
+  constexpr auto MAX_ENTRIES = 40;
+  constexpr auto CLOBBER_IDX = 20;
+  constexpr auto OVERWRITE_ENTRIES = 5;
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "", SEGMENT_SIZE_BYTES,
+                                              std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+
+        std::vector<std::int64_t> offsets(MAX_ENTRIES, 0);
+        for (auto i = 0uz; i < offsets.size(); ++i) {
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          entry->set_index(i);
+          AWAIT_EXPECT_OK(wal_handle->save(entries, raftpb::HardState{}));
+          auto seek_result = lepton::leaf_to_expected([&]() { return wal_handle->tail()->seek_curr(); });
+          EXPECT_TRUE(seek_result);
+          offsets[i] = *seek_result;
+        }
+        auto fn = fileutil::join_paths(wal_test_dir, fileutil::base_name(wal_handle->tail()->name()));
+        AWAIT_EXPECT_OK(wal_handle->close());
+
+        // clobber some entry with 0's to simulate a torn write
+        auto rw_file_result = create_file_endpoint(io_context.get_executor(), fn, asio::file_base::read_write);
+        EXPECT_TRUE(rw_file_result);
+        auto& rw_file = rw_file_result.value();
+        EXPECT_TRUE(rw_file.seek_start(offsets[CLOBBER_IDX]));
+        std::string zeros(static_cast<std::size_t>(offsets[CLOBBER_IDX + 1] - offsets[CLOBBER_IDX]), '\0');
+        rw_file.write(ioutil::to_bytes(zeros));
+        EXPECT_TRUE(rw_file.close());
+
+        auto open_wal_handle_result = open(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                           lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(open_wal_handle_result);
+        auto& open_wal_handle = open_wal_handle_result.value();
+        // seek up to clobbered entry
+        auto read_all_result = co_await open_wal_handle->read_all();
+        EXPECT_TRUE(read_all_result);
+        EXPECT_EQ(std::error_code{}, read_all_result->ec);
+        EXPECT_EQ(read_all_result->entries.size(), CLOBBER_IDX);
+        // write a few entries past the clobbered entry
+        for (auto i = 0uz; i < OVERWRITE_ENTRIES; ++i) {
+          lepton::core::pb::repeated_entry entries;
+          auto entry = entries.Add();
+          entry->set_index(i + CLOBBER_IDX);
+          entry->set_data("new");
+          // Index is different from old, truncated entries
+          AWAIT_EXPECT_OK(open_wal_handle->save(entries, raftpb::HardState{}));
+        }
+        AWAIT_EXPECT_OK(open_wal_handle->close());
+
+        // read back the entries, confirm number of entries matches expectation
+        auto wal_result2 = open_for_read(env, io_context.get_executor(), wal_test_dir, SEGMENT_SIZE_BYTES,
+                                         lepton::storage::pb::snapshot{}, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result2);
+        auto wal_handle2 = wal_result2.value();
+        auto read_all_result2 = co_await wal_handle2->read_all();
+        EXPECT_TRUE(read_all_result2);
+        EXPECT_EQ(std::error_code{}, read_all_result2->ec);
+        EXPECT_EQ(read_all_result2->entries.size(), (CLOBBER_IDX - 1) + OVERWRITE_ENTRIES);
+        AWAIT_EXPECT_OK(wal_handle2->close());
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(wal_test_suit, test_rename_fail) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  auto nw_handle = std::make_shared<lepton::storage::wal::wal>(io_context.get_executor(), env,
+                                                               std::numeric_limits<std::size_t>::max(),
+                                                               std::make_shared<lepton::spdlog_logger>());
+  auto& nw = *nw_handle;
+  nw.dir_ = wal_test_dir;
+  auto result = nw.rename_wal(join_paths(wal_test_dir, "tmp"));
+  ASSERT_FALSE(result);
+}
+
+TEST_F(wal_test_suit, test_valid_snapshot_entries) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+  lepton::storage::pb::repeated_snapshot snaps;
+
+  // 辅助函数：快速填充 Snapshot
+  auto fill_snap = [&](lepton::storage::pb::snapshot* s, uint64_t index, uint64_t term) {
+    s->set_index(index);
+    s->set_term(term);
+    s->mutable_conf_state()->CopyFrom(create_conf_state());
+  };
+
+  // snap0: 空 Snapshot (Go: walpb.Snapshot{})
+  auto snap0 = snaps.Add();
+
+  // snap1: Index 1, Term 1 (Go: Index: 1, Term: 1)
+  auto snap1 = snaps.Add();
+  fill_snap(snap1, 1, 1);
+
+  // state1: Commit 1, Term 1
+  raftpb::HardState state1;
+  state1.set_commit(1);
+  state1.set_term(1);
+
+  // snap2: Index 2, Term 1
+  auto snap2 = snaps.Add();
+  fill_snap(snap2, 2, 1);
+
+  // snap3: Index 3, Term 2
+  auto snap3 = snaps.Add();
+  fill_snap(snap3, 3, 2);
+
+  // state2: Commit 3, Term 2
+  raftpb::HardState state2;
+  state2.set_commit(3);
+  state2.set_term(2);
+
+  // will be orphaned since the last committed entry will be snap3
+  // snap4: Index 4, Term 2 (将被视为孤儿快照，因为 commit 只到了 3)
+  lepton::storage::pb::snapshot snap4;
+  fill_snap(&snap4, 4, 2);
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "metadata",
+                                              SEGMENT_SIZE_BYTES, std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+
+        AWAIT_EXPECT_OK(wal_handle->save_snapshot(*snap1));
+        AWAIT_EXPECT_OK(wal_handle->save(lepton::core::pb::repeated_entry{}, raftpb::HardState{state1}));
+        AWAIT_EXPECT_OK(wal_handle->save_snapshot(*snap2));
+        AWAIT_EXPECT_OK(wal_handle->save_snapshot(*snap3));
+        AWAIT_EXPECT_OK(wal_handle->save(lepton::core::pb::repeated_entry{}, raftpb::HardState{state2}));
+        AWAIT_EXPECT_OK(wal_handle->save_snapshot(snap4));
+        auto wal_snaps_result = co_await valid_snapshot_entries(io_context.get_executor(), wal_test_dir,
+                                                                std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_snaps_result);
+        auto& wal_snaps = wal_snaps_result.value();
+        EXPECT_TRUE(compare_repeated_snap_meta(wal_snaps, snaps));
+        co_await wal_handle->close();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+// TestValidSnapshotEntriesAfterPurgeWal ensure that there are many wal files, and after cleaning the first wal file,
+// it can work well.
+TEST_F(wal_test_suit, test_valid_snapshot_entries_after_purge_wal) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+  lepton::storage::pb::repeated_snapshot snaps;
+
+  // 辅助函数：快速填充 Snapshot
+  auto fill_snap = [&](lepton::storage::pb::snapshot* s, uint64_t index, uint64_t term) {
+    s->set_index(index);
+    s->set_term(term);
+    s->mutable_conf_state()->CopyFrom(create_conf_state());
+  };
+
+  // snap0: 空 Snapshot (Go: walpb.Snapshot{})
+  auto snap0 = snaps.Add();
+
+  // snap1: Index 1, Term 1 (Go: Index: 1, Term: 1)
+  auto snap1 = snaps.Add();
+  fill_snap(snap1, 1, 1);
+
+  // state1: Commit 1, Term 1
+  raftpb::HardState state1;
+  state1.set_commit(1);
+  state1.set_term(1);
+
+  // snap2: Index 2, Term 1
+  auto snap2 = snaps.Add();
+  fill_snap(snap2, 2, 1);
+
+  // snap3: Index 3, Term 2
+  auto snap3 = snaps.Add();
+  fill_snap(snap3, 3, 2);
+
+  // state2: Commit 3, Term 2
+  raftpb::HardState state2;
+  state2.set_commit(3);
+  state2.set_term(2);
+
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto wal_result = co_await create_wal(env, io_context.get_executor(), wal_test_dir, "metadata", 64,
+                                              std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_result);
+        auto wal_handle = wal_result.value();
+        // snap0 is implicitly created at index 0, term 0
+        AWAIT_EXPECT_OK(wal_handle->save_snapshot(*snap1));
+        AWAIT_EXPECT_OK(wal_handle->save(lepton::core::pb::repeated_entry{}, raftpb::HardState{state1}));
+        AWAIT_EXPECT_OK(wal_handle->save_snapshot(*snap2));
+        AWAIT_EXPECT_OK(wal_handle->save_snapshot(*snap3));
+        for (int i = 0; i < 128; ++i) {
+          AWAIT_EXPECT_OK(wal_handle->save(lepton::core::pb::repeated_entry{}, raftpb::HardState{state2}));
+        }
+
+        auto select_result = lepton::leaf_to_expected([&]() { return select_wal_files(wal_test_dir, 0); });
+        EXPECT_TRUE(select_result);
+        auto& [wal_names, start_index] = *select_result;
+        std::string remove_file = wal_test_dir + "/" + wal_names[0];
+        EXPECT_TRUE(path_exist(remove_file));
+        EXPECT_TRUE(fileutil::remove(remove_file));
+        auto wal_snaps_result = co_await valid_snapshot_entries(io_context.get_executor(), wal_test_dir,
+                                                                std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(wal_snaps_result) << remove_file;
+
+        co_await wal_handle->close();
+        co_return;
+      },
+      asio::use_future);
+  io_context.run();
+}
+
+TEST_F(wal_test_suit, test_last_record_length_exceed_file_end) {
+  rocksdb::Env* env = rocksdb::Env::Default();
+  asio::io_context io_context;
+  auto wal_root = wal_dir_path;
+  EXPECT_TRUE(std::filesystem::create_directory(wal_root));
+  auto wal_test_dir = join_paths(wal_root, "wal_test");
+  EXPECT_TRUE(std::filesystem::create_directory(wal_test_dir));
+
+  std::string data =
+      "\x04\x00\x00\x00\x00\x00\x00\x84\x08\x04\x10\x00\x00"
+      "\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x84\x08\x01\x10\x00\x00"
+      "\x00\x00\x00\x0e\x00\x00\x00\x00\x00\x00\x82\x08\x05\x10\xa0\xb3"
+      "\x9b\x8f\x08\x1a\x04\x08\x00\x10\x00\x00\x00\x1a\x00\x00\x00\x00"
+      "\x00\x00\x86\x08\x02\x10\xba\x8b\xdc\x85\x0f\x1a\x10\x08\x00\x10"
+      "\x00\x18\x01\x22\x08\x77\x61\x6c\x64\x61\x74\x61\x31\x00\x00\x00"
+      "\x00\x00\x00\x1a\x00\x00\x00\x00\x00\x00\x86\x08\x02\x10\xa1\xe8"
+      "\xff\x9c\x02\x1a\x10\x08\x00\x10\x00\x18\x02\x22\x08\x77\x61\x6c"
+      "\x64\x61\x74\x61\x32\x00\x00\x00\x00\x00\x00\xe8\x03\x00\x00\x00"
+      "\x00\x00\x86\x08\x02\x10\xa1\x9c\xa1\xaa\x04\x1a\x10\x08\x00\x10"
+      "\x00\x18\x03\x22\x08\x77\x61\x6c\x64\x61\x74\x61\x33\x00\x00\x00"
+      "\x00\x00\x00"s;
+  auto write_file_path = join_paths(wal_test_dir, "wal3306");
+  LOG_INFO("corrupted_wal_data size: {}", data.size());
+  EXPECT_TRUE(write_file(io_context.get_executor(), write_file_path, ioutil::to_bytes(data)));
+  std::vector<wal_segment> files;
+  asio::co_spawn(
+      io_context,
+      [&]() -> asio::awaitable<void> {
+        auto reader_result = fileutil::create_file_reader(io_context.get_executor(), write_file_path);
+        EXPECT_TRUE(reader_result);
+        std::vector<wal_segment> segments;
+        segments.push_back(std::move(*reader_result));
+        auto logger = std::make_shared<lepton::spdlog_logger>();
+        auto decoder = std::make_unique<lepton::storage::wal::decoder>(io_context.get_executor(), logger,
+                                                                       to_reader_views(segments));
+        walpb::Record rec;
+        std::error_code ec;
+        raftpb::HardState state;
+        auto parse_count = 0uz;
+        while (!ec) {
+          auto result = co_await decoder->decode_record(rec);
+          if (!result) {
+            ec = result.error();
+            EXPECT_EQ(lepton::make_error_code(lepton::io_error::UNEXPECTED_EOF), ec);
+            continue;
+          }
+
+          switch (rec.type()) {
+            case walpb::ENTRY_TYPE: {
+              parse_count++;
+              raftpb::Entry entry;
+              lepton::protobuf_must_parse(rec.data(), entry, *logger);
+              auto rec_data = fmt::format("waldata{}", entry.index());
+              EXPECT_EQ(raftpb::EntryType::ENTRY_NORMAL, entry.type());
+              EXPECT_EQ(rec_data, entry.data());
+              break;
+            }
+            default: {
+              break;
+            }
+          }
+
+          rec.Clear();
+        }
+        EXPECT_EQ(parse_count, 2);
+
+        fs::path p(write_file_path);
+        auto new_file_name = fileutil::join_paths(fs::path{write_file_path}.parent_path().string(),
+                                                  "0000000000000000-0000000000000000.wal");
+        EXPECT_TRUE(fileutil::rename(write_file_path, new_file_name));
+
+        lepton::storage::pb::snapshot snap;
+        snap.set_term(0);
+        snap.set_term(0);
+        auto open_wal_handle_result =
+            open(env, io_context.get_executor(), fs::path{write_file_path}.parent_path().string(), SEGMENT_SIZE_BYTES,
+                 std::move(snap), std::make_shared<lepton::spdlog_logger>());
+        EXPECT_TRUE(open_wal_handle_result);
+        auto& open_wal_handle = open_wal_handle_result.value();
+        auto read_all_result = co_await open_wal_handle->read_all();
+        EXPECT_FALSE(read_all_result);
+        EXPECT_EQ(lepton::make_error_code(lepton::io_error::UNEXPECTED_EOF), read_all_result.error());
+        AWAIT_EXPECT_OK(open_wal_handle->close());
         co_return;
       },
       asio::use_future);

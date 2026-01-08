@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "error/lepton_error.h"
+#include "error/error.h"
 #include "fmt/format.h"
 #include "raft_core/config.h"
 #include "raft_core/describe.h"

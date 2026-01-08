@@ -1,10 +1,13 @@
 #include "raft_core/node.h"
 
+#include <raft.pb.h>
+
 #include <atomic>
 #include <cassert>
 #include <functional>
 #include <memory>
 #include <system_error>
+#include <tl/expected.hpp>
 #include <utility>
 
 #include "asio/awaitable.hpp"
@@ -15,13 +18,11 @@
 #include "error/expected.h"
 #include "error/leaf_expected.h"
 #include "error/raft_error.h"
-#include "raft.pb.h"
 #include "raft_core/describe.h"
 #include "raft_core/node_interface.h"
 #include "raft_core/raw_node.h"
 #include "raft_core/ready.h"
 #include "spdlog/spdlog.h"
-#include "tl/expected.hpp"
 namespace lepton::core {
 
 asio::awaitable<void> node::stop() {

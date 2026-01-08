@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <raft.pb.h>
 #include <rocksdb/env.h>
 #include <rocksdb/status.h>
 
@@ -9,23 +10,21 @@
 #include <string>
 
 #include "basic/utility_macros.h"
-#include "error/lepton_error.h"
-#include "raft.pb.h"
+#include "error/error.h"
 #include "raft_core/pb/types.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "test_file.h"
-
+#include "storage/fileutil/path.h"
 class rocksdb_test_suit : public testing::Test {
  protected:
   static void SetUpTestSuite() {
-    delete_if_exists(db_path);
+    lepton::storage::fileutil::remove(db_path);
     std::cout << "run before first case..." << std::endl;
   }
 
   static void TearDownTestSuite() {
-    delete_if_exists(db_path);
+    lepton::storage::fileutil::remove(db_path);
     std::cout << "run after last case..." << std::endl;
   }
 
@@ -66,8 +65,8 @@ TEST_F(rocksdb_test_suit, rocks_file_opt) {
   // 1️⃣ 创建/打开文件
   constexpr auto temp_wal_file = "wal.tmp";
   constexpr auto temp_wal_log = "wal.log";
-  delete_if_exists(temp_wal_file);
-  delete_if_exists(temp_wal_log);
+  lepton::storage::fileutil::remove(temp_wal_file);
+  lepton::storage::fileutil::remove(temp_wal_log);
   std::unique_ptr<rocksdb::WritableFile> file;
   auto s = env->NewWritableFile(temp_wal_file, &file, env_opts);
   if (!s.ok()) {

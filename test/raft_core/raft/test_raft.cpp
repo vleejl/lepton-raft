@@ -1,3 +1,4 @@
+#include <absl/types/span.h>
 #include <gtest/gtest.h>
 #include <proxy.h>
 #include <raft.pb.h>
@@ -15,10 +16,9 @@
 #include <utility>
 #include <vector>
 
-#include "absl/types/span.h"
 #include "basic/enum_name.h"
 #include "basic/spdlog_logger.h"
-#include "error/lepton_error.h"
+#include "error/error.h"
 #include "fmt/base.h"
 #include "fmt/format.h"
 #include "raft_core/config.h"

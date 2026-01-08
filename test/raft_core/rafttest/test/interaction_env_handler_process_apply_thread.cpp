@@ -1,12 +1,13 @@
+#include <raft.pb.h>
+
 #include <cassert>
 #include <cstddef>
 #include <optional>
 
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "error/logic_error.h"
 #include "interaction_env.h"
-#include "raft.pb.h"
 #include "raft_core/describe.h"
 #include "raft_core/pb/conf_change.h"
 

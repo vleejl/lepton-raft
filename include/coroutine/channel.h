@@ -11,8 +11,9 @@
 
 #include "basic/logger.h"
 #include "coroutine/coro_types.h"
+#include "error/coro_error.h"
+#include "error/error.h"
 #include "error/expected.h"
-#include "error/lepton_error.h"
 
 namespace lepton::coro {
 

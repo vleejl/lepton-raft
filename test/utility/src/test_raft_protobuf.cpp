@@ -1,6 +1,8 @@
 #include "test_raft_protobuf.h"
 
+#include <absl/types/span.h>
 #include <gtest/gtest.h>
+#include <raft.pb.h>
 #include <spdlog/spdlog.h>
 
 #include <cassert>
@@ -10,8 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "absl/types/span.h"
-#include "raft.pb.h"
 #include "raft_core/pb/conf_change.h"
 
 raftpb::ConfChange create_conf_change_v1(std::uint64_t node_id, raftpb::ConfChangeType type) {
@@ -257,8 +257,6 @@ bool compare_optional_conf_state(const std::optional<raftpb::ConfState> &lhs,
 }
 
 bool operator==(const raftpb::Entry &lhs, const raftpb::Entry &rhs) {
-  std::cout << lhs.DebugString() << std::endl;
-  std::cout << rhs.DebugString() << std::endl;
   if (lhs.term() != rhs.term()) {
     printf("lhs term:%lu, rhs term:%lu\n", lhs.term(), rhs.term());
     return false;
@@ -438,4 +436,30 @@ raftpb::Snapshot create_snapshot(std::uint64_t index, std::uint64_t term, const 
     snapshot.mutable_metadata()->mutable_conf_state()->CopyFrom(*state);
   }
   return snapshot;
+}
+
+bool compare_repeated_snap_meta(const lepton::storage::pb::repeated_snapshot &lhs,
+                                const lepton::storage::pb::repeated_snapshot &rhs) {
+  const auto lhs_size = lhs.size();
+  const auto rhs_size = rhs.size();
+  if (lhs_size != rhs_size) {
+    for (int i = 0; i < lhs_size; ++i) {
+      LOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
+    }
+    for (int i = 0; i < rhs_size; ++i) {
+      LOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
+    }
+    LOG_INFO("lhs size: {}, rhs size: {}", lhs_size, rhs_size);
+    EXPECT_EQ(lhs_size, rhs_size);
+    // assert(lhs_size == rhs_size);
+    return false;
+  }
+  for (int i = 0; i < lhs_size; ++i) {
+    if (lhs[i].DebugString() != rhs[i].DebugString()) {
+      LOG_INFO("lhs index: {}, msg: {}", i, lhs[i].DebugString());
+      LOG_INFO("rhs index: {}, msg: {}", i, rhs[i].DebugString());
+      return false;
+    }
+  }
+  return true;
 }

@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-#include "error/lepton_error.h"
+#include "error/error.h"
 #include "error/logic_error.h"
 #include "fmt/format.h"
 #include "interaction_env.h"

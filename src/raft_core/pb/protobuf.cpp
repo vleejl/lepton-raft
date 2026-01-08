@@ -1,12 +1,13 @@
 #include "raft_core/pb/protobuf.h"
 
+#include <raft.pb.h>
+
 #include <cassert>
 #include <cstddef>
 #include <magic_enum.hpp>
 
 #include "basic/log.h"
-#include "error/lepton_error.h"
-#include "raft.pb.h"
+#include "error/error.h"
 #include "raft_core/pb/conf_state.h"
 #include "raft_core/pb/types.h"
 

@@ -1,3 +1,5 @@
+#include <raft.pb.h>
+
 #include <cassert>
 #include <cstdint>
 #include <functional>
@@ -7,7 +9,6 @@
 #include "error/leaf.h"
 #include "fmt/format.h"
 #include "interaction_env.h"
-#include "raft.pb.h"
 #include "spdlog/spdlog.h"
 
 namespace interaction {

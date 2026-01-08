@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "basic/logger.h"
-#include "error/lepton_error.h"
 #include "raft_core/pb/types.h"
 #include "raft_core/storage.h"
 namespace lepton::core {

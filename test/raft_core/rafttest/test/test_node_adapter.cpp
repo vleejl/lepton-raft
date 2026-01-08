@@ -3,6 +3,7 @@
 #include <raft.pb.h>
 #include <spdlog/spdlog.h>
 
+#include <asio/use_future.hpp>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -20,12 +21,11 @@
 #include "asio/detached.hpp"
 #include "asio/error_code.hpp"
 #include "asio/use_awaitable.hpp"
-#include "asio/use_future.hpp"
 #include "basic/enum_name.h"
 #include "basic/log.h"
 #include "coroutine/channel.h"
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "error/raft_error.h"
 #include "fmt/format.h"
 #include "node_adapter.h"

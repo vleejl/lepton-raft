@@ -2,14 +2,15 @@
 #ifndef _LEPTON_RAW_NODE_H_
 #define _LEPTON_RAW_NODE_H_
 
+#include <raft.pb.h>
+
 #include <cassert>
 #include <vector>
 
 #include "basic/utility_macros.h"
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "error/raft_error.h"
-#include "raft.pb.h"
 #include "raft_core/node_interface.h"
 #include "raft_core/pb/conf_change.h"
 #include "raft_core/pb/protobuf.h"

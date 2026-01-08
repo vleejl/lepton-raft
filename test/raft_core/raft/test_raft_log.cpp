@@ -1,9 +1,10 @@
 
+#include <absl/types/span.h>
 #include <gtest/gtest.h>
+#include <proxy.h>
 #include <raft.pb.h>
 #include <spdlog/spdlog.h>
 
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -14,9 +15,8 @@
 #include <utility>
 #include <vector>
 
-#include "absl/types/span.h"
 #include "basic/spdlog_logger.h"
-#include "proxy.h"
+#include "error/storage_error.h"
 #include "raft_core/config.h"
 #include "raft_core/memory_storage.h"
 #include "raft_core/pb/protobuf.h"

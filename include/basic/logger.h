@@ -3,6 +3,7 @@
 #define _LEPTON_LOGGER_H_
 #include <fmt/core.h>
 
+#include <cassert>
 #include <memory>
 #include <source_location>
 namespace lepton {
@@ -128,11 +129,13 @@ logger_interface& get_logger_ref(T& l) {
 
 template <typename T>
 logger_interface& get_logger_ref(std::unique_ptr<T>& l) {
+  assert(l);
   return *l;  // unique_ptr 解引用
 }
 
 template <typename T>
 logger_interface& get_logger_ref(std::shared_ptr<T>& l) {
+  assert(l);
   return *l;  // shared_ptr 解引用
 }
 

@@ -7,8 +7,9 @@
 #include <optional>
 #include <set>
 
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
+#include "error/raft_error.h"
 #include "fmt/format.h"
 #include "raft_core/quorum/majority.h"
 #include "raft_core/tracker/inflights.h"

@@ -1,5 +1,7 @@
 #include "raft_core/raw_node.h"
 
+#include <raft.pb.h>
+
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -7,11 +9,10 @@
 
 #include "basic/log.h"
 #include "basic/logger.h"
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "error/logic_error.h"
 #include "error/raft_error.h"
-#include "raft.pb.h"
 #include "raft_core/describe.h"
 #include "raft_core/pb/protobuf.h"
 #include "raft_core/pb/types.h"

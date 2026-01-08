@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <raft.pb.h>
 
 #include <asio.hpp>
 #include <asio/awaitable.hpp>
@@ -6,25 +7,24 @@
 #include <asio/io_context.hpp>
 #include <asio/random_access_file.hpp>
 #include <asio/use_awaitable.hpp>
+#include <asio/use_future.hpp>
 #include <atomic>
 #include <chrono>
 #include <iostream>
 #include <string>
 #include <system_error>
+#include <tl/expected.hpp>
 
 #include "asio/cancellation_signal.hpp"
 #include "asio/detached.hpp"
 #include "asio/error_code.hpp"
-#include "asio/use_future.hpp"
 #include "coroutine/channel.h"
 #include "coroutine/channel_endpoint.h"
 #include "coroutine/signal_channel_endpoint.h"
 #include "error/expected.h"
 #include "error/raft_error.h"
 #include "error/storage_error.h"
-#include "raft.pb.h"
 #include "spdlog/spdlog.h"
-#include "tl/expected.hpp"
 using asio::awaitable;
 using asio::co_spawn;
 using asio::detached;

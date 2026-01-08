@@ -1,3 +1,4 @@
+#include <absl/types/span.h>
 #include <gtest/gtest.h>
 #include <raft.pb.h>
 
@@ -9,7 +10,6 @@
 #include <utility>
 #include <vector>
 
-#include "absl/types/span.h"
 #include "basic/spdlog_logger.h"
 #include "raft_core/pb/types.h"
 #include "raft_core/raft_log_unstable.h"

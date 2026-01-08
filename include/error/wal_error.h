@@ -19,6 +19,8 @@ enum class wal_error {
   ERR_SLICE_OUT_OF_RANGE,
   ERR_DECODER_NOT_FOUND,
   ERR_REC_TYPE_INVALID,
+  ERR_NO_MATCHING_SEGMENT,
+  ERR_INCONTINUOUS_SEQUENCE,
 };
 
 // wal_error_category
@@ -42,12 +44,15 @@ class wal_error_category : public base_error_category {
         return "wal: slice bounds out of range";
       case wal_error::ERR_DECODER_NOT_FOUND:
         return "wal: decoder not found";
-      case wal_error::ERR_REC_TYPE_INVALID: {
+      case wal_error::ERR_REC_TYPE_INVALID:
         return "wal: record type invalid";
-      }
+      case wal_error::ERR_NO_MATCHING_SEGMENT:
+        return "wal: no matching segment";
+      case wal_error::ERR_INCONTINUOUS_SEQUENCE:
+        return "wal: file sequence numbers do not increase continuously";
       default:
         assert(false);
-        return "wal: unrecognized storage error";
+        return "wal: unrecognized wal error";
     }
   }
 };

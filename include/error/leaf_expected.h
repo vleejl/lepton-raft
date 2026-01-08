@@ -2,8 +2,8 @@
 #include <tl/expected.hpp>
 #include <type_traits>
 
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 
 #pragma once
 #ifndef _LEPTON_LEAF_EXPECTED_H_

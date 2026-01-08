@@ -1,32 +1,35 @@
 #include "storage/wal/wal.h"
 
+#include <raft.pb.h>
+
+#include <asio/use_future.hpp>
 #include <cassert>
 #include <cstddef>
 #include <filesystem>
 #include <format>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <tl/expected.hpp>
 #include <utility>
 #include <vector>
 
-#include "asio/use_future.hpp"
 #include "basic/defer.h"
 #include "basic/failpoint_async.h"
 #include "basic/logger.h"
 #include "basic/pbutil.h"
 #include "basic/time.h"
+#include "coroutine/coro_macros.h"
+#include "error/error.h"
 #include "error/expected.h"
 #include "error/io_error.h"
 #include "error/leaf.h"
 #include "error/leaf_expected.h"
-#include "error/lepton_error.h"
 #include "error/logic_error.h"
 #include "error/wal_error.h"
 #include "fmt/format.h"
-#include "leaf.hpp"
 #include "magic_enum.hpp"
-#include "raft.pb.h"
 #include "raft_core/pb/protobuf.h"
 #include "raft_core/raw_node.h"
 #include "storage/fileutil/directory.h"
@@ -40,7 +43,6 @@
 #include "storage/wal/decoder.h"
 #include "storage/wal/wal.h"
 #include "storage/wal/wal_file.h"
-#include "tl/expected.hpp"
 #include "v4/proxy.h"
 #include "wal.pb.h"
 namespace lepton::storage::wal {
@@ -74,11 +76,7 @@ bool exist_wal(const std::string& dir) {
   return !entries.empty();
 }
 
-/**
- * 解析 WAL 文件名
- * 格式示例: 0000000000000001-0000000000000005.wal
- */
-auto parse_wal_name(std::string_view str) -> leaf::result<std::pair<std::uint64_t, std::uint64_t>> {
+leaf::result<std::pair<std::uint64_t, std::uint64_t>> parse_wal_name(std::string_view str) {
   // 检查后缀是否为 .wal (C++20 ends_with)
   if (!str.ends_with(".wal")) {
     return new_error(logic_error::INVALID_FORMAT, "bad WAL name: missing .wal suffix");
@@ -126,9 +124,6 @@ bool is_valid_seq(std::span<const std::string> names) {
   return true;
 }
 
-// search_index returns the last array index of names whose raft index section is
-// equal to or smaller than the given index.
-// The given names MUST be sorted.
 leaf::result<int> search_index(const std::vector<std::string>& names, uint64_t index) {
   // 从后往前遍历，寻找第一个满足 index >= curIndex 的位置
   for (int i = static_cast<int>(names.size()) - 1; i >= 0; --i) {
@@ -143,7 +138,7 @@ leaf::result<int> search_index(const std::vector<std::string>& names, uint64_t i
       return i;
     }
   }
-  return -1;
+  return new_error(wal_error::ERR_NO_MATCHING_SEGMENT);
 }
 
 /**
@@ -173,23 +168,25 @@ leaf::result<std::vector<std::string>> read_wal_names(const std::string& dir) {
   BOOST_LEAF_AUTO(entries, fileutil::read_dir(dir));
   auto wnames = check_wal_names(entries);
   if (wnames.empty()) {
+    LOG_ERROR("no WAL files found in directory: {}", dir);
     return new_error(logic_error::ERR_FILE_NOT_FOUND, fmt::format("no WAL files found in directory: {}", dir));
   }
   return wnames;
 }
 
 leaf::result<std::pair<std::vector<std::string>, uint64_t>> select_wal_files(const std::string& dir,
-                                                                             const pb::snapshot& snap) {
+                                                                             std::uint64_t snap_index) {
   BOOST_LEAF_AUTO(wnames, read_wal_names(dir));
-  BOOST_LEAF_AUTO(name_index, search_index(wnames, snap.index()));
+  BOOST_LEAF_AUTO(name_index, search_index(wnames, snap_index));
   if (!is_valid_seq(std::span(wnames).subspan(static_cast<std::size_t>(name_index)))) {
     return new_error(
-        logic_error::INVALID_PARAM,
+        wal_error::ERR_INCONTINUOUS_SEQUENCE,
         fmt::format("wal: file sequence numbers (starting from {}) do not increase continuously", name_index));
   }
   return {wnames, static_cast<uint64_t>(name_index)};
 }
 
+// openWALFiles when write is false
 leaf::result<std::vector<wal_segment>> open_readonly_wal_files(asio::any_io_executor executor, const std::string& dir,
                                                                std::span<const std::string> names) {
   std::vector<wal_segment> file_readers;
@@ -201,6 +198,7 @@ leaf::result<std::vector<wal_segment>> open_readonly_wal_files(asio::any_io_exec
   return file_readers;
 }
 
+// openWALFiles when write is true
 leaf::result<std::vector<wal_segment>> open_locked_wal_file(rocksdb::Env* env, asio::any_io_executor executor,
                                                             const std::string& dir,
                                                             std::span<const std::string> names) {
@@ -217,18 +215,22 @@ leaf::result<std::vector<wal_segment>> open_locked_wal_file(rocksdb::Env* env, a
 leaf::result<wal_handle> open_at_index(rocksdb::Env* env, asio::any_io_executor executor, const std::string& dir,
                                        std::size_t segment_size_bytes, pb::snapshot&& snap, bool write,
                                        std::shared_ptr<lepton::logger_interface> logger) {
-  BOOST_LEAF_AUTO(wal_files_pair, select_wal_files(dir, snap));
+  BOOST_LEAF_AUTO(wal_files_pair, select_wal_files(dir, snap.index()));
   auto& [wal_names, start_index] = wal_files_pair;
+  assert(start_index < wal_names.size());
+  std::span<const std::string> names = {wal_names.data() + start_index, wal_names.size() - start_index};
   if (write) {
-    BOOST_LEAF_AUTO(lock_files, open_locked_wal_file(env, executor, dir, wal_names));
+    BOOST_LEAF_AUTO(lock_files, open_locked_wal_file(env, executor, dir, names));
+    assert(!lock_files.empty());
     BOOST_LEAF_AUTO(file_pipeline_handle, new_file_pipeline(executor, env, dir, segment_size_bytes, logger));
     auto wal_handle = std::make_shared<wal>(env, executor, dir, segment_size_bytes, std::move(snap),
                                             std::move(lock_files), std::move(file_pipeline_handle), logger);
-    LOG_TRACE("wal tail file name: {}", wal_handle->tail()->name());
+    LOG_TRACE("wal tail file name: {}, decoder last crc: {}", wal_handle->tail()->name(),
+              wal_handle->decoder_->last_crc());
     BOOST_LEAF_AUTO(_, parse_wal_name(fileutil::base_name(wal_handle->tail()->name())));
     return wal_handle;
   } else {
-    BOOST_LEAF_AUTO(file_readers, open_readonly_wal_files(executor, dir, wal_names));
+    BOOST_LEAF_AUTO(file_readers, open_readonly_wal_files(executor, dir, names));
     return std::make_shared<wal>(env, executor, dir, segment_size_bytes, std::move(snap), std::move(file_readers),
                                  nullptr, logger);
   }
@@ -243,11 +245,17 @@ leaf::result<wal_handle> open(rocksdb::Env* env, asio::any_io_executor executor,
   return wal_handle;
 }
 
+leaf::result<wal_handle> open_for_read(rocksdb::Env* env, asio::any_io_executor executor, const std::string& dir,
+                                       std::size_t segment_size_bytes, pb::snapshot&& snap,
+                                       std::shared_ptr<lepton::logger_interface> logger) {
+  return open_at_index(env, executor, dir, segment_size_bytes, std::move(snap), false, logger);
+}
+
 asio::awaitable<expected<raftpb::HardState>> verify(asio::any_io_executor executor, const std::string& dir,
                                                     const pb::snapshot& snap,
                                                     std::shared_ptr<lepton::logger_interface> logger) {
   auto file_readers_result = leaf_to_expected([&]() -> leaf::result<std::vector<wal_segment>> {
-    BOOST_LEAF_AUTO(wal_files_pair, select_wal_files(dir, snap));
+    BOOST_LEAF_AUTO(wal_files_pair, select_wal_files(dir, snap.index()));
     auto& [wal_names, start_index] = wal_files_pair;
     BOOST_LEAF_AUTO(file_readers, open_readonly_wal_files(executor, dir, wal_names));
     return file_readers;
@@ -328,6 +336,78 @@ asio::awaitable<expected<raftpb::HardState>> verify(asio::any_io_executor execut
   }
 
   co_return state;
+}
+
+asio::awaitable<expected<pb::repeated_snapshot>> valid_snapshot_entries(
+    asio::any_io_executor executor, const std::string& wal_dir, std::shared_ptr<lepton::logger_interface> logger) {
+  auto file_readers_result = leaf_to_expected([&]() -> leaf::result<std::vector<wal_segment>> {
+    BOOST_LEAF_AUTO(wal_names, read_wal_names(wal_dir));
+    BOOST_LEAF_AUTO(file_readers, open_readonly_wal_files(executor, wal_dir, wal_names));
+    return file_readers;
+  });
+  if (!file_readers_result) {
+    LOGGER_ERROR(logger, "open readonly wal files failed, error:{}", file_readers_result.error().message());
+    co_return tl::unexpected(file_readers_result.error());
+  }
+
+  auto file_readers = std::move(file_readers_result.value());
+  // create a new decoder from the readers on the WAL files
+  auto decoder_handle = std::make_unique<decoder>(executor, logger, to_reader_views(file_readers));
+
+  pb::repeated_snapshot snaps;
+  walpb::Record rec;
+  std::error_code ec;
+  raftpb::HardState state;
+  while (!ec) {
+    auto result = co_await decoder_handle->decode_record(rec);
+    if (!result) {
+      ec = result.error();
+      continue;
+    }
+
+    switch (rec.type()) {
+      case walpb::METADATA_TYPE: {
+        break;
+      }
+      case walpb::ENTRY_TYPE: {
+        break;
+      }
+      case walpb::STATE_TYPE: {
+        protobuf_must_parse(rec.data(), state, *logger);
+        break;
+      }
+      case walpb::CRC_TYPE: {
+        auto crc = decoder_handle->last_crc();
+        // current crc of decoder must match the crc of the record.
+        // do no need to match 0 crc, since the decoder is a new one at this case.
+        if ((crc != 0) && !pb::validate_rec_crc(rec, crc)) {
+          co_return unexpected(wal_error::ERR_CRC_MISMATCH);
+        }
+        decoder_handle->update_crc(rec.crc());
+        break;
+      }
+      case walpb::SNAPSHOT_TYPE: {
+        pb::snapshot lodaed_snap;
+        protobuf_must_parse(rec.data(), lodaed_snap, *logger);
+        snaps.Add(std::move(lodaed_snap));
+        break;
+      }
+      default: {
+        co_return unexpected(wal_error::ERR_REC_TYPE_INVALID);
+        break;
+      }
+    }
+  }
+  // We do not have to read out all the WAL entries
+  // as the decoder is opened in read mode.
+  if (ec != io_error::IO_EOF && ec != io_error::UNEXPECTED_EOF) {
+    co_return tl::unexpected(ec);
+  }
+  auto it = std::remove_if(snaps.begin(), snaps.end(), [&](const pb::snapshot& s) {
+    return s.index() > state.commit();  // filter out any snaps that are newer than the committed hardstate
+  });
+  snaps.erase(it, snaps.end());
+  co_return snaps;
 }
 
 asio::awaitable<expected<wal_handle>> create_wal(rocksdb::Env* env, asio::any_io_executor executor,
@@ -413,20 +493,19 @@ wal::wal(rocksdb::Env* env, asio::any_io_executor executor, const std::string& d
       segments_(std::move(segments)),
       file_pipeline_(std::move(file_pipeline)),
       logger_(std::move(logger)) {
-  decoder_ = std::make_unique<decoder>(executor, logger, to_reader_views(segments));
+  assert(!segments_.empty());
+  auto readers = to_reader_views(segments_);
+  assert(!readers.empty());
+  decoder_ = std::make_unique<decoder>(executor, logger_, readers);
 }
 
 asio::awaitable<expected<wal::read_result>> wal::read_all() {
-  auto self = shared_from_this();
-  if (!strand_.running_in_this_thread()) {
-    co_await asio::dispatch(strand_, asio::use_awaitable);
-  }
+  ASIO_ENSURE_STRAND(strand_)
 
   if (decoder_ == nullptr) {
     co_return unexpected(wal_error::ERR_DECODER_NOT_FOUND);
   }
 
-  walpb::Record rec;
   std::error_code ec;
   auto match = false;
   read_result ret_result;
@@ -434,10 +513,12 @@ asio::awaitable<expected<wal::read_result>> wal::read_all() {
   auto& entries = ret_result.entries;
   auto& hard_state = ret_result.state;
   while (!ec) {
+    walpb::Record rec;
     if (auto result = co_await decoder_->decode_record(rec); !result) {
       ec = result.error();
       continue;
     }
+    LOGGER_TRACE(logger_, "decode record content: {}", rec.DebugString());
 
     switch (rec.type()) {
       case walpb::METADATA_TYPE: {
@@ -460,18 +541,27 @@ asio::awaitable<expected<wal::read_result>> wal::read_all() {
 
           // index 从 1 开始，数组下标从 0 开始
           auto diff = entry.index() - start_.index() - 1;
-          assert(diff > static_cast<uint64_t>(std::numeric_limits<int>::max()));
+          if (diff >= static_cast<uint64_t>(std::numeric_limits<int>::max())) {
+            // 索引太大，超过 int 表示范围
+            LOGGER_ERROR(logger_,
+                         "{}, snapshot[Index: {}, Term: {}], current entry[Index: {}, Term: {}], len(ents): {}",
+                         magic_enum::enum_name(wal_error::ERR_SLICE_OUT_OF_RANGE), start_.index(), start_.term(),
+                         entry.index(), entry.term(), entries.size());
+            co_return unexpected(wal_error::ERR_SLICE_OUT_OF_RANGE);
+          }
           auto offset = static_cast<int>(diff);
-          if (offset > entries.size()) {
+          assert(offset >= 0);
+          const auto entries_size = entries.size();
+          if (offset > entries_size) {
             // return error before append call causes runtime panic.
             // We still return the continuous WAL entries that have already been read.
             // Refer to https://github.com/etcd-io/etcd/pull/19038#issuecomment-2557414292.
             LOGGER_ERROR(logger_,
                          "{}, snapshot[Index: {}, Term: {}], current entry[Index: {}, Term: {}], len(ents): {}",
                          magic_enum::enum_name(wal_error::ERR_SLICE_OUT_OF_RANGE), start_.index(), start_.term(),
-                         entry.index(), entry.term(), entries.size());
+                         entry.index(), entry.term(), entries_size);
             co_return unexpected(wal_error::ERR_SLICE_OUT_OF_RANGE);
-          } else if (offset == entries.size()) {
+          } else if (offset == entries_size) {
             entry_index_ = entry.index();
             entries.Add(std::move(entry));
           } else {
@@ -479,7 +569,7 @@ asio::awaitable<expected<wal::read_result>> wal::read_all() {
             // TODO(veejl): use protobuf 3
             entry_index_ = entry.index();
             entries.Mutable(offset)->Swap(&entry);
-            entries.DeleteSubrange(offset + 1, entries.size() - offset - 1);
+            entries.DeleteSubrange(offset + 1, entries_size - offset - 1);
           }
         }
         break;
@@ -585,10 +675,7 @@ asio::awaitable<expected<void>> wal::save_snapshot(const pb::snapshot& snapshot)
     co_return ret;
   }
 
-  auto self = shared_from_this();
-  if (!strand_.running_in_this_thread()) {
-    co_await asio::dispatch(strand_, asio::use_awaitable);
-  }
+  ASIO_ENSURE_STRAND(strand_)
 
   walpb::Record record;
   record.set_type(::walpb::RecordType::SNAPSHOT_TYPE);
@@ -632,10 +719,7 @@ asio::awaitable<expected<void>> wal::save_state(raftpb::HardState&& state) {
 }
 
 asio::awaitable<expected<void>> wal::save(const core::pb::repeated_entry& entries, raftpb::HardState&& state) {
-  auto self = shared_from_this();
-  if (!strand_.running_in_this_thread()) {
-    co_await asio::dispatch(strand_, asio::use_awaitable);
-  }
+  ASIO_ENSURE_STRAND(strand_)
 
   // short cut, do not call sync
   if (core::pb::is_empty_hard_state(state) && entries.empty()) {
@@ -725,7 +809,8 @@ asio::awaitable<expected<void>> wal::cut() {
         assert(dir_file_);
         LEPTON_LEAF_CHECK(dir_file_->fsync());
         // reopen newTail with its new path so calls to Name() match the wal filename format
-        assert(tail()->close());
+        auto close_result = tail()->close();
+        assert(close_result);
         BOOST_LEAF_AUTO(new_tail,
                         fileutil::create_locked_file_endpoint(env_, executor_, fpath, asio::file_base::write_only));
         LEPTON_LEAF_CHECK(new_tail->seek_start(off));
@@ -770,6 +855,49 @@ asio::awaitable<expected<void>> wal::sync() {
   co_return result;
 }
 
+asio::awaitable<expected<void>> wal::release_lock_to(std::uint64_t index) {
+  ASIO_ENSURE_STRAND(strand_)
+  if (segments_.empty()) {
+    co_return ok();
+  }
+
+  int smaller = 0;
+  auto found = false;
+  for (auto [i, file_handle] : segments_ | std::views::enumerate) {
+    std::string_view file_name;
+    auto result = std::visit(
+        [&](auto& handle) {
+          return leaf_to_expected([&]() {
+            file_name = handle->name();
+            return parse_wal_name(fileutil::base_name(handle->name()));
+          });
+        },
+        file_handle);
+    if (!result) {
+      LOGGER_ERROR(logger_, "parse wal name:{} failed, error:{}", file_name, result.error().message());
+      co_return tl::unexpected(result.error());
+    }
+    auto [_, lock_index] = *result;
+    if (lock_index > index) {
+      smaller = static_cast<int>(index) - 1;
+      found = true;
+      break;
+    }
+  }
+
+  // if no lock index is greater than the release index, we can
+  // release lock up to the last one(excluding).
+  if (!found) {
+    smaller = static_cast<int>(segments_.size()) - 1;
+  }
+
+  if (smaller <= 0) {
+    co_return ok();
+  }
+  segments_.erase(segments_.begin(), segments_.begin() + smaller);
+  co_return ok();
+}
+
 leaf::result<void> wal::rename_wal(const std::string& tmp_dir_path) {
   LEPTON_LEAF_CHECK(fileutil::remove_all(dir_));
   LEPTON_LEAF_CHECK(fileutil::rename(tmp_dir_path, dir_));
@@ -804,10 +932,7 @@ void wal::cleanup_wal() {
 }
 
 asio::awaitable<expected<void>> wal::close() {
-  auto self = shared_from_this();
-  if (!strand_.running_in_this_thread()) {
-    co_await asio::dispatch(strand_, asio::use_awaitable);
-  }
+  ASIO_ENSURE_STRAND(strand_)
 
   if (is_closed_) co_return ok();
   is_closed_ = true;
@@ -825,8 +950,10 @@ asio::awaitable<expected<void>> wal::close() {
       LOGGER_WARN(logger_, "Failed to close wal file handle: {}", result.error().message());
     }
   }
-  assert(dir_file_);
-  co_return leaf_to_expected([&]() -> leaf::result<void> { return dir_file_->close(); });
+  if (dir_file_) {
+    co_return leaf_to_expected([&]() -> leaf::result<void> { return dir_file_->close(); });
+  }
+  co_return ok();
 }
 
 fileutil::locked_file_endpoint* wal::tail() {

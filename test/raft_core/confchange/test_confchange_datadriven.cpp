@@ -1,4 +1,5 @@
 #include <absl/strings/str_split.h>
+#include <absl/types/span.h>
 #include <fmt/core.h>
 #include <gtest/gtest.h>
 #include <raft.pb.h>
@@ -11,12 +12,11 @@
 #include <utility>
 #include <vector>
 
-#include "absl/types/span.h"
 #include "basic/defer.h"
 #include "basic/logger.h"
 #include "data_driven.h"
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "fmt/format.h"
 #include "raft_core/confchange/confchange.h"
 #include "raft_core/pb/types.h"

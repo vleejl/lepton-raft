@@ -1,8 +1,11 @@
 #include "storage/wal/decoder.h"
 
+#include <proxy.h>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <tl/expected.hpp>
 #include <vector>
 
 #include "absl/crc/crc32c.h"
@@ -13,13 +16,11 @@
 #include "error/io_error.h"
 #include "error/leaf_expected.h"
 #include "error/protobuf_error.h"
-#include "proxy.h"
 #include "storage/ioutil/disk_constants.h"
 #include "storage/ioutil/fixed_byte_buffer.h"
 #include "storage/ioutil/io.h"
 #include "storage/ioutil/reader.h"
 #include "storage/pb/wal_protobuf.h"
-#include "tl/expected.hpp"
 #include "v4/proxy.h"
 namespace lepton::storage::wal {
 
@@ -122,6 +123,7 @@ asio::awaitable<expected<void>> decoder::decode_record(walpb::Record& r) {
     }
 
     if (!read_result) {
+      LOGGER_ERROR(logger_, "read uint64 failed, error:{}", read_result.error().message());
       co_return tl::unexpected(read_result.error());
     }
     // 后续解析逻辑...
@@ -138,6 +140,7 @@ asio::awaitable<expected<void>> decoder::decode_at_offset(pro::proxy_view<ioutil
     return file_size;
   });
   if (!file_size_result) {
+    LOGGER_ERROR(logger_, "get file size exceotion, error:{}", file_size_result.error().message());
     co_return tl::unexpected(file_size_result.error());
   }
   const auto file_size = file_size_result.value();
@@ -159,6 +162,7 @@ asio::awaitable<expected<void>> decoder::decode_at_offset(pro::proxy_view<ioutil
     if (read_full_result.error() == io_error::IO_EOF) {
       co_return tl::unexpected(io_error::UNEXPECTED_EOF);
     }
+    LOGGER_ERROR(logger_, "read_full failed, error:{}", read_full_result.error().message());
     co_return tl::unexpected(read_full_result.error());
   }
   if (!rec.ParseFromArray(static_cast<void*>(record_buf.data()), static_cast<int>(rec_bytes))) {
@@ -182,8 +186,7 @@ asio::awaitable<expected<void>> decoder::decode_at_offset(pro::proxy_view<ioutil
         co_return tl::unexpected(io_error::UNEXPECTED_EOF);
       }
       LOGGER_ERROR(logger_, "{}: in file '{}' at position: {}, expected crc: {}, record crc: {}",
-                   validate_crc_result.error().message(), buf_reader->name(), last_valid_off_,
-                   static_cast<std::uint32_t>(crc_), rec.crc());
+                   validate_crc_result.error().message(), buf_reader->name(), last_valid_off_, last_crc(), rec.crc());
       co_return validate_crc_result;
     }
   }

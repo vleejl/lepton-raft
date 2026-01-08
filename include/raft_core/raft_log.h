@@ -6,7 +6,7 @@
 #include <raft.pb.h>
 
 #include "basic/utility_macros.h"
-#include "error/lepton_error.h"
+#include "error/error.h"
 #include "raft_core/config.h"
 #include "raft_core/pb/entry_view.h"
 #include "raft_core/pb/types.h"

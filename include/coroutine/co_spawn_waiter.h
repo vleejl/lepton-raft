@@ -1,9 +1,13 @@
 #pragma once
 #ifndef _LEPTON_CO_SPAWN_WAITER_H_
 #define _LEPTON_CO_SPAWN_WAITER_H_
+#include <asio.hpp>
+#include <asio/awaitable.hpp>
+#include <asio/co_spawn.hpp>
+#include <asio/experimental/awaitable_operators.hpp>
 #include <memory>
 
-#include "coroutine/channel.h"
+#include "coroutine/coro_types.h"
 
 namespace lepton::coro {
 template <typename AwaitableFunc>

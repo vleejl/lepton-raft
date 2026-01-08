@@ -3,7 +3,7 @@
 #define _LEPTON_TEST_RAFT_STATE_MACHINE_H_
 #include <proxy.h>
 
-#include "error/lepton_error.h"
+#include "error/error.h"
 #include "raft_core/pb/types.h"
 
 PRO_DEF_MEM_DISPATCH(state_machine_step, step);

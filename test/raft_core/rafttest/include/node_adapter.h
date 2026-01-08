@@ -1,6 +1,9 @@
 #pragma once
 #ifndef _LEPTON_NODE_H_
 #define _LEPTON_NODE_H_
+#include <raft.pb.h>
+
+#include <asio/use_future.hpp>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -13,7 +16,6 @@
 #include "asio/awaitable.hpp"
 #include "asio/error_code.hpp"
 #include "asio/use_awaitable.hpp"
-#include "asio/use_future.hpp"
 #include "async_mutex.h"
 #include "basic/enum_name.h"
 #include "basic/spdlog_logger.h"
@@ -21,7 +23,6 @@
 #include "coroutine/channel_endpoint.h"
 #include "coroutine/co_spawn_waiter.h"
 #include "coroutine/signal_channel_endpoint.h"
-#include "raft.pb.h"
 #include "raft_core/config.h"
 #include "raft_core/describe.h"
 #include "raft_core/memory_storage.h"

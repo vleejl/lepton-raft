@@ -1,5 +1,7 @@
 #pragma once
 
+#include <raft.pb.h>
+
 #include <asio/error_code.hpp>
 #include <cassert>
 #include <chrono>
@@ -16,7 +18,6 @@
 #include "basic/logger.h"
 #include "coroutine/channel.h"
 #include "coroutine/channel_endpoint.h"
-#include "raft.pb.h"
 
 namespace rafttest {
 

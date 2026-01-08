@@ -3,10 +3,10 @@
 #define _LEPTON_ENCODER_H_
 #include <wal.pb.h>
 
+#include <asio/any_io_executor.hpp>
 #include <cstdint>
 
 #include "absl/crc/crc32c.h"
-#include "asio/any_io_executor.hpp"
 #include "asio/strand.hpp"
 #include "basic/logger.h"
 #include "basic/utility_macros.h"

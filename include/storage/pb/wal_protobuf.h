@@ -5,11 +5,12 @@
 #include <raft.pb.h>
 #include <wal.pb.h>
 
+#include <cassert>
 #include <concepts>
 #include <cstdint>
 
+#include "basic/logger.h"
 #include "error/expected.h"
-#include "error/leaf.h"
 #include "error/wal_error.h"
 #include "types.h"
 
@@ -25,8 +26,13 @@ template <crc_type T>
 expected<void> validate_rec_crc(const walpb::Record& rec, T expected_crc) {
   // 统一转换
   const uint32_t target_crc = static_cast<uint32_t>(expected_crc);
-
-  if (!rec.has_crc() || rec.crc() != target_crc) {
+  if (!rec.has_crc()) {
+    assert(false);
+    LOG_TRACE("record lack crc field");
+    return tl::unexpected(wal_error::ERR_CRC_MISMATCH);
+  }
+  if (rec.crc() != target_crc) {
+    LOG_TRACE("crc value mismatch, record crc:{}, expected crc:{}", rec.crc(), target_crc);
     return tl::unexpected(wal_error::ERR_CRC_MISMATCH);
   }
 

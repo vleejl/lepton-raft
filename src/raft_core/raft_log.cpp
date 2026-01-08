@@ -1,19 +1,20 @@
 #include "raft_core/raft_log.h"
 
+#include <absl/types/span.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <raft.pb.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cassert>
 #include <utility>
 
-#include "absl/types/span.h"
 #include "basic/log.h"
 #include "basic/logger.h"
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
-#include "raft.pb.h"
+#include "error/storage_error.h"
 #include "raft_core/config.h"
 #include "raft_core/pb/protobuf.h"
 #include "raft_core/pb/types.h"

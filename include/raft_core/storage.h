@@ -6,7 +6,7 @@
 
 #include <cstdint>
 
-#include "error/lepton_error.h"
+#include "error/error.h"
 #include "raft_core/pb/types.h"
 namespace lepton::core {
 

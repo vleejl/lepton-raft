@@ -1,16 +1,16 @@
 #pragma once
+#include "storage/pb/types.h"
 #ifndef _LEPTON_TEST_RAFT_PROTOBUF_H_
 #define _LEPTON_TEST_RAFT_PROTOBUF_H_
+#include <raft.pb.h>
+
 #include <cstdint>
 #include <vector>
 
-#include "error/lepton_error.h"
-#include "raft.pb.h"
 #include "raft_core/pb/conf_change.h"
 #include "raft_core/pb/types.h"
 #include "raft_core/read_only.h"
 #include "raft_core/ready.h"
-#include "raft_core/tracker/state.h"
 
 namespace test_pb {
 
@@ -82,6 +82,8 @@ raftpb::Snapshot create_snapshot(std::uint64_t index, std::uint64_t term);
 raftpb::Snapshot create_snapshot(std::uint64_t index, std::uint64_t term, std::vector<std::uint64_t> &&voters);
 raftpb::Snapshot create_snapshot(std::uint64_t index, std::uint64_t term, const std::string &data,
                                  std::optional<raftpb::ConfState> state);
+bool compare_repeated_snap_meta(const lepton::storage::pb::repeated_snapshot &lhs,
+                                const lepton::storage::pb::repeated_snapshot &rhs);
 
 inline constexpr std::array<raftpb::MessageType, 24> all_raftpb_message_types = {
     raftpb::MSG_HUP,

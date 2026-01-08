@@ -10,7 +10,9 @@
 #include <map>
 
 #include "basic/utility_macros.h"
-#include "error/lepton_error.h"
+#include "error/error.h"
+#include "error/leaf.h"
+#include "error/logic_error.h"
 #include "fmt/format.h"
 namespace lepton::core {
 namespace quorum {

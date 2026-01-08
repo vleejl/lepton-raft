@@ -1,6 +1,7 @@
 #pragma once
 #ifndef _LEPTON_NODE_
 #define _LEPTON_NODE_
+#include <raft.pb.h>
 #include <spdlog/spdlog.h>
 
 #include <asio.hpp>
@@ -11,7 +12,6 @@
 #include <asio/io_context.hpp>
 #include <cassert>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <stop_token>
@@ -26,7 +26,6 @@
 #include "coroutine/channel_endpoint.h"
 #include "coroutine/signal_channel_endpoint.h"
 #include "error/expected.h"
-#include "raft.pb.h"
 #include "raft_core/node_interface.h"
 #include "raft_core/raft.h"
 #include "raft_core/raw_node.h"

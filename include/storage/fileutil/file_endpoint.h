@@ -45,6 +45,9 @@ class file_endpoint : public file_reader {
   expected<void> fdatasync();
 };
 
+lepton::leaf::result<file_endpoint> create_file_endpoint(asio::any_io_executor executor, const std::string& filename,
+                                                         asio::file_base::flags flags);
+
 }  // namespace lepton::storage::fileutil
 
 #endif  // _LEPTON_FILE_ENDPOINT_H_

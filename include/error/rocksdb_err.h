@@ -146,4 +146,8 @@ template <>
 struct is_error_code_enum<lepton::rocksdb_err> : true_type {};
 }  // namespace std
 
+namespace rocksdb {
+inline std::error_code make_error_code(const Status& s) noexcept { return lepton::make_error_code(s); }
+}  // namespace rocksdb
+
 #endif  // _LEPTON_ROCKSDB_ERR_H_

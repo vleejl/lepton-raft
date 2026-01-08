@@ -1,5 +1,8 @@
 #include "raft_core/raft.h"
 
+#include <absl/types/span.h>
+#include <proxy.h>
+#include <raft.pb.h>
 #include <spdlog/spdlog.h>
 
 #include <cassert>
@@ -9,15 +12,14 @@
 #include <vector>
 
 #include "absl/strings/str_join.h"
-#include "absl/types/span.h"
 #include "basic/enum_name.h"
 #include "basic/log.h"
 #include "basic/logger.h"
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
+#include "error/raft_error.h"
+#include "error/storage_error.h"
 #include "fmt/format.h"
-#include "proxy.h"
-#include "raft.pb.h"
 #include "raft_core/confchange/confchange.h"
 #include "raft_core/confchange/restore.h"
 #include "raft_core/config.h"

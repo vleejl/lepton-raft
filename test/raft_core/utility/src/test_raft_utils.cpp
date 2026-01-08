@@ -1,6 +1,8 @@
 #include "test_raft_utils.h"
 
 #include <gtest/gtest.h>
+#include <proxy.h>
+#include <raft.pb.h>
 
 #include <cassert>
 #include <cstddef>
@@ -11,9 +13,7 @@
 
 #include "basic/log.h"
 #include "basic/spdlog_logger.h"
-#include "error/lepton_error.h"
-#include "proxy.h"
-#include "raft.pb.h"
+#include "error/error.h"
 #include "raft_core/memory_storage.h"
 #include "raft_core/raft.h"
 #include "raft_core/storage.h"

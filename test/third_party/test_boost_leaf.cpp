@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <raft.pb.h>
 
 #include <asio.hpp>
 #include <cstdint>
@@ -9,11 +10,12 @@
 #include <tl/expected.hpp>
 
 #include "asio/awaitable.hpp"
+#include "error//logic_error.h"
+#include "error/error.h"
 #include "error/leaf.h"
 #include "error/leaf_expected.h"
-#include "error/lepton_error.h"
+#include "error/raft_error.h"
 #include "error/storage_error.h"
-#include "raft.pb.h"
 using namespace lepton;
 // 模拟存储类
 class Storage {

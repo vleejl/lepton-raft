@@ -15,7 +15,8 @@
 #include "basic/log.h"
 #include "basic/logger.h"
 #include "basic/utility_macros.h"
-#include "error/lepton_error.h"
+#include "error/error.h"
+#include "error/logic_error.h"
 #include "raft_core/pb/protobuf.h"
 #include "raft_core/pb/types.h"
 namespace lepton::core {

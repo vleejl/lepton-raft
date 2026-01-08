@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <raft.pb.h>
 #include <rocksdb/env.h>
 #include <rocksdb/status.h>
 
@@ -8,30 +9,30 @@
 #include <asio/io_context.hpp>
 #include <asio/random_access_file.hpp>
 #include <asio/use_awaitable.hpp>
+#include <asio/use_future.hpp>
 #include <atomic>
 #include <chrono>
 #include <iostream>
 #include <string>
 #include <system_error>
+#include <tl/expected.hpp>
 
 #include "asio/cancellation_signal.hpp"
 #include "asio/detached.hpp"
 #include "asio/error_code.hpp"
-#include "asio/use_future.hpp"
 #include "coroutine/channel.h"
 #include "coroutine/channel_endpoint.h"
 #include "coroutine/signal_channel_endpoint.h"
+#include "error/error.h"
 #include "error/expected.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "error/raft_error.h"
 #include "error/rocksdb_err.h"
 #include "error/storage_error.h"
 #include "fmt/format.h"
-#include "raft.pb.h"
 #include "spdlog/spdlog.h"
-#include "test_file.h"
-#include "tl/expected.hpp"
+#include "storage/fileutil/path.h"
+
 using asio::awaitable;
 using asio::co_spawn;
 using asio::detached;
@@ -57,7 +58,7 @@ awaitable<void> random_async_write_file(asio::any_io_executor ex) {
   asio::random_access_file file(ex);
 
   constexpr auto filename = "test.txt";
-  delete_if_exists(filename);
+  lepton::storage::fileutil::remove(filename);
   // 打开（可选 flags：read_only, read_write, append 等）
   file.open(filename, asio::random_access_file::read_write | asio::random_access_file::create);
 

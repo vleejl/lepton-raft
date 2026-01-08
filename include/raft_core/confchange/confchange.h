@@ -7,7 +7,7 @@
 #include <tuple>
 
 #include "basic/utility_macros.h"
-#include "error/lepton_error.h"
+#include "error/error.h"
 #include "raft_core/tracker/progress.h"
 #include "raft_core/tracker/tracker.h"
 namespace lepton::core {

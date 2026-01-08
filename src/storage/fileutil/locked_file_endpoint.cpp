@@ -1,11 +1,12 @@
 #include "storage/fileutil/locked_file_endpoint.h"
 
+#include <asio/any_io_executor.hpp>
 #include <memory>
 
-#include "asio/any_io_executor.hpp"
 #include "basic/logger.h"
+#include "error/error.h"
 #include "error/io_error.h"
-#include "error/lepton_error.h"
+#include "error/rocksdb_err.h"  // IWYU pragma: keep
 #include "storage/fileutil/file_endpoint.h"
 #include "storage/fileutil/path.h"
 

@@ -7,7 +7,7 @@
 #include <filesystem>
 
 #include "basic/logger.h"
-#include "error/lepton_error.h"
+#include "error/error.h"
 namespace fs = std::filesystem;
 
 namespace lepton::storage::fileutil {

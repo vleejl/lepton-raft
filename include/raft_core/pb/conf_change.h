@@ -5,8 +5,8 @@
 
 #include <tuple>
 
+#include "error/error.h"
 #include "error/leaf.h"
-#include "error/lepton_error.h"
 #include "raft_core/pb/types.h"
 namespace lepton::core {
 namespace pb {

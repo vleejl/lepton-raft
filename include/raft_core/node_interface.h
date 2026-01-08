@@ -5,7 +5,6 @@
 #include <proxy.h>
 #include <raft.pb.h>
 
-#include "error/lepton_error.h"
 #include "raft_core/pb/conf_change.h"
 #include "raft_core/ready.h"
 namespace lepton::core {

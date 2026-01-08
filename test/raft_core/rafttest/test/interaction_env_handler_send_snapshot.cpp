@@ -1,11 +1,11 @@
+#include <raft.pb.h>
+
 #include <cassert>
 #include <cstddef>
 
 #include "data_driven.h"
 #include "error/logic_error.h"
 #include "interaction_env.h"
-#include "leaf.hpp"
-#include "raft.pb.h"
 #include "raft_core/describe.h"
 
 namespace interaction {

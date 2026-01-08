@@ -3,7 +3,7 @@
 #define _LEPTON_CONF_STATE_H_
 #include <raft.pb.h>
 
-#include "error/lepton_error.h"
+#include "error/leaf.h"
 
 namespace lepton::core {
 

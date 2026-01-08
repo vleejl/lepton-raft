@@ -1,3 +1,5 @@
+#include <raft.pb.h>
+
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -7,7 +9,6 @@
 #include "error/leaf.h"
 #include "error/logic_error.h"
 #include "interaction_env.h"
-#include "raft.pb.h"
 #include "raft_core/describe.h"
 #include "spdlog/spdlog.h"
 #include "test_raft_protobuf.h"

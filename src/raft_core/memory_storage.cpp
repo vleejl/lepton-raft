@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "basic/log.h"
+#include "error/storage_error.h"
 #include "raft_core/pb/protobuf.h"
 
 namespace lepton::core {
