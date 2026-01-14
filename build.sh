@@ -136,7 +136,7 @@ setup_vscode_launch() {
     local source_file=""
     case "$(uname -s)" in
         Darwin)
-            source_file="$vscode_dir/launch.mac.json"
+            source_file="$vscode_dir/launch.macos.json"
             echo "[INFO] Detected macOS, using $source_file"
             ;;
         Linux)

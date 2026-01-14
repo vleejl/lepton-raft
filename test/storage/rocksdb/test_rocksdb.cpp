@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -125,4 +126,11 @@ TEST_F(rocksdb_test_suit, rocks_file_opt) {
   }
 
   std::cout << "Read data:\n" << std::string(result.data(), result.size()) << std::endl;
+
+  std::unique_ptr<rocksdb::RandomAccessFile> rwfile;
+  s = env->NewRandomAccessFile(temp_wal_log, &rwfile, env_opts);
+  if (!s.ok()) {
+    std::cerr << "Failed to open for read: " << s.ToString() << std::endl;
+    return;
+  }
 }

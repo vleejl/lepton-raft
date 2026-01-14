@@ -44,7 +44,7 @@ std::string conf_changes_to_string(const repeated_conf_change& ccs);
 // - ln: make n a learner,
 // - rn: remove n, and
 // - un: update n.
-leaf::result<repeated_conf_change> conf_changes_from_string(const std::string& s);
+leaf::result<repeated_conf_change> conf_changes_from_string(std::string_view s);
 
 std::string describe_conf_change_v2(const raftpb::ConfChangeV2& cc);
 

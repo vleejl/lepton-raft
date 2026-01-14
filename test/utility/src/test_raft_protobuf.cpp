@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "basic/logger.h"
 #include "raft_core/pb/conf_change.h"
 
 raftpb::ConfChange create_conf_change_v1(std::uint64_t node_id, raftpb::ConfChangeType type) {
@@ -258,7 +259,7 @@ bool compare_optional_conf_state(const std::optional<raftpb::ConfState> &lhs,
 
 bool operator==(const raftpb::Entry &lhs, const raftpb::Entry &rhs) {
   if (lhs.term() != rhs.term()) {
-    printf("lhs term:%lu, rhs term:%lu\n", lhs.term(), rhs.term());
+    LOG_INFO("lhs term:{}, rhs term:{}", lhs.term(), rhs.term());
     return false;
   }
   if (lhs.index() != rhs.index()) {
