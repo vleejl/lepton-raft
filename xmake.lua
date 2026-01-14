@@ -136,7 +136,6 @@ target("lepton-raft-core-unit-test")
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
 
-
 target("lepton-raft-core-benchmark-test")
     add_includedirs("include/")
     add_includedirs("third_party/dtl")
@@ -162,7 +161,7 @@ target("lepton-raft-core-benchmark-test")
     -- lepton test utility
     add_files("test/utility/src/*.cpp", {cxflags = test_cxflags})
     -- lepton-raft benchmark test file
-    add_files("test/raft_core/benchmark.cpp")
+    add_files("test/benchmark.cpp")
     add_files("test/raft_core/quorum/test_quorum_benchmark.cpp", {cxflags = test_cxflags})
     add_files("test/raft_core/raft/test_raw_node_benchmark.cpp", {cxflags = test_cxflags})
     if is_plat("linux") then
@@ -171,7 +170,6 @@ target("lepton-raft-core-benchmark-test")
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
 
--- 未实现完成，不建议引用相关头文件
 target("lepton-raft-storage-unit-test")
     add_includedirs("include/")
     on_load(apply_sanitizers)
@@ -210,10 +208,49 @@ target("lepton-raft-storage-unit-test")
     add_files("test/storage/ioutil/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/rocksdb/*.cpp", {cxflags = test_cxflags})
     add_files("test/storage/wal/*.cpp", {cxflags = test_cxflags})        
-    -- lepton-raft benchmark test file
     add_files("test/storage/unit_test.cpp")
     if is_plat("linux") then
         add_packages("liburing")
     end    
     add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "poco", "rocksdb", "spdlog", "tl_expected")
     add_packages("gtest", "benchmark")
+
+target("lepton-raft-storage-benchmark-test")
+    add_includedirs("include/")
+    on_load(apply_sanitizers)
+    add_defines("LEPTON_TEST")
+    add_defines("LEPTON_STORAGE")
+    local project_dir = os.projectdir():gsub("\\", "/")
+    add_defines("LEPTON_PROJECT_DIR=\"" .. project_dir .."\"")
+    add_includedirs("test/utility/include")
+    add_includedirs("test/raft_core/rafttest/include")
+    add_includedirs("test/raft_core/utility/include")
+    add_includedirs("test/storage/utility/include")
+    add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG")
+    add_defines("SPDLOG_FORCE_COLOR")  -- 强制彩色输出
+    -- lepton-raft protobuf file
+    add_rules("protobuf.cpp")
+    add_files("proto/**.proto", {proto_rootdir = "proto"})
+    add_packages("protoc", "protobuf-cpp")
+    -- lepton basic source file
+    add_files("src/basic/*.cpp")    
+    -- lepton-raft source file
+    add_files("src/raft_core/confchange/*.cpp")
+    add_files("src/raft_core/pb/*.cpp")
+    add_files("src/raft_core/tracker/*.cpp")
+    add_files("src/raft_core/*.cpp|main.cpp")
+    -- raft storage source dirs 
+    add_files("src/storage/fileutil/*.cpp")
+    add_files("src/storage/ioutil/*.cpp")
+    add_files("src/storage/pb/*.cpp")
+    add_files("src/storage/wal/*.cpp")
+    -- lepton test utility
+    add_files("test/utility/src/*.cpp", {cxflags = test_cxflags})
+    -- lepton-raft benchmark test file
+    add_files("test/benchmark.cpp")
+    add_files("test/storage/wal/test_wal_benchmark.cpp", {cxflags = test_cxflags})
+    if is_plat("linux") then
+        add_packages("liburing")
+    end    
+    add_packages("asio", "abseil", "fmt", "magic_enum", "nlohmann_json", "poco", "rocksdb", "spdlog", "tl_expected")
+    add_packages("gtest", "benchmark")    
