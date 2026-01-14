@@ -1,9 +1,9 @@
 #pragma once
-#include "error/expected.h"
 #ifndef _LEPTON_LOCKED_FILE_ENDPOINT_H_
 #define _LEPTON_LOCKED_FILE_ENDPOINT_H_
 #include <rocksdb/env.h>
 
+#include "error/expected.h"
 #include "error/leaf.h"
 #include "storage/fileutil/file_endpoint.h"
 

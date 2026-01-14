@@ -12,6 +12,8 @@
 
 namespace lepton {
 
+std::error_code make_error_code();
+
 template <typename T>
 concept can_make_error_code = requires(T t) {
   // 关键：通过 ADL 找到自定义 std::error_code 里的 make_error_code 函数定义

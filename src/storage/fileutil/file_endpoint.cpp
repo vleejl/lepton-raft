@@ -56,20 +56,6 @@ asio::awaitable<expected<std::size_t>> file_endpoint::async_write(ioutil::byte_s
   co_return write_size;
 }
 
-asio::awaitable<expected<std::size_t>> file_endpoint::async_write_vectored_asio(
-    std::span<const std::span<const std::byte>> spans) {
-  std::vector<asio::const_buffer> buffers;
-  buffers.reserve(spans.size());
-  for (auto s : spans) {
-    if (s.size() == 0) continue;
-    buffers.emplace_back(static_cast<const void*>(s.data()), s.size());
-  }
-  if (buffers.empty()) co_return std::size_t{0};
-
-  std::size_t bytes_transferred = co_await raw_file().async_write_some(buffers, asio::use_awaitable);
-  co_return bytes_transferred;
-}
-
 expected<void> file_endpoint::fdatasync() {
   std::error_code ec;
   ec = raw_file().sync_data(ec);
@@ -81,7 +67,7 @@ expected<void> file_endpoint::fdatasync() {
 
 lepton::leaf::result<file_endpoint> create_file_endpoint(asio::any_io_executor executor, const std::string& filename,
                                                          asio::file_base::flags flags) {
-  asio::stream_file stream_file(executor);
+  stream_file stream_file(executor);
   asio::error_code ec;
   stream_file.open(filename, flags, ec);  // NOLINT(bugprone-unused-return-value)
   if (ec) {

@@ -5,16 +5,15 @@
 #include <fmt/format.h>
 
 #include <asio/awaitable.hpp>
-#include <asio/stream_file.hpp>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
 
 #include "basic/utility_macros.h"
 #include "error/expected.h"
 #include "error/leaf.h"
+#include "storage/fileutil/stream_file.h"
 namespace lepton::storage::fileutil {
 class file_reader {
   NOT_COPYABLE(file_reader)
@@ -22,7 +21,7 @@ class file_reader {
  public:
   file_reader() = default;
 
-  file_reader(const std::string& filename, asio::stream_file&& file) : file_name_(filename), file_(std::move(file)) {}
+  file_reader(const std::string& filename, stream_file&& file) : file_name_(filename), file_(std::move(file)) {}
 
   file_reader(file_reader&& lhs) : file_name_(lhs.file_name_), file_(std::move(lhs.file_)) {}
 
@@ -46,7 +45,7 @@ class file_reader {
   virtual ~file_reader() = default;
 
  protected:
-  asio::stream_file& raw_file() {
+  stream_file& raw_file() {
     assert(file_);
     return *file_;
   }
@@ -54,7 +53,7 @@ class file_reader {
  protected:
   // file_name 仅代表打开文件时获取到的文件路径名；不保证准确性
   std::string file_name_;
-  std::optional<asio::stream_file> file_;
+  std::optional<stream_file> file_;
 };
 
 using file_reader_handle = std::unique_ptr<file_reader>;

@@ -14,6 +14,7 @@
 #include "error/expected.h"
 #include "error/leaf.h"
 #include "storage/fileutil/file_reader.h"
+#include "storage/fileutil/stream_file.h"
 #include "storage/ioutil/byte_span.h"
 
 namespace lepton::storage::fileutil {
@@ -24,7 +25,7 @@ class file_endpoint : public file_reader {
  public:
   file_endpoint() = default;
 
-  file_endpoint(const std::string& filename, asio::stream_file&& file) : file_reader(filename, std::move(file)) {}
+  file_endpoint(const std::string& filename, stream_file&& file) : file_reader(filename, std::move(file)) {}
 
   file_endpoint(file_endpoint&& lhs) : file_reader(std::move(lhs)) {}
 
@@ -39,8 +40,6 @@ class file_endpoint : public file_reader {
   leaf::result<std::size_t> write(ioutil::byte_span data);
 
   asio::awaitable<expected<std::size_t>> async_write(ioutil::byte_span data);
-
-  asio::awaitable<expected<std::size_t>> async_write_vectored_asio(std::span<const std::span<const std::byte>> spans);
 
   expected<void> fdatasync();
 };
