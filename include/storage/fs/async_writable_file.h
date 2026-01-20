@@ -25,8 +25,6 @@ class asio_writable_file {
 
   leaf::result<void> preallocate(std::uint64_t size, bool extend);
 
-  leaf::result<void> zero_to_end();
-
   expected<void> fdatasync();
 
   // 当前 offset

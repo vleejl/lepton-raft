@@ -69,6 +69,7 @@ TEST_F(rocksdb_test_suit, rocks_file_opt) {
   lepton::storage::fileutil::remove(temp_wal_file);
   lepton::storage::fileutil::remove(temp_wal_log);
   std::unique_ptr<rocksdb::WritableFile> file;
+  env->ReopenWritableFile(temp_wal_file, &file, env_opts);
   auto s = env->NewWritableFile(temp_wal_file, &file, env_opts);
   if (!s.ok()) {
     std::cerr << "Failed to create file: " << s.ToString() << std::endl;

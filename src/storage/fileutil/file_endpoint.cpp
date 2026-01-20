@@ -27,6 +27,11 @@ leaf::result<void> file_endpoint::truncate(std::uintmax_t size) {
   return {};
 }
 
+leaf::result<void> file_endpoint::truncate_and_prealloc(std::int64_t offset) {
+  LEPTON_LEAF_CHECK(seek_start(offset));
+  return zero_to_end();
+}
+
 leaf::result<void> file_endpoint::zero_to_end() {
   BOOST_LEAF_AUTO(offset, seek_curr());
   BOOST_LEAF_AUTO(lenf, seek_end());

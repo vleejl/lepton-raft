@@ -33,15 +33,18 @@ class file_endpoint : public file_reader {
 
   leaf::result<void> truncate(std::uintmax_t size);
 
-  // ZeroToEnd zeros a file starting from SEEK_CUR to its SEEK_END. May temporarily
-  // shorten the length of the file.
-  leaf::result<void> zero_to_end();
+  leaf::result<void> truncate_and_prealloc(std::int64_t offset);
 
   leaf::result<std::size_t> write(ioutil::byte_span data);
 
   asio::awaitable<expected<std::size_t>> async_write(ioutil::byte_span data);
 
   expected<void> fdatasync();
+
+ private:
+  // ZeroToEnd zeros a file starting from SEEK_CUR to its SEEK_END. May temporarily
+  // shorten the length of the file.
+  leaf::result<void> zero_to_end();
 };
 
 lepton::leaf::result<file_endpoint> create_file_endpoint(asio::any_io_executor executor, const std::string& filename,

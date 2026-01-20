@@ -8,8 +8,26 @@
 #include "storage/fileutil/file_endpoint.h"
 
 namespace lepton::storage::fileutil {
+
+class locked_file_endpoint;
+using locked_file_endpoint_handle = std::unique_ptr<locked_file_endpoint>;
+
+leaf::result<locked_file_endpoint_handle> create_locked_file_endpoint(rocksdb::Env* env, file_endpoint&& base,
+                                                                      const std::string& filename);
+
+leaf::result<locked_file_endpoint_handle> create_locked_file_endpoint(rocksdb::Env* env, asio::any_io_executor executor,
+                                                                      const std::string& filename,
+                                                                      asio::file_base::flags open_flags,
+                                                                      std::int64_t offset);
+
 class locked_file_endpoint : public file_endpoint {
  public:
+  friend leaf::result<locked_file_endpoint_handle> create_locked_file_endpoint(rocksdb::Env* env,
+                                                                               asio::any_io_executor executor,
+                                                                               const std::string& filename,
+                                                                               asio::file_base::flags open_flags,
+                                                                               std::int64_t offset);
+
   locked_file_endpoint(const std::string& filename, asio::stream_file&& file, rocksdb::Env* env,
                        rocksdb::FileLock* lock)
       : file_endpoint(filename, std::move(file)), env_(env), lock_(lock) {}
@@ -40,14 +58,6 @@ class locked_file_endpoint : public file_endpoint {
   rocksdb::FileLock* lock_;
 };
 
-using locked_file_endpoint_handle = std::unique_ptr<locked_file_endpoint>;
-
-leaf::result<locked_file_endpoint_handle> create_locked_file_endpoint(rocksdb::Env* env, file_endpoint&& base,
-                                                                      const std::string& filename);
-
-leaf::result<locked_file_endpoint_handle> create_locked_file_endpoint(rocksdb::Env* env, asio::any_io_executor executor,
-                                                                      const std::string& filename,
-                                                                      asio::file_base::flags open_flags);
 }  // namespace lepton::storage::fileutil
 
 #endif  // _LEPTON_LOCKED_FILE_ENDPOINT_H_

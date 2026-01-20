@@ -44,20 +44,6 @@ leaf::result<void> asio_writable_file::preallocate(std::uint64_t size, bool _) {
   return {};
 }
 
-leaf::result<void> asio_writable_file::zero_to_end() {
-  auto size = file_->GetFileSize();
-
-  auto offset = offset_;
-  assert(offset >= 0);
-
-  LEPTON_LEAF_CHECK(truncate(offset));
-  LEPTON_LEAF_CHECK(preallocate(static_cast<std::uint64_t>(size), true));
-
-  // 5. 恢复 offset
-  offset_ = offset;
-  co_return {};
-}
-
 expected<void> asio_writable_file::fdatasync() {
   auto s = file_->Fsync();
   if (!s.ok()) {

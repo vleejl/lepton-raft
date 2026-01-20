@@ -206,7 +206,7 @@ leaf::result<std::vector<wal_segment>> open_locked_wal_file(rocksdb::Env* env, a
   for (const auto& name : names) {
     auto filepath = fileutil::join_paths(dir, name);
     BOOST_LEAF_AUTO(file_handle,
-                    fileutil::create_locked_file_endpoint(env, executor, filepath, asio::file_base::read_write));
+                    fileutil::create_locked_file_endpoint(env, executor, filepath, asio::file_base::read_write, 0));
     lock_files.push_back(std::move(file_handle));
   }
   return lock_files;
@@ -630,12 +630,9 @@ asio::awaitable<expected<wal::read_result>> wal::read_all() {
     // were never fully synced to disk in the first place, it's safe
     // to zero them out to avoid any CRC errors from new writes.
     assert(tail());
-    if (auto ret = leaf_to_expected([&]() { return tail()->seek_start(decoder_->last_valid_off()); }); !ret) {
-      LOGGER_ERROR(logger_, "seek start failed, error:{}", ret.error().message());
-      co_return tl::unexpected(ret.error());
-    }
-    if (auto ret = leaf_to_expected([&]() { return tail()->zero_to_end(); }); !ret) {
-      LOGGER_ERROR(logger_, "zero_to_end failed, error:{}", ret.error().message());
+    if (auto ret = leaf_to_expected([&]() { return tail()->truncate_and_prealloc(decoder_->last_valid_off()); });
+        !ret) {
+      LOGGER_ERROR(logger_, "truncate and prealloc failed, error:{}", ret.error().message());
       co_return tl::unexpected(ret.error());
     }
   }
@@ -811,9 +808,8 @@ asio::awaitable<expected<void>> wal::cut() {
         // reopen newTail with its new path so calls to Name() match the wal filename format
         auto close_result = tail()->close();
         assert(close_result);
-        BOOST_LEAF_AUTO(new_tail,
-                        fileutil::create_locked_file_endpoint(env_, executor_, fpath, asio::file_base::write_only));
-        LEPTON_LEAF_CHECK(new_tail->seek_start(off));
+        BOOST_LEAF_AUTO(
+            new_tail, fileutil::create_locked_file_endpoint(env_, executor_, fpath, asio::file_base::write_only, off));
         segments_.back() = std::move(new_tail);
         return {};
       });
