@@ -219,12 +219,23 @@ std::string conf_changes_to_string(const repeated_conf_change& ccs) {
   return fmt::to_string(buf);
 }
 
-leaf::result<repeated_conf_change> conf_changes_from_string(const std::string& s) {
+leaf::result<repeated_conf_change> conf_changes_from_string(std::string_view s) {
   repeated_conf_change ccs;
-  // 输入字符串为 space 分隔的变更列表
-  std::istringstream stream(s);
-  std::string tok;
-  while (stream >> tok) {
+
+  size_t start = 0;
+  size_t end = s.find(' ');
+
+  while (start < s.size()) {
+    // 模拟 stream >> tok 的行为：跳过前导空格并截取单词
+    if (end == std::string_view::npos) end = s.size();
+    std::string_view tok = s.substr(start, end - start);
+
+    if (tok.empty()) {  // 处理连续空格
+      start = end + 1;
+      end = s.find(' ', start);
+      continue;
+    }
+
     raftpb::ConfChangeSingle cc;
     switch (tok[0]) {
       case 'v':
@@ -242,19 +253,30 @@ leaf::result<repeated_conf_change> conf_changes_from_string(const std::string& s
       default:
         return new_error(logic_error::INVALID_PARAM, fmt::format("unknown input: {}", tok));
     }
-    std::string_view view(tok.data() + 1, tok.size() - 1);
 
-    // Parse the numeric node id from the substring using std::from_chars
-    unsigned long long value = 0;
-    const char* begin = view.data();
-    const char* end = begin + view.size();
-    std::from_chars_result res = std::from_chars(begin, end, value);
-    if (res.ec != std::errc() || res.ptr != end) {
-      return new_error(logic_error::INVALID_PARAM, fmt::format("invalid node id: {}", std::string(view)));
+    // --- 修复点：更兼容的数字解析 ---
+    std::string_view id_part = tok.substr(1);
+    if (id_part.empty()) {
+      return new_error(logic_error::INVALID_PARAM, "missing node id");
+    }
+
+    // 使用 strtoull，它不需要 null-terminated 字符串
+    // 注意：strtoull 需要 char*，如果 id_part 后面有空格，它会自动停止
+    char* endptr = nullptr;
+    const char* begin = id_part.data();
+    unsigned long long value = std::strtoull(begin, &endptr, 10);
+
+    // 验证转换是否完整覆盖了该单词
+    if (endptr != begin + id_part.size()) {
+      return new_error(logic_error::INVALID_PARAM, fmt::format("invalid node id: {}", id_part));
     }
 
     cc.set_node_id(static_cast<uint64_t>(value));
     ccs.Add(std::move(cc));
+
+    // 移动到下一个单词
+    start = end + 1;
+    end = s.find(' ', start);
   }
   return ccs;
 }
